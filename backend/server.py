@@ -243,8 +243,7 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
     
-    updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
-    updated_user.pop("password")
+    updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
     return updated_user
 
 @api_router.get("/users/{user_id}", response_model=User)
