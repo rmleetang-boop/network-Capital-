@@ -191,13 +191,25 @@ async def signup(request: SignupRequest):
         "achievements": []
     }
     
-    await db.users.insert_one(user_data)
+    result = await db.users.insert_one(user_data)
     
     token = create_access_token({"sub": user_id})
-    user_data_copy = user_data.copy()
-    user_data_copy.pop("password")
     
-    return {"token": token, "user": user_data_copy}
+    user_response = {
+        "id": user_id,
+        "email": request.email,
+        "username": request.username,
+        "bio": request.bio,
+        "photo": request.photo,
+        "network_score": 0,
+        "rank": "Rising Star",
+        "created_at": user_data["created_at"],
+        "referral_code": user_id[:8],
+        "referred_by": None,
+        "achievements": []
+    }
+    
+    return {"token": token, "user": user_response}
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
