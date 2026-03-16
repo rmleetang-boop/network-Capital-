@@ -218,10 +218,10 @@ async def login(request: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     token = create_access_token({"sub": user["id"]})
-    user_copy = user.copy()
-    user_copy.pop("password")
     
-    return {"token": token, "user": user_copy}
+    user_response = {k: v for k, v in user.items() if k != "password"}
+    
+    return {"token": token, "user": user_response}
 
 @api_router.get("/users/me", response_model=User)
 async def get_me(current_user: dict = Depends(get_current_user)):
