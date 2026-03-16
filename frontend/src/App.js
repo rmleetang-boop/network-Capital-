@@ -1,53 +1,110 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import axios from 'axios';
+import { Toaster } from '@/components/ui/sonner';
+import AuthPage from './pages/AuthPage';
+import FeedPage from './pages/FeedPage';
+import ProfilePage from './pages/ProfilePage';
+import LeaderboardPage from './pages/LeaderboardPage';
+import NotificationsPage from './pages/NotificationsPage';
+import DashboardPage from './pages/DashboardPage';
+import ReferralPage from './pages/ReferralPage';
+import Layout from './components/Layout';
+import './App.css';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+export const API = `${BACKEND_URL}/api`;
 
-const Home = () => {
-  const helloWorldApi = async () => {
+export const axiosInstance = axios.create({
+  baseURL: API,
+});
+
+axiosInstance.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchCurrentUser();
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchCurrentUser = async () => {
     try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
+      const response = await axiosInstance.get('/users/me');
+      setUser(response.data);
+    } catch (error) {
+      console.error('Failed to fetch user:', error);
+      localStorage.removeItem('token');
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+  const handleLogin = (token, userData) => {
+    localStorage.setItem('token', token);
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setUser(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background-DEFAULT">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-text-secondary">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <Toaster position="top-center" />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
+            <Route path="*" element={<Navigate to="/auth" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </>
+    );
+  }
 
   return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
+    <>
+      <Toaster position="top-center" />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <Layout user={user} onLogout={handleLogout}>
+          <Routes>
+            <Route path="/" element={<FeedPage user={user} />} />
+            <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} />} />
+            <Route path="/profile/:userId" element={<ProfilePage user={user} setUser={setUser} />} />
+            <Route path="/leaderboard" element={<LeaderboardPage currentUser={user} />} />
+            <Route path="/notifications" element={<NotificationsPage user={user} />} />
+            <Route path="/dashboard" element={<DashboardPage user={user} />} />
+            <Route path="/referral" element={<ReferralPage user={user} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
       </BrowserRouter>
-    </div>
+    </>
   );
 }
 
