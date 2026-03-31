@@ -131,6 +131,44 @@ class DashboardStats(BaseModel):
     total_shares: int
     total_referrals: int
 
+class Stokvel(BaseModel):
+    id: str
+    name: str
+    description: str
+    created_by: str
+    creator_name: str
+    members: List[Dict[str, Any]]
+    total_pool: float
+    target_amount: float
+    payout_cycle: str
+    next_payout_date: Optional[str] = None
+    created_at: str
+    status: str
+    group_strength: int
+
+class CreateStokvelRequest(BaseModel):
+    name: str
+    description: str
+    target_amount: float
+    payout_cycle: str
+
+class InviteMemberRequest(BaseModel):
+    user_id: str
+
+class ContributionRequest(BaseModel):
+    amount: float
+    note: Optional[str] = None
+
+class Contribution(BaseModel):
+    id: str
+    stokvel_id: str
+    user_id: str
+    username: str
+    user_photo: str
+    amount: float
+    note: str
+    created_at: str
+
 def calculate_rank(score: int) -> str:
     if score < 500:
         return "Rising Star"
