@@ -9,6 +9,9 @@ import LeaderboardPage from './pages/LeaderboardPage';
 import NotificationsPage from './pages/NotificationsPage';
 import DashboardPage from './pages/DashboardPage';
 import ReferralPage from './pages/ReferralPage';
+import StokvelListPage from './pages/StokvelListPage';
+import CreateStokvelPage from './pages/CreateStokvelPage';
+import StokvelDetailPage from './pages/StokvelDetailPage';
 import Layout from './components/Layout';
 import './App.css';
 
