@@ -220,6 +220,24 @@ const ProfilePage = ({ user, setUser }) => {
           </div>
 
           {isOwnProfile && (
+            <div className="bg-primary/5 rounded-xl p-4 border border-primary/20 mb-6">
+              <p className="text-xs text-text-muted mb-1">Your User ID (for Stokvel invites)</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-mono text-text-primary truncate">{profileUser.id}</p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(profileUser.id);
+                    toast.success('User ID copied!');
+                  }}
+                  className="text-primary hover:text-primary-hover text-xs font-medium"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isOwnProfile && (
             <>
               <button
                 onClick={() => window.location.href = '/referral'}
