@@ -220,14 +220,24 @@ const ProfilePage = ({ user, setUser }) => {
           </div>
 
           {isOwnProfile && (
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 font-medium py-3 rounded-full transition-all border border-red-200"
-              data-testid="logout-button"
-            >
-              <LogOut size={20} />
-              Logout
-            </button>
+            <>
+              <button
+                onClick={() => window.location.href = '/referral'}
+                className="w-full flex items-center justify-center gap-2 bg-secondary hover:bg-secondary-hover text-white font-medium py-3 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95 mb-3"
+                data-testid="referral-button"
+              >
+                <Users size={20} />
+                Invite Friends (+200 pts)
+              </button>
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 font-medium py-3 rounded-full transition-all border border-red-200"
+                data-testid="logout-button"
+              >
+                <LogOut size={20} />
+                Logout
+              </button>
+            </>
           )}
         </motion.div>
       </div>
