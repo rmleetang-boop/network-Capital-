@@ -453,3 +453,202 @@ logger = logging.getLogger(__name__)
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+# Stokvel endpoints
+@api_router.post("/stokvels", response_model=Stokvel)
+async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Depends(get_current_user)):
+    stokvel_id = str(uuid.uuid4())
+    
+    stokvel_data = {
+        "id": stokvel_id,
+        "name": request.name,
+        "description": request.description,
+        "created_by": current_user["id"],
+        "creator_name": current_user["username"],
+        "members": [{
+            "user_id": current_user["id"],
+            "username": current_user["username"],
+            "photo": current_user["photo"],
+            "joined_at": datetime.now(timezone.utc).isoformat(),
+            "total_contributed": 0
+        }],
+        "total_pool": 0,
+        "target_amount": request.target_amount,
+        "payout_cycle": request.payout_cycle,
+        "next_payout_date": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "active",
+        "group_strength": 0
+    }
+    
+    await db.stokvels.insert_one(stokvel_data)
+    await update_user_score(current_user["id"], 50, "Created a Stokvel group +50")
+    
+    return stokvel_data
+
+@api_router.get("/stokvels", response_model=List[Stokvel])
+async def get_stokvels(current_user: dict = Depends(get_current_user)):
+    stokvels = await db.stokvels.find({
+        "members.user_id": current_user["id"]
+    }, {"_id": 0}).to_list(100)
+    
+    for stokvel in stokvels:
+        stokvel["group_strength"] = await calculate_group_strength(stokvel["id"])
+    
+    return stokvels
+
+@api_router.get("/stokvels/{stokvel_id}", response_model=Stokvel)
+async def get_stokvel(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    stokvel["group_strength"] = await calculate_group_strength(stokvel_id)
+    return stokvel
+
+@api_router.post("/stokvels/{stokvel_id}/invite")
+async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_user: dict = Depends(get_current_user)):
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    if stokvel["created_by"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only creator can invite members")
+    
+    user = await db.users.find_one({"id": request.user_id}, {"_id": 0, "password": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    is_already_member = any(m["user_id"] == request.user_id for m in stokvel["members"])
+    if is_already_member:
+        raise HTTPException(status_code=400, detail="User is already a member")
+    
+    new_member = {
+        "user_id": user["id"],
+        "username": user["username"],
+        "photo": user["photo"],
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+        "total_contributed": 0
+    }
+    
+    await db.stokvels.update_one(
+        {"id": stokvel_id},
+        {"$push": {"members": new_member}}
+    )
+    
+    await update_user_score(user["id"], 20, f"Joined Stokvel: {stokvel['name']} +20")
+    
+    return {"message": "Member invited successfully"}
+
+@api_router.post("/stokvels/{stokvel_id}/contribute")
+async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, current_user: dict = Depends(get_current_user)):
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    contribution_id = str(uuid.uuid4())
+    contribution_data = {
+        "id": contribution_id,
+        "stokvel_id": stokvel_id,
+        "user_id": current_user["id"],
+        "username": current_user["username"],
+        "user_photo": current_user["photo"],
+        "amount": request.amount,
+        "note": request.note or "",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.contributions.insert_one(contribution_data)
+    
+    new_total = stokvel["total_pool"] + request.amount
+    await db.stokvels.update_one(
+        {"id": stokvel_id},
+        {"$set": {"total_pool": new_total}}
+    )
+    
+    await db.stokvels.update_one(
+        {"id": stokvel_id, "members.user_id": current_user["id"]},
+        {"$inc": {"members.$.total_contributed": request.amount}}
+    )
+    
+    await update_user_score(current_user["id"], 15, f"Contributed to Stokvel +15")
+    
+    return contribution_data
+
+@api_router.get("/stokvels/{stokvel_id}/contributions", response_model=List[Contribution])
+async def get_contributions(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    contributions = await db.contributions.find(
+        {"stokvel_id": stokvel_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    
+    return contributions
+
+async def calculate_group_strength(stokvel_id: str) -> int:
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        return 0
+    
+    score = 0
+    
+    # Member count (max 30 points)
+    member_count = len(stokvel["members"])
+    score += min(member_count * 5, 30)
+    
+    # Contribution activity (max 40 points)
+    contributions = await db.contributions.find({"stokvel_id": stokvel_id}).to_list(1000)
+    if contributions:
+        contribution_count = len(contributions)
+        score += min(contribution_count * 2, 40)
+    
+    # Pool progress (max 30 points)
+    if stokvel["target_amount"] > 0:
+        progress = (stokvel["total_pool"] / stokvel["target_amount"]) * 30
+        score += min(int(progress), 30)
+    
+    return min(score, 100)
+
+@api_router.get("/stokvels/{stokvel_id}/strength")
+async def get_group_strength(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    strength_score = await calculate_group_strength(stokvel_id)
+    
+    if strength_score <= 25:
+        level = "Low"
+    elif strength_score <= 50:
+        level = "Medium"
+    elif strength_score <= 75:
+        level = "High"
+    else:
+        level = "Strong"
+    
+    return {
+        "score": strength_score,
+        "level": level,
+        "member_count": len(stokvel["members"]),
+        "total_contributions": len(await db.contributions.find({"stokvel_id": stokvel_id}).to_list(1000)),
+        "pool_progress": int((stokvel["total_pool"] / stokvel["target_amount"]) * 100) if stokvel["target_amount"] > 0 else 0
+    }
