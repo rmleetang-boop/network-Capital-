@@ -457,6 +457,89 @@ async def get_dashboard(current_user: dict = Depends(get_current_user)):
         "total_referrals": referrals_count
     }
 
+# Wallet endpoints
+@api_router.get("/wallet", response_model=WalletBalance)
+async def get_wallet(current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    return {
+        "balance": user.get("wallet_balance", 0.0),
+        "total_earned": user.get("total_earned", 0.0),
+        "total_spent": user.get("total_spent", 0.0),
+        "pending": 0.0
+    }
+
+@api_router.post("/wallet/deposit")
+async def deposit_funds(request: DepositRequest, current_user: dict = Depends(get_current_user)):
+    if request.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    
+    transaction_id = str(uuid.uuid4())
+    transaction = {
+        "id": transaction_id,
+        "user_id": current_user["id"],
+        "type": "deposit",
+        "amount": request.amount,
+        "description": "Wallet deposit",
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.transactions.insert_one(transaction)
+    
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$inc": {
+                "wallet_balance": request.amount,
+                "total_earned": request.amount
+            }
+        }
+    )
+    
+    return {"message": "Deposit successful", "new_balance": (current_user.get("wallet_balance", 0) + request.amount)}
+
+@api_router.get("/wallet/transactions", response_model=List[Transaction])
+async def get_transactions(current_user: dict = Depends(get_current_user)):
+    transactions = await db.transactions.find(
+        {"user_id": current_user["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    return transactions
+
+async def deduct_wallet_balance(user_id: str, amount: float, description: str) -> bool:
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return False
+    
+    current_balance = user.get("wallet_balance", 0.0)
+    if current_balance < amount:
+        return False
+    
+    transaction_id = str(uuid.uuid4())
+    transaction = {
+        "id": transaction_id,
+        "user_id": user_id,
+        "type": "deduction",
+        "amount": -amount,
+        "description": description,
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.transactions.insert_one(transaction)
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {
+            "$inc": {
+                "wallet_balance": -amount,
+                "total_spent": amount
+            }
+        }
+    )
+    
+    return True
+
 # Stokvel endpoints
 @api_router.post("/stokvels", response_model=Stokvel)
 async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Depends(get_current_user)):
