@@ -1130,6 +1130,316 @@ async def get_group_strength(stokvel_id: str, current_user: dict = Depends(get_c
         "pool_progress": int((stokvel["total_pool"] / stokvel["target_amount"]) * 100) if stokvel["target_amount"] > 0 else 0
     }
 
+# Network Score & Rewards API
+@api_router.get("/stokvels/{stokvel_id}/my-score", response_model=UserScore)
+async def get_my_network_score(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    """Get user's network score for a specific stokvel"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    score_data = await calculate_user_network_score(current_user["id"], stokvel_id)
+    
+    member = next((m for m in stokvel["members"] if m["user_id"] == current_user["id"]), None)
+    total_contributed = member.get("total_contributed", 0) if member else 0
+    
+    return {
+        "user_id": current_user["id"],
+        "username": current_user["username"],
+        "individual_score": score_data["individual_score"],
+        "contribution_consistency_score": score_data["contribution_consistency_score"],
+        "contribution_amount_score": score_data["contribution_amount_score"],
+        "engagement_score": score_data["engagement_score"],
+        "referral_score": score_data["referral_score"],
+        "group_health_score": score_data["group_health_score"],
+        "tier": score_data["tier"],
+        "streak_days": score_data["streak_days"],
+        "total_contributions": total_contributed,
+        "last_updated": datetime.now(timezone.utc).isoformat()
+    }
+
+@api_router.get("/stokvels/{stokvel_id}/group-score", response_model=GroupScore)
+async def get_group_network_score(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    """Get group's network score"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    group_data = await calculate_group_network_score(stokvel_id)
+    
+    return {
+        "stokvel_id": stokvel_id,
+        "group_score": group_data["group_score"],
+        "tier": group_data["tier"],
+        "total_pool": stokvel["total_pool"],
+        "member_count": group_data["member_count"],
+        "avg_member_score": group_data["avg_member_score"],
+        "liquidity_ratio": group_data["liquidity_ratio"],
+        "last_updated": datetime.now(timezone.utc).isoformat()
+    }
+
+@api_router.get("/stokvels/{stokvel_id}/my-rewards")
+async def get_my_rewards(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    """Get user's rewards for a stokvel"""
+    rewards = await db.rewards.find({
+        "user_id": current_user["id"],
+        "stokvel_id": stokvel_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    total_bonus = sum(r["amount"] for r in rewards if r["reward_type"] == "bonus_contribution")
+    total_cashback = sum(r["amount"] for r in rewards if r["reward_type"] == "cashback")
+    
+    return {
+        "rewards": rewards,
+        "summary": {
+            "total_bonus": total_bonus,
+            "total_cashback": total_cashback,
+            "total_rewards": total_bonus + total_cashback,
+            "reward_count": len(rewards)
+        }
+    }
+
+# Smart Access API
+@api_router.post("/stokvels/{stokvel_id}/smart-access")
+async def request_smart_access(stokvel_id: str, request: RequestSmartAccess, current_user: dict = Depends(get_current_user)):
+    """Request early access to pooled funds"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    is_member = any(m["user_id"] == current_user["id"] for m in stokvel["members"])
+    if not is_member:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    # Get user's score
+    score_data = await calculate_user_network_score(current_user["id"], stokvel_id)
+    user_score = score_data["individual_score"]
+    
+    # Check eligibility (score > 70)
+    if user_score < 70:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Smart Access requires score of 70+. Your score: {user_score:.1f}"
+        )
+    
+    # Get user's total contributions
+    member = next((m for m in stokvel["members"] if m["user_id"] == current_user["id"]), None)
+    total_contributed = member.get("total_contributed", 0) if member else 0
+    
+    # Calculate access limit (30-60% based on tier)
+    tier = score_data["tier"]
+    if tier == "premium":
+        access_percentage = 0.60
+    elif tier == "boosted":
+        access_percentage = 0.50
+    else:
+        access_percentage = 0.30
+    
+    max_access = total_contributed * access_percentage
+    
+    if request.requested_amount > max_access:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested ${request.requested_amount:.2f} exceeds your limit of ${max_access:.2f} ({int(access_percentage*100)}% of contributions)"
+        )
+    
+    # Check pool liquidity (simplified - 50% of pool must remain)
+    available_liquidity = stokvel["total_pool"] * 0.5
+    if request.requested_amount > available_liquidity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient pool liquidity. Available: ${available_liquidity:.2f}"
+        )
+    
+    # Create smart access request
+    access_id = str(uuid.uuid4())
+    smart_access = {
+        "id": access_id,
+        "user_id": current_user["id"],
+        "stokvel_id": stokvel_id,
+        "requested_amount": request.requested_amount,
+        "approved_amount": request.requested_amount,
+        "user_score": user_score,
+        "access_percentage": access_percentage * 100,
+        "status": "approved",
+        "cost_method": "reduce_future_rewards",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "approved_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.smart_access.insert_one(smart_access)
+    
+    # Transfer funds to user wallet
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$inc": {"wallet_balance": request.requested_amount}}
+    )
+    
+    # Reduce pool
+    await db.stokvels.update_one(
+        {"id": stokvel_id},
+        {"$inc": {"total_pool": -request.requested_amount}}
+    )
+    
+    # Create transaction
+    transaction = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "type": "smart_access",
+        "amount": request.requested_amount,
+        "description": f"Smart Access from {stokvel['name']}",
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.transactions.insert_one(transaction)
+    
+    return {
+        "message": "Smart Access approved",
+        "access_id": access_id,
+        "amount": request.requested_amount,
+        "cost_method": "Future rewards reduced by 30% until replenished",
+        "note": "This is NOT a loan. You accessed your own pooled savings early."
+    }
+
+@api_router.get("/stokvels/{stokvel_id}/smart-access-eligibility")
+async def check_smart_access_eligibility(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    """Check if user is eligible for smart access"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    member = next((m for m in stokvel["members"] if m["user_id"] == current_user["id"]), None)
+    if not member:
+        raise HTTPException(status_code=403, detail="Not a member")
+    
+    score_data = await calculate_user_network_score(current_user["id"], stokvel_id)
+    user_score = score_data["individual_score"]
+    tier = score_data["tier"]
+    total_contributed = member.get("total_contributed", 0)
+    
+    # Determine access percentage
+    if tier == "premium":
+        access_percentage = 0.60
+    elif tier == "boosted":
+        access_percentage = 0.50
+    elif tier == "basic":
+        access_percentage = 0.30
+    else:
+        access_percentage = 0.0
+    
+    max_access = total_contributed * access_percentage
+    available_liquidity = stokvel["total_pool"] * 0.5
+    
+    eligible = user_score >= 70 and total_contributed > 0
+    
+    return {
+        "eligible": eligible,
+        "user_score": user_score,
+        "tier": tier,
+        "total_contributed": total_contributed,
+        "access_percentage": int(access_percentage * 100),
+        "max_access_amount": max_access,
+        "pool_liquidity": available_liquidity,
+        "reason": "Eligible for Smart Access" if eligible else f"Score must be 70+ (current: {user_score:.1f})"
+    }
+
+# Leaderboards API
+@api_router.get("/leaderboard/users")
+async def get_user_leaderboard(stokvel_id: Optional[str] = None, limit: int = 50):
+    """Get user leaderboard by network score"""
+    # For now, return based on network score (simplified)
+    # In production, calculate actual scores for all users
+    users = await db.users.find({}, {"_id": 0, "password": 0}).sort("network_score", -1).limit(limit).to_list(limit)
+    
+    leaderboard = []
+    for idx, user in enumerate(users):
+        leaderboard.append({
+            "rank": idx + 1,
+            "user_id": user["id"],
+            "username": user["username"],
+            "photo": user.get("photo", ""),
+            "score": user.get("network_score", 0),
+            "tier": user.get("rank", "Rising Star"),
+            "total_contributions": 0  # Would calculate from contributions
+        })
+    
+    return leaderboard
+
+@api_router.get("/leaderboard/groups")
+async def get_group_leaderboard(limit: int = 50):
+    """Get group leaderboard by group score"""
+    stokvels = await db.stokvels.find({}, {"_id": 0}).to_list(limit)
+    
+    leaderboard = []
+    for stokvel in stokvels:
+        group_data = await calculate_group_network_score(stokvel["id"])
+        if group_data:
+            leaderboard.append({
+                "rank": 0,  # Will sort below
+                "stokvel_id": stokvel["id"],
+                "name": stokvel["name"],
+                "group_score": group_data["group_score"],
+                "tier": group_data["tier"],
+                "total_pool": stokvel["total_pool"],
+                "member_count": len(stokvel["members"])
+            })
+    
+    # Sort by score
+    leaderboard.sort(key=lambda x: x["group_score"], reverse=True)
+    for idx, entry in enumerate(leaderboard):
+        entry["rank"] = idx + 1
+    
+    return leaderboard[:limit]
+
+# Badges API
+@api_router.get("/badges/available")
+async def get_available_badges():
+    """Get all available badges"""
+    badges = [
+        {"id": "consistency_king", "name": "Consistency King", "description": "Maintain 12-week contribution streak", "icon": "👑", "requirement": "12_week_streak"},
+        {"id": "network_builder", "name": "Network Builder", "description": "Refer 5+ members", "icon": "🌐", "requirement": "5_referrals"},
+        {"id": "top_contributor", "name": "Top Contributor", "description": "Highest contributor in group", "icon": "💎", "requirement": "top_in_group"},
+        {"id": "premium_member", "name": "Premium Member", "description": "Achieve Premium tier (86+ score)", "icon": "⭐", "requirement": "premium_tier"},
+        {"id": "pool_champion", "name": "Pool Champion", "description": "Help reach R50,000 pool", "icon": "🏆", "requirement": "50k_pool"},
+        {"id": "early_adopter", "name": "Early Adopter", "description": "Join in first month", "icon": "🚀", "requirement": "early_join"},
+    ]
+    return badges
+
+@api_router.get("/badges/my-badges")
+async def get_my_badges(current_user: dict = Depends(get_current_user)):
+    """Get user's earned badges"""
+    # Check and award badges based on achievements
+    earned_badges = []
+    
+    # Check for referral badge
+    referral_count = await db.users.count_documents({"referred_by": current_user["id"]})
+    if referral_count >= 5:
+        earned_badges.append({
+            "badge_id": "network_builder",
+            "name": "Network Builder",
+            "icon": "🌐",
+            "earned_at": current_user.get("created_at")
+        })
+    
+    # Check network score for premium
+    if current_user.get("network_score", 0) >= 86:
+        earned_badges.append({
+            "badge_id": "premium_member",
+            "name": "Premium Member",
+            "icon": "⭐",
+            "earned_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return earned_badges
+
 app.include_router(api_router)
 
 app.add_middleware(
