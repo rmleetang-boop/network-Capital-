@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Lock, User, FileText, HelpCircle } from 'lucide-react';
+import { Mail, Lock, User, FileText, HelpCircle, Check, ExternalLink } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 const AuthPage = ({ onLogin }) => {
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -17,13 +19,24 @@ const AuthPage = ({ onLogin }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validate terms acceptance for signup
+    if (!isLogin && !termsAccepted) {
+      toast.error('Please accept the Terms & Conditions and Privacy Policy to continue');
+      return;
+    }
+    
     setLoading(true);
 
     try {
       const endpoint = isLogin ? '/auth/login' : '/auth/signup';
       const payload = isLogin
         ? { email: formData.email, password: formData.password }
-        : formData;
+        : { 
+            ...formData, 
+            terms_accepted: true,
+            terms_accepted_at: new Date().toISOString()
+          };
 
       const response = await axiosInstance.post(endpoint, payload);
       const { token, user } = response.data;
@@ -167,10 +180,72 @@ const AuthPage = ({ onLogin }) => {
               </div>
             )}
 
+            {/* Terms & Conditions Consent (Sign Up only) */}
+            {!isLogin && (
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="relative flex-shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      className="sr-only"
+                      data-testid="terms-checkbox"
+                    />
+                    <div 
+                      className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                        termsAccepted 
+                          ? 'bg-primary border-primary' 
+                          : 'border-gray-300 bg-white hover:border-primary/50'
+                      }`}
+                    >
+                      {termsAccepted && <Check className="text-white" size={14} />}
+                    </div>
+                  </div>
+                  <span className="text-sm text-text-secondary leading-relaxed">
+                    I have read and agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate('/legal?tab=terms');
+                      }}
+                      className="text-primary hover:text-primary-hover font-medium underline inline-flex items-center gap-0.5"
+                      data-testid="terms-link"
+                    >
+                      Terms & Conditions
+                      <ExternalLink size={12} />
+                    </button>
+                    {' '}and{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate('/legal?tab=privacy');
+                      }}
+                      className="text-primary hover:text-primary-hover font-medium underline inline-flex items-center gap-0.5"
+                      data-testid="privacy-link"
+                    >
+                      Privacy Policy
+                      <ExternalLink size={12} />
+                    </button>
+                    {' '}of Mici (Pty) Ltd.
+                  </span>
+                </label>
+                <p className="text-xs text-text-muted mt-2 ml-8">
+                  Your consent will be recorded for compliance purposes.
+                </p>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-primary hover:bg-primary-hover text-white font-medium py-3 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={loading || (!isLogin && !termsAccepted)}
+              className={`w-full font-medium py-3 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95 disabled:cursor-not-allowed ${
+                !isLogin && !termsAccepted
+                  ? 'bg-gray-300 text-gray-500'
+                  : 'bg-primary hover:bg-primary-hover text-white disabled:opacity-50'
+              }`}
               data-testid="auth-submit-button"
             >
               {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}

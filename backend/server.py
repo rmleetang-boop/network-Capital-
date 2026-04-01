@@ -65,6 +65,8 @@ class SignupRequest(BaseModel):
     username: str
     bio: Optional[str] = ""
     photo: Optional[str] = ""
+    terms_accepted: Optional[bool] = False
+    terms_accepted_at: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -322,7 +324,10 @@ async def signup(request: SignupRequest):
         "achievements": [],
         "wallet_balance": 0.0,
         "total_earned": 0.0,
-        "total_spent": 0.0
+        "total_spent": 0.0,
+        "terms_accepted": request.terms_accepted or False,
+        "terms_accepted_at": request.terms_accepted_at or datetime.now(timezone.utc).isoformat(),
+        "terms_version": "2025-01"
     }
     
     result = await db.users.insert_one(user_data)

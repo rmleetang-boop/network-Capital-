@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner';
 import AuthPage from './pages/AuthPage';
 import OnboardingPage from './pages/OnboardingPage';
 import HelpCenterPage from './pages/HelpCenterPage';
+import LegalDocumentsPage from './pages/LegalDocumentsPage';
 import FeedPage from './pages/FeedPage';
 import ProfilePage from './pages/ProfilePage';
 import LeaderboardPage from './pages/LeaderboardPage';
@@ -95,8 +96,8 @@ function App() {
   }
 
   if (!user) {
-    // Show onboarding for first-time visitors
-    if (showOnboarding) {
+    // Show onboarding for first-time visitors (but not on legal page)
+    if (showOnboarding && !window.location.pathname.startsWith('/legal')) {
       return (
         <>
           <Toaster position="top-center" />
@@ -112,6 +113,7 @@ function App() {
           <Routes>
             <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
             <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} />} />
+            <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="*" element={<Navigate to="/auth" replace />} />
           </Routes>
         </BrowserRouter>
@@ -140,6 +142,7 @@ function App() {
             <Route path="/stokvels/:stokvelId/rewards" element={<RewardsPage />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
+            <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
