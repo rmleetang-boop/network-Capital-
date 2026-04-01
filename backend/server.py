@@ -160,8 +160,8 @@ class Stokvel(BaseModel):
     created_at: str
     status: str
     group_strength: int
-    activation_fee_paid: bool
-    members_fees_paid: Dict[str, bool]
+    activation_fee_paid: Optional[bool] = True
+    members_fees_paid: Optional[Dict[str, bool]] = {}
 
 class CreateStokvelRequest(BaseModel):
     name: str
