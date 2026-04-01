@@ -6,6 +6,7 @@ import AuthPage from './pages/AuthPage';
 import FeedPage from './pages/FeedPage';
 import ProfilePage from './pages/ProfilePage';
 import LeaderboardPage from './pages/LeaderboardPage';
+import LeaderboardsPage from './pages/LeaderboardsPage';
 import NotificationsPage from './pages/NotificationsPage';
 import DashboardPage from './pages/DashboardPage';
 import ReferralPage from './pages/ReferralPage';
@@ -13,6 +14,8 @@ import WalletPage from './pages/WalletPage';
 import StokvelListPage from './pages/StokvelListPage';
 import CreateStokvelPage from './pages/CreateStokvelPage';
 import StokvelDetailPage from './pages/StokvelDetailPage';
+import ScoreDashboardPage from './pages/ScoreDashboardPage';
+import RewardsPage from './pages/RewardsPage';
 import Layout from './components/Layout';
 import './App.css';
 
