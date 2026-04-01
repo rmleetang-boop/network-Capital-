@@ -906,9 +906,18 @@ async def calculate_engagement_score(user_id: str) -> float:
         "created_at": {"$gte": thirty_days_ago}
     })
     
-    # Check for comments and activity
-    all_posts = await db.posts.find({}, {"_id": 0}).to_list(1000)
-    comments_made = sum(1 for post in all_posts for comment in post.get("comments", []) if comment.get("user_id") == user_id)
+    # Optimized: Use aggregation to count user's comments
+    comments_pipeline = [
+        {"$unwind": "$comments"},
+        {"$match": {
+            "comments.user_id": user_id,
+            "created_at": {"$gte": thirty_days_ago}
+        }},
+        {"$count": "total"}
+    ]
+    
+    comments_result = await db.posts.aggregate(comments_pipeline).to_list(1)
+    comments_made = comments_result[0]["total"] if comments_result else 0
     
     activity_score = min(posts * 2 + comments_made, 15)
     return float(activity_score)
