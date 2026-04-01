@@ -777,6 +777,9 @@ async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, c
     
     await db.contributions.insert_one(contribution_data)
     
+    # Remove MongoDB _id before returning
+    contribution_data.pop("_id", None)
+    
     new_total = stokvel["total_pool"] + request.amount
     await db.stokvels.update_one(
         {"id": stokvel_id},

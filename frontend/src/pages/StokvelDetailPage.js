@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Users, TrendingUp, Plus, Activity, UserPlus, DollarSign } from 'lucide-react';
+import { ArrowLeft, Users, TrendingUp, Plus, Activity, UserPlus, DollarSign, Award, Gift, Trophy } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -226,10 +226,43 @@ const StokvelDetailPage = ({ user }) => {
           </motion.div>
         )}
 
+        {/* Quick Access Links for Score, Rewards */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: 0.15 }}
+          className="grid grid-cols-3 gap-3"
+        >
+          <button
+            onClick={() => navigate(`/stokvels/${stokvelId}/score`)}
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all text-center"
+            data-testid="view-my-score"
+          >
+            <Award className="mx-auto mb-2 text-primary" size={24} />
+            <p className="text-sm font-semibold text-text-primary">My Score</p>
+          </button>
+          <button
+            onClick={() => navigate(`/stokvels/${stokvelId}/rewards`)}
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all text-center"
+            data-testid="view-my-rewards"
+          >
+            <Gift className="mx-auto mb-2 text-secondary" size={24} />
+            <p className="text-sm font-semibold text-text-primary">Rewards</p>
+          </button>
+          <button
+            onClick={() => navigate('/leaderboards')}
+            className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-all text-center"
+            data-testid="view-leaderboards"
+          >
+            <Trophy className="mx-auto mb-2 text-accent-gold" size={24} />
+            <p className="text-sm font-semibold text-text-primary">Leaders</p>
+          </button>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
         >
           <h2 className="text-lg font-heading font-bold text-text-primary mb-4 flex items-center gap-2">

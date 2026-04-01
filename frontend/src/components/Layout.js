@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Trophy, Bell, User, Wallet as WalletIcon, Briefcase } from 'lucide-react';
+import { Home, Trophy, Bell, User, Wallet as WalletIcon, Briefcase, Award } from 'lucide-react';
 
 const Layout = ({ children, user, onLogout }) => {
   const navigate = useNavigate();
@@ -9,8 +9,8 @@ const Layout = ({ children, user, onLogout }) => {
   const navItems = [
     { icon: Home, label: 'Feed', path: '/' },
     { icon: Briefcase, label: 'Stokvel+', path: '/stokvels' },
+    { icon: Trophy, label: 'Leaders', path: '/leaderboards' },
     { icon: WalletIcon, label: 'Wallet', path: '/wallet' },
-    { icon: Bell, label: 'Alerts', path: '/notifications' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 

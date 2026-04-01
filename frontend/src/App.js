@@ -111,6 +111,9 @@ function App() {
             <Route path="/stokvels" element={<StokvelListPage user={user} />} />
             <Route path="/stokvels/create" element={<CreateStokvelPage />} />
             <Route path="/stokvels/:stokvelId" element={<StokvelDetailPage user={user} />} />
+            <Route path="/stokvels/:stokvelId/score" element={<ScoreDashboardPage user={user} />} />
+            <Route path="/stokvels/:stokvelId/rewards" element={<RewardsPage />} />
+            <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
