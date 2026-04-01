@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Users, Target, Calendar, FileText } from 'lucide-react';
+import { ArrowLeft, Users, Target, Calendar, FileText, DollarSign } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
