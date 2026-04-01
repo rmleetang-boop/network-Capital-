@@ -504,7 +504,11 @@ async def mark_notification_read(notification_id: str, current_user: dict = Depe
 
 @api_router.get("/dashboard", response_model=DashboardStats)
 async def get_dashboard(current_user: dict = Depends(get_current_user)):
-    posts = await db.posts.find({"user_id": current_user["id"]}, {"_id": 0}).to_list(1000)
+    # Optimized: Only fetch required fields
+    posts = await db.posts.find(
+        {"user_id": current_user["id"]}, 
+        {"_id": 0, "likes": 1, "comments": 1, "shares": 1}
+    ).to_list(1000)
     
     total_likes = sum(len(post.get("likes", [])) for post in posts)
     total_comments = sum(len(post.get("comments", [])) for post in posts)
