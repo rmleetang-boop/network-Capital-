@@ -823,10 +823,9 @@ async def calculate_group_strength(stokvel_id: str) -> int:
     member_count = len(stokvel["members"])
     score += min(member_count * 5, 30)
     
-    # Contribution activity (max 40 points)
-    contributions = await db.contributions.find({"stokvel_id": stokvel_id}).to_list(1000)
-    if contributions:
-        contribution_count = len(contributions)
+    # Contribution activity (max 40 points) - Optimized: Use count instead of fetching all
+    contribution_count = await db.contributions.count_documents({"stokvel_id": stokvel_id})
+    if contribution_count > 0:
         score += min(contribution_count * 2, 40)
     
     # Pool progress (max 30 points)
