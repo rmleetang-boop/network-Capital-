@@ -104,6 +104,7 @@ function App() {
             <Route path="/notifications" element={<NotificationsPage user={user} />} />
             <Route path="/dashboard" element={<DashboardPage user={user} />} />
             <Route path="/referral" element={<ReferralPage user={user} />} />
+            <Route path="/wallet" element={<WalletPage user={user} />} />
             <Route path="/stokvels" element={<StokvelListPage user={user} />} />
             <Route path="/stokvels/create" element={<CreateStokvelPage />} />
             <Route path="/stokvels/:stokvelId" element={<StokvelDetailPage user={user} />} />
