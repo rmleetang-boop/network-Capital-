@@ -267,7 +267,8 @@ async def signup(request: SignupRequest):
         "created_at": user_data["created_at"],
         "referral_code": user_id[:8],
         "referred_by": None,
-        "achievements": []
+        "achievements": [],
+        "wallet_balance": 0.0
     }
     
     return {"token": token, "user": user_response}
