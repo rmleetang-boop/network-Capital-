@@ -541,8 +541,29 @@ async def deduct_wallet_balance(user_id: str, amount: float, description: str) -
     return True
 
 # Stokvel endpoints
+STOKVEL_CREATOR_FEE = 10.0
+STOKVEL_MEMBER_FEE = 2.0
+
 @api_router.post("/stokvels", response_model=Stokvel)
 async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Depends(get_current_user)):
+    # Check if user has sufficient balance for creator fee
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    if user.get("wallet_balance", 0.0) < STOKVEL_CREATOR_FEE:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Insufficient balance. ${STOKVEL_CREATOR_FEE} required for Stokvel activation fee."
+        )
+    
+    # Deduct creator fee
+    fee_deducted = await deduct_wallet_balance(
+        current_user["id"],
+        STOKVEL_CREATOR_FEE,
+        f"Stokvel+ activation fee - Creator"
+    )
+    
+    if not fee_deducted:
+        raise HTTPException(status_code=400, detail="Failed to process activation fee")
+    
     stokvel_id = str(uuid.uuid4())
     
     stokvel_data = {
@@ -556,7 +577,8 @@ async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Dep
             "username": current_user["username"],
             "photo": current_user["photo"],
             "joined_at": datetime.now(timezone.utc).isoformat(),
-            "total_contributed": 0
+            "total_contributed": 0,
+            "fee_paid": True
         }],
         "total_pool": 0,
         "target_amount": request.target_amount,
@@ -564,11 +586,13 @@ async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Dep
         "next_payout_date": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "active",
-        "group_strength": 0
+        "group_strength": 0,
+        "activation_fee_paid": True,
+        "members_fees_paid": {current_user["id"]: True}
     }
     
     await db.stokvels.insert_one(stokvel_data)
-    await update_user_score(current_user["id"], 50, "Created a Stokvel group +50")
+    await update_user_score(current_user["id"], 50, "Created a Stokvel+ group +50")
     
     return stokvel_data
 
