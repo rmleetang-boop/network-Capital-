@@ -189,6 +189,79 @@ class Contribution(BaseModel):
 class DepositRequest(BaseModel):
     amount: float
 
+class UserScore(BaseModel):
+    user_id: str
+    username: str
+    individual_score: float
+    contribution_consistency_score: float
+    contribution_amount_score: float
+    engagement_score: float
+    referral_score: float
+    group_health_score: float
+    tier: str
+    streak_days: int
+    total_contributions: float
+    last_updated: str
+
+class GroupScore(BaseModel):
+    stokvel_id: str
+    group_score: float
+    tier: str
+    total_pool: float
+    member_count: int
+    avg_member_score: float
+    liquidity_ratio: float
+    last_updated: str
+
+class RewardAllocation(BaseModel):
+    id: str
+    user_id: str
+    stokvel_id: str
+    reward_type: str
+    amount: float
+    tier: str
+    description: str
+    status: str
+    created_at: str
+
+class SmartAccessRequest(BaseModel):
+    id: str
+    user_id: str
+    stokvel_id: str
+    requested_amount: float
+    approved_amount: float
+    user_score: float
+    access_percentage: float
+    status: str
+    cost_method: str
+    created_at: str
+    approved_at: Optional[str] = None
+
+class RequestSmartAccess(BaseModel):
+    stokvel_id: str
+    requested_amount: float
+
+class Badge(BaseModel):
+    id: str
+    name: str
+    description: str
+    icon: str
+    requirement: str
+
+class UserBadge(BaseModel):
+    user_id: str
+    badge_id: str
+    earned_at: str
+
+class LeaderboardEntry(BaseModel):
+    rank: int
+    user_id: str
+    username: str
+    photo: str
+    score: float
+    tier: str
+    total_contributions: float
+
 def calculate_rank(score: int) -> str:
     if score < 500:
         return "Rising Star"
