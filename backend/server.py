@@ -829,6 +829,275 @@ async def calculate_group_strength(stokvel_id: str) -> int:
     
     return min(score, 100)
 
+# Network Score Engine
+async def calculate_contribution_consistency_score(user_id: str, stokvel_id: str) -> float:
+    """Calculate consistency score (0-30 points) based on contribution regularity"""
+    contributions = await db.contributions.find({
+        "user_id": user_id,
+        "stokvel_id": stokvel_id
+    }).sort("created_at", 1).to_list(1000)
+    
+    if not contributions:
+        return 0.0
+    
+    # Check for streaks and gaps
+    contribution_dates = [datetime.fromisoformat(c["created_at"]) for c in contributions]
+    
+    # Calculate days since first contribution
+    if len(contribution_dates) < 2:
+        return 10.0  # New member baseline
+    
+    first_date = contribution_dates[0]
+    last_date = contribution_dates[-1]
+    days_active = (last_date - first_date).days + 1
+    
+    if days_active == 0:
+        return 10.0
+    
+    # Expected contributions (assuming monthly)
+    expected_contributions = max(1, days_active // 30)
+    actual_contributions = len(contributions)
+    
+    consistency_ratio = min(actual_contributions / expected_contributions, 1.5)
+    score = consistency_ratio * 20  # Max 30 points
+    
+    # Bonus for recent activity
+    days_since_last = (datetime.now(timezone.utc) - last_date).days
+    if days_since_last <= 7:
+        score += 10
+    elif days_since_last <= 30:
+        score += 5
+    
+    return min(score, 30.0)
+
+async def calculate_contribution_amount_score(user_id: str, stokvel_id: str) -> float:
+    """Calculate amount score (0-20 points) based on contribution size"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        return 0.0
+    
+    member = next((m for m in stokvel["members"] if m["user_id"] == user_id), None)
+    if not member:
+        return 0.0
+    
+    total_contributed = member.get("total_contributed", 0)
+    target_per_member = stokvel["target_amount"] / len(stokvel["members"]) if stokvel["members"] else 0
+    
+    if target_per_member == 0:
+        return 5.0
+    
+    contribution_ratio = min(total_contributed / target_per_member, 2.0)
+    return contribution_ratio * 10  # Max 20 points
+
+async def calculate_engagement_score(user_id: str) -> float:
+    """Calculate engagement score (0-15 points) based on platform activity"""
+    # Posts, comments, likes in last 30 days
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    
+    posts = await db.posts.count_documents({
+        "user_id": user_id,
+        "created_at": {"$gte": thirty_days_ago}
+    })
+    
+    # Check for comments and activity
+    all_posts = await db.posts.find({}, {"_id": 0}).to_list(1000)
+    comments_made = sum(1 for post in all_posts for comment in post.get("comments", []) if comment.get("user_id") == user_id)
+    
+    activity_score = min(posts * 2 + comments_made, 15)
+    return float(activity_score)
+
+async def calculate_referral_score(user_id: str) -> float:
+    """Calculate referral score (0-15 points) based on successful referrals"""
+    referrals = await db.users.count_documents({"referred_by": user_id})
+    return min(referrals * 3, 15.0)
+
+async def calculate_group_health_score(user_id: str, stokvel_id: str) -> float:
+    """Calculate group health contribution (0-20 points)"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        return 0.0
+    
+    group_strength = await calculate_group_strength(stokvel_id)
+    
+    # User's contribution to group strength
+    is_creator = stokvel["created_by"] == user_id
+    member = next((m for m in stokvel["members"] if m["user_id"] == user_id), None)
+    
+    base_score = (group_strength / 100) * 15
+    
+    # Bonus for creator
+    if is_creator:
+        base_score += 5
+    
+    return min(base_score, 20.0)
+
+async def calculate_user_network_score(user_id: str, stokvel_id: str) -> dict:
+    """Calculate comprehensive user network score (0-100)"""
+    consistency = await calculate_contribution_consistency_score(user_id, stokvel_id)
+    amount = await calculate_contribution_amount_score(user_id, stokvel_id)
+    engagement = await calculate_engagement_score(user_id)
+    referrals = await calculate_referral_score(user_id)
+    group_health = await calculate_group_health_score(user_id, stokvel_id)
+    
+    total_score = consistency + amount + engagement + referrals + group_health
+    
+    # Determine tier
+    if total_score >= 86:
+        tier = "premium"
+    elif total_score >= 71:
+        tier = "boosted"
+    elif total_score >= 41:
+        tier = "basic"
+    else:
+        tier = "none"
+    
+    # Calculate streak
+    contributions = await db.contributions.find({
+        "user_id": user_id,
+        "stokvel_id": stokvel_id
+    }).sort("created_at", -1).to_list(1000)
+    
+    streak_days = 0
+    if contributions:
+        last_contribution = datetime.fromisoformat(contributions[0]["created_at"])
+        days_since = (datetime.now(timezone.utc) - last_contribution).days
+        if days_since <= 7:  # Active streak
+            streak_days = len(contributions) * 7  # Approximate weekly streaks
+    
+    return {
+        "individual_score": round(total_score, 2),
+        "contribution_consistency_score": round(consistency, 2),
+        "contribution_amount_score": round(amount, 2),
+        "engagement_score": round(engagement, 2),
+        "referral_score": round(referrals, 2),
+        "group_health_score": round(group_health, 2),
+        "tier": tier,
+        "streak_days": streak_days
+    }
+
+async def calculate_group_network_score(stokvel_id: str) -> dict:
+    """Calculate group network score (weighted average of members)"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        return None
+    
+    member_scores = []
+    for member in stokvel["members"]:
+        score_data = await calculate_user_network_score(member["user_id"], stokvel_id)
+        member_scores.append(score_data["individual_score"])
+    
+    if not member_scores:
+        return None
+    
+    avg_score = sum(member_scores) / len(member_scores)
+    
+    # Determine tier
+    if avg_score >= 86:
+        tier = "premium"
+    elif avg_score >= 71:
+        tier = "boosted"
+    elif avg_score >= 41:
+        tier = "basic"
+    else:
+        tier = "none"
+    
+    # Calculate liquidity ratio
+    liquidity_ratio = 1.0  # Simplified - in production, track actual liquidity vs commitments
+    
+    return {
+        "group_score": round(avg_score, 2),
+        "tier": tier,
+        "member_count": len(stokvel["members"]),
+        "avg_member_score": round(avg_score, 2),
+        "liquidity_ratio": liquidity_ratio
+    }
+
+# Reward Engine
+async def calculate_tier_rewards(user_score: float, contribution_amount: float) -> dict:
+    """Calculate rewards based on tier"""
+    if user_score >= 86:  # Premium
+        bonus_percentage = 0.10  # 10% bonus
+        cashback_percentage = 0.05  # 5% cashback
+        fee_reduction = 0.50  # 50% fee reduction
+        payout_boost = 1.20  # 20% boost
+    elif user_score >= 71:  # Boosted
+        bonus_percentage = 0.07
+        cashback_percentage = 0.03
+        fee_reduction = 0.30
+        payout_boost = 1.15
+    elif user_score >= 41:  # Basic
+        bonus_percentage = 0.03
+        cashback_percentage = 0.01
+        fee_reduction = 0.10
+        payout_boost = 1.05
+    else:  # None
+        bonus_percentage = 0.0
+        cashback_percentage = 0.0
+        fee_reduction = 0.0
+        payout_boost = 1.0
+    
+    return {
+        "bonus_contribution": round(contribution_amount * bonus_percentage, 2),
+        "cashback": round(contribution_amount * cashback_percentage, 2),
+        "fee_reduction_percent": fee_reduction,
+        "payout_boost_multiplier": payout_boost
+    }
+
+async def allocate_reward(user_id: str, stokvel_id: str, reward_type: str, amount: float, tier: str, description: str):
+    """Create reward allocation record"""
+    reward_id = str(uuid.uuid4())
+    reward = {
+        "id": reward_id,
+        "user_id": user_id,
+        "stokvel_id": stokvel_id,
+        "reward_type": reward_type,
+        "amount": amount,
+        "tier": tier,
+        "description": description,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.rewards.insert_one(reward)
+    return reward
+
+async def process_contribution_rewards(user_id: str, stokvel_id: str, contribution_amount: float):
+    """Process rewards when user makes contribution"""
+    # Calculate user score
+    score_data = await calculate_user_network_score(user_id, stokvel_id)
+    user_score = score_data["individual_score"]
+    tier = score_data["tier"]
+    
+    if tier == "none":
+        return  # No rewards
+    
+    # Calculate rewards
+    rewards = await calculate_tier_rewards(user_score, contribution_amount)
+    
+    # Allocate bonus contribution to pool
+    if rewards["bonus_contribution"] > 0:
+        await db.stokvels.update_one(
+            {"id": stokvel_id},
+            {"$inc": {"total_pool": rewards["bonus_contribution"]}}
+        )
+        await allocate_reward(
+            user_id, stokvel_id, "bonus_contribution",
+            rewards["bonus_contribution"], tier,
+            f"Bonus {int(rewards['bonus_contribution']/contribution_amount*100)}% added to pool"
+        )
+    
+    # Allocate cashback to user wallet
+    if rewards["cashback"] > 0:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$inc": {"wallet_balance": rewards["cashback"]}}
+        )
+        await allocate_reward(
+            user_id, stokvel_id, "cashback",
+            rewards["cashback"], tier,
+            f"Cashback {int(rewards['cashback']/contribution_amount*100)}%"
+        )
+
 @api_router.get("/stokvels/{stokvel_id}/strength")
 async def get_group_strength(stokvel_id: str, current_user: dict = Depends(get_current_user)):
     stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
