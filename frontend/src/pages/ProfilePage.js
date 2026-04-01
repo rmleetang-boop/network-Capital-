@@ -211,11 +211,11 @@ const ProfilePage = ({ user, setUser }) => {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div className="bg-background-subtle rounded-xl p-4 text-center">
               <p className="text-2xl font-bold text-primary">{profileUser.network_score}</p>
-              <p className="text-sm text-text-secondary">Total Score</p>
+              <p className="text-sm text-text-secondary">Network Score</p>
             </div>
             <div className="bg-background-subtle rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-secondary">{profileUser.rank}</p>
-              <p className="text-sm text-text-secondary">Current Rank</p>
+              <p className="text-2xl font-bold text-secondary">${profileUser.wallet_balance?.toFixed(2) || '0.00'}</p>
+              <p className="text-sm text-text-secondary">Wallet Balance</p>
             </div>
           </div>
 
