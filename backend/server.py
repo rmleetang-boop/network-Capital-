@@ -637,22 +637,43 @@ async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_u
     if is_already_member:
         raise HTTPException(status_code=400, detail="User is already a member")
     
+    # Check if invited user has sufficient balance for member fee
+    if user.get("wallet_balance", 0.0) < STOKVEL_MEMBER_FEE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invited user has insufficient balance. ${STOKVEL_MEMBER_FEE} required for membership fee."
+        )
+    
+    # Deduct member fee from invited user
+    fee_deducted = await deduct_wallet_balance(
+        request.user_id,
+        STOKVEL_MEMBER_FEE,
+        f"Stokvel+ membership fee - {stokvel['name']}"
+    )
+    
+    if not fee_deducted:
+        raise HTTPException(status_code=400, detail="Failed to process membership fee")
+    
     new_member = {
         "user_id": user["id"],
         "username": user["username"],
         "photo": user["photo"],
         "joined_at": datetime.now(timezone.utc).isoformat(),
-        "total_contributed": 0
+        "total_contributed": 0,
+        "fee_paid": True
     }
     
     await db.stokvels.update_one(
         {"id": stokvel_id},
-        {"$push": {"members": new_member}}
+        {
+            "$push": {"members": new_member},
+            "$set": {f"members_fees_paid.{user['id']}": True}
+        }
     )
     
-    await update_user_score(user["id"], 20, f"Joined Stokvel: {stokvel['name']} +20")
+    await update_user_score(user["id"], 20, f"Joined Stokvel+: {stokvel['name']} +20")
     
-    return {"message": "Member invited successfully"}
+    return {"message": "Member invited successfully", "fee_charged": STOKVEL_MEMBER_FEE}
 
 @api_router.post("/stokvels/{stokvel_id}/contribute")
 async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, current_user: dict = Depends(get_current_user)):
