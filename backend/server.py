@@ -1138,7 +1138,7 @@ async def get_group_strength(stokvel_id: str, current_user: dict = Depends(get_c
         "score": strength_score,
         "level": level,
         "member_count": len(stokvel["members"]),
-        "total_contributions": len(await db.contributions.find({"stokvel_id": stokvel_id}).to_list(1000)),
+        "total_contributions": await db.contributions.count_documents({"stokvel_id": stokvel_id}),
         "pool_progress": int((stokvel["total_pool"] / stokvel["target_amount"]) * 100) if stokvel["target_amount"] > 0 else 0
     }
 
