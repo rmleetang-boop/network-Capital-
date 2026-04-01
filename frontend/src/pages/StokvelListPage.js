@@ -152,6 +152,15 @@ const StokvelListPage = ({ user }) => {
           </div>
         )}
       </div>
+
+      {/* Floating Action Button */}
+      <button
+        onClick={() => navigate('/stokvels/create')}
+        className="fixed bottom-24 right-6 bg-secondary hover:bg-secondary-hover text-white p-4 rounded-full shadow-2xl hover:shadow-3xl active:scale-95 transition-all z-40"
+        data-testid="create-stokvel-fab"
+      >
+        <Plus size={24} />
+      </button>
     </div>
   );
 };
