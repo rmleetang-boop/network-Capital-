@@ -60,6 +60,13 @@ Build a mobile-first prototype for a social network called Network Capital where
     - Getting Started, Network Score, Stokvel+, Rewards
     - Smart Access, Safety & Trust, Wallet, Account, Troubleshooting
     - Compliance-focused answers (not a bank, activity-based incentives)
+14. **Legal Documents & Consent**:
+    - Full Terms & Conditions (14 sections) by Mici (Pty) Ltd, South Africa
+    - Full Privacy Policy (11 sections) - GDPR, POPIA compliant
+    - Consent checkbox required before registration
+    - Clickable links to view full documents in-app
+    - System records: terms_accepted, terms_accepted_at (timestamp), terms_version
+    - Legal page accessible at /legal with tabs for T&C and Privacy
 
 ### Upcoming Tasks (P1)
 1. **Smart Access UI** - Frontend for users to request early fund access (backend exists)
@@ -84,15 +91,18 @@ Build a mobile-first prototype for a social network called Network Capital where
 /app/
 ├── backend/
 │   ├── server.py (All endpoints and business logic)
-│   ├── tests/test_stokvel_api.py (30 test cases)
+│   ├── tests/
+│   │   ├── test_stokvel_api.py (30 test cases)
+│   │   └── test_terms_compliance.py (9 test cases)
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
 │   │   ├── App.js (Routing with onboarding state)
 │   │   ├── components/Layout.js (Navigation)
-│   │   └── pages/ (AuthPage, OnboardingPage, HelpCenterPage, FeedPage, 
-│   │               ProfilePage, WalletPage, StokvelListPage, CreateStokvelPage, 
-│   │               StokvelDetailPage, ScoreDashboardPage, RewardsPage, LeaderboardsPage)
+│   │   └── pages/ (AuthPage, OnboardingPage, HelpCenterPage, LegalDocumentsPage,
+│   │               FeedPage, ProfilePage, WalletPage, StokvelListPage, 
+│   │               CreateStokvelPage, StokvelDetailPage, ScoreDashboardPage, 
+│   │               RewardsPage, LeaderboardsPage)
 │   └── tailwind.config.js
 └── memory/
     ├── PRD.md
@@ -100,9 +110,9 @@ Build a mobile-first prototype for a social network called Network Capital where
 ```
 
 ## Testing Status
-- Backend: 30/30 tests passing (100%)
+- Backend: 39/39 tests passing (100%)
 - Frontend: All features verified (100%)
-- Last test runs: iteration_1.json (backend+frontend), iteration_2.json (new features)
+- Test iterations: iteration_1 (core), iteration_2 (onboarding/help), iteration_3 (legal/consent)
 
 ## Known Issues
 - Minor: "Made with Emergent" badge at bottom may overlap with buttons on some screens (requires force click in tests)
