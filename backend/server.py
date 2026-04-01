@@ -784,7 +784,10 @@ async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, c
         {"$inc": {"members.$.total_contributed": request.amount}}
     )
     
-    await update_user_score(current_user["id"], 15, f"Contributed to Stokvel +15")
+    await update_user_score(current_user["id"], 15, f"Contributed to Stokvel+ +15")
+    
+    # Process rewards based on score
+    await process_contribution_rewards(current_user["id"], stokvel_id, request.amount)
     
     return contribution_data
 
