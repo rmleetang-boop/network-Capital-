@@ -8,6 +8,8 @@ Build a mobile-first prototype for a social network called Network Capital where
 - No loans, no interest
 - Allowed terminology: Rewards, Access, Allocation, Boosts
 - Smart Access is "early access to pooled funds"
+- No language suggesting guaranteed income, investment returns, or profit
+- Rewards positioned as activity-based incentives
 
 ## Platform Fees
 - $10 to create a Stokvel (deducted from wallet)
@@ -47,6 +49,17 @@ Build a mobile-first prototype for a social network called Network Capital where
 9. **Rewards Page** - Rewards history and summary
 10. **Leaderboards** - Global user and group rankings
 11. **Smart Access API** - Early access to pooled funds eligibility
+12. **Onboarding Flow (6 slides)** - First-time visitor experience:
+    - Welcome: "Your Network Has Value"
+    - The Shift: "Make Your Time Count"
+    - How It Works: Connect → Engage → Build → Unlock
+    - Network Score & Stokvel+
+    - Rewards & Smart Access (with disclaimers)
+    - Trust & Safety: Community-driven, no guaranteed returns
+13. **Help Center (9 FAQ categories)**:
+    - Getting Started, Network Score, Stokvel+, Rewards
+    - Smart Access, Safety & Trust, Wallet, Account, Troubleshooting
+    - Compliance-focused answers (not a bank, activity-based incentives)
 
 ### Upcoming Tasks (P1)
 1. **Smart Access UI** - Frontend for users to request early fund access (backend exists)
@@ -75,11 +88,11 @@ Build a mobile-first prototype for a social network called Network Capital where
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── App.js (Routing)
+│   │   ├── App.js (Routing with onboarding state)
 │   │   ├── components/Layout.js (Navigation)
-│   │   └── pages/ (AuthPage, FeedPage, ProfilePage, WalletPage,
-│   │               StokvelListPage, CreateStokvelPage, StokvelDetailPage,
-│   │               ScoreDashboardPage, RewardsPage, LeaderboardsPage)
+│   │   └── pages/ (AuthPage, OnboardingPage, HelpCenterPage, FeedPage, 
+│   │               ProfilePage, WalletPage, StokvelListPage, CreateStokvelPage, 
+│   │               StokvelDetailPage, ScoreDashboardPage, RewardsPage, LeaderboardsPage)
 │   └── tailwind.config.js
 └── memory/
     ├── PRD.md
@@ -88,8 +101,8 @@ Build a mobile-first prototype for a social network called Network Capital where
 
 ## Testing Status
 - Backend: 30/30 tests passing (100%)
-- Frontend: All critical flows verified
-- Last test run: iteration_1.json
+- Frontend: All features verified (100%)
+- Last test runs: iteration_1.json (backend+frontend), iteration_2.json (new features)
 
 ## Known Issues
-- Minor: "Made with Emergent" badge at bottom may overlap with navigation bar on some screens
+- Minor: "Made with Emergent" badge at bottom may overlap with buttons on some screens (requires force click in tests)
