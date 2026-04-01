@@ -246,7 +246,10 @@ async def signup(request: SignupRequest):
         "created_at": datetime.now(timezone.utc).isoformat(),
         "referral_code": user_id[:8],
         "referred_by": None,
-        "achievements": []
+        "achievements": [],
+        "wallet_balance": 0.0,
+        "total_earned": 0.0,
+        "total_spent": 0.0
     }
     
     result = await db.users.insert_one(user_data)
