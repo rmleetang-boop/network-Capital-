@@ -131,6 +131,21 @@ class DashboardStats(BaseModel):
     total_shares: int
     total_referrals: int
 
+class WalletBalance(BaseModel):
+    balance: float
+    total_earned: float
+    total_spent: float
+    pending: float
+
+class Transaction(BaseModel):
+    id: str
+    user_id: str
+    type: str
+    amount: float
+    description: str
+    status: str
+    created_at: str
+
 class Stokvel(BaseModel):
     id: str
     name: str
@@ -145,6 +160,8 @@ class Stokvel(BaseModel):
     created_at: str
     status: str
     group_strength: int
+    activation_fee_paid: bool
+    members_fees_paid: Dict[str, bool]
 
 class CreateStokvelRequest(BaseModel):
     name: str
@@ -168,6 +185,9 @@ class Contribution(BaseModel):
     amount: float
     note: str
     created_at: str
+
+class DepositRequest(BaseModel):
+    amount: float
 
 def calculate_rank(score: int) -> str:
     if score < 500:
