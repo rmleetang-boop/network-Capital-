@@ -48,11 +48,15 @@ const AuthPage = ({ onLogin }) => {
         className="w-full max-w-md"
       >
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-heading font-bold text-primary mb-2">
-            Network Capital
-          </h1>
-          <p className="text-text-secondary">
-            Build your network score and influence
+          <div className="flex justify-center mb-4">
+            <img 
+              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+              alt="Network Capital" 
+              className="h-32 w-auto"
+            />
+          </div>
+          <p className="text-text-secondary text-base">
+            Build your network score and increase your networth
           </p>
         </div>
 
