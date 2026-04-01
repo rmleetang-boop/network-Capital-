@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, Lock, User, FileText } from 'lucide-react';
+import { Mail, Lock, User, FileText, HelpCircle } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 
 const AuthPage = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -175,6 +176,18 @@ const AuthPage = ({ onLogin }) => {
               {loading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
             </button>
           </form>
+
+          {/* Learn More Link */}
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => window.location.href = '/onboarding'}
+              className="text-sm text-primary hover:text-primary-hover font-medium flex items-center justify-center gap-1 mx-auto transition-colors"
+              data-testid="learn-more-button"
+            >
+              <HelpCircle size={16} />
+              New here? Learn how it works
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>

@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
 import AuthPage from './pages/AuthPage';
+import OnboardingPage from './pages/OnboardingPage';
+import HelpCenterPage from './pages/HelpCenterPage';
 import FeedPage from './pages/FeedPage';
 import ProfilePage from './pages/ProfilePage';
 import LeaderboardPage from './pages/LeaderboardPage';
@@ -37,15 +39,27 @@ axiosInstance.interceptors.request.use((config) => {
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
+    const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+    
     if (token) {
       fetchCurrentUser();
     } else {
+      // Show onboarding for new visitors
+      if (!hasSeenOnboarding) {
+        setShowOnboarding(true);
+      }
       setLoading(false);
     }
   }, []);
+
+  const handleOnboardingComplete = () => {
+    localStorage.setItem('hasSeenOnboarding', 'true');
+    setShowOnboarding(false);
+  };
 
   const fetchCurrentUser = async () => {
     try {
@@ -81,12 +95,23 @@ function App() {
   }
 
   if (!user) {
+    // Show onboarding for first-time visitors
+    if (showOnboarding) {
+      return (
+        <>
+          <Toaster position="top-center" />
+          <OnboardingPage onComplete={handleOnboardingComplete} />
+        </>
+      );
+    }
+
     return (
       <>
         <Toaster position="top-center" />
         <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
+            <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} />} />
             <Route path="*" element={<Navigate to="/auth" replace />} />
           </Routes>
         </BrowserRouter>
@@ -114,6 +139,7 @@ function App() {
             <Route path="/stokvels/:stokvelId/score" element={<ScoreDashboardPage user={user} />} />
             <Route path="/stokvels/:stokvelId/rewards" element={<RewardsPage />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
+            <Route path="/help" element={<HelpCenterPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

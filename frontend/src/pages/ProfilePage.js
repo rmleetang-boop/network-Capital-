@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 
 const ProfilePage = ({ user, setUser }) => {
   const { userId } = useParams();
+  const navigate = useNavigate();
   const isOwnProfile = !userId || userId === user.id;
   const [profileUser, setProfileUser] = useState(user);
   const [loading, setLoading] = useState(false);
@@ -246,6 +247,14 @@ const ProfilePage = ({ user, setUser }) => {
               >
                 <Users size={20} />
                 Invite Friends (+200 pts)
+              </button>
+              <button
+                onClick={() => navigate('/help')}
+                className="w-full flex items-center justify-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary font-medium py-3 rounded-full transition-all border border-primary/20 mb-3"
+                data-testid="help-center-button"
+              >
+                <HelpCircle size={20} />
+                Help Center & FAQ
               </button>
               <button
                 onClick={handleLogout}
