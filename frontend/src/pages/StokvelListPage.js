@@ -43,18 +43,16 @@ const StokvelListPage = ({ user }) => {
   return (
     <div className="min-h-screen bg-background-DEFAULT">
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img 
+            src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+            alt="Network Capital" 
+            className="h-10 w-auto"
+          />
           <div>
-            <h1 className="text-2xl font-heading font-bold text-primary">Stokvel+</h1>
-            <p className="text-sm text-text-secondary">Group savings & contributions</p>
+            <h1 className="text-xl font-heading font-bold text-primary">Stokvel+</h1>
+            <p className="text-xs text-text-secondary">Group savings & contributions</p>
           </div>
-          <button
-            onClick={() => navigate('/stokvels/create')}
-            className="bg-primary hover:bg-primary-hover text-white p-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all"
-            data-testid="create-stokvel-button"
-          >
-            <Plus size={20} />
-          </button>
         </div>
       </div>
 
