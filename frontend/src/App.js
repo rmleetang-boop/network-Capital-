@@ -101,7 +101,12 @@ function App() {
       return (
         <>
           <Toaster position="top-center" />
-          <OnboardingPage onComplete={handleOnboardingComplete} />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/legal" element={<LegalDocumentsPage />} />
+              <Route path="*" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
+            </Routes>
+          </BrowserRouter>
         </>
       );
     }
@@ -112,7 +117,7 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
-            <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} />} />
+            <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="*" element={<Navigate to="/auth" replace />} />
           </Routes>

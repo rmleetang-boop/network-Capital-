@@ -65,6 +65,9 @@ class SignupRequest(BaseModel):
     username: str
     bio: Optional[str] = ""
     photo: Optional[str] = ""
+    phone: Optional[str] = None
+    full_name: Optional[str] = None
+    referred_by_code: Optional[str] = None
     terms_accepted: Optional[bool] = False
     terms_accepted_at: Optional[str] = None
 
@@ -309,6 +312,18 @@ async def signup(request: SignupRequest):
     user_id = str(uuid.uuid4())
     hashed_password = hash_password(request.password)
     
+    # Handle referral
+    referred_by_user_id = None
+    if request.referred_by_code:
+        referrer = await db.users.find_one({"referral_code": request.referred_by_code})
+        if referrer:
+            referred_by_user_id = referrer["id"]
+            # Award referrer bonus (when referred user signs up)
+            await db.users.update_one(
+                {"id": referrer["id"]},
+                {"$inc": {"network_score": 5, "wallet_balance": 10.0}}  # $10 referral bonus
+            )
+    
     user_data = {
         "id": user_id,
         "email": request.email,
@@ -316,11 +331,14 @@ async def signup(request: SignupRequest):
         "username": request.username,
         "bio": request.bio,
         "photo": request.photo,
+        "phone": request.phone,
+        "full_name": request.full_name,
         "network_score": 0,
         "rank": "Rising Star",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "referral_code": user_id[:8],
-        "referred_by": None,
+        "referred_by": referred_by_user_id,
+        "referred_by_code": request.referred_by_code,
         "achievements": [],
         "wallet_balance": 0.0,
         "total_earned": 0.0,
