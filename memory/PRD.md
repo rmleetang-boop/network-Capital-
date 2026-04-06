@@ -49,13 +49,14 @@ Build a mobile-first prototype for a social network called Network Capital where
 9. **Rewards Page** - Rewards history and summary
 10. **Leaderboards** - Global user and group rankings
 11. **Smart Access API** - Early access to pooled funds eligibility
-12. **Onboarding Flow (6 slides)** - First-time visitor experience:
-    - Welcome: "Your Network Has Value"
-    - The Shift: "Make Your Time Count"
-    - How It Works: Connect → Engage → Build → Unlock
-    - Network Score & Stokvel+
-    - Rewards & Smart Access (with disclaimers)
-    - Trust & Safety: Community-driven, no guaranteed returns
+12. **Onboarding Flow (6 screens - Premium Fintech Experience)**:
+    - **Screen 1 (Auth)**: Dark theme, phone-first signup with +27 country code, email alternative, referral code field (gold border), terms checkbox, gold CTA, Google/Apple placeholders
+    - **Screen 2 (Welcome)**: "Your Network Has Value" + app preview (Social Feed, Community, Earnings)
+    - **Screen 3 (The Shift)**: "Make Your Time Count" + mini feed previews with mock earnings
+    - **Screen 4 (How It Works)**: 4 steps (Connect, Engage, Build, Unlock) with descriptions + feature cards
+    - **Screen 5 (Score+Rewards)**: Merged Network Score display + tier breakdown (3%/7%/10% rewards on contributions)
+    - **Screen 6 (Trust+Referral)**: Trust badges + referral code display + WhatsApp share button + Enter App
+    - Referral system: $10 bonus to referrer on successful signup
 13. **Help Center (9 FAQ categories)**:
     - Getting Started, Network Score, Stokvel+, Rewards
     - Smart Access, Safety & Trust, Wallet, Account, Troubleshooting
@@ -110,9 +111,13 @@ Build a mobile-first prototype for a social network called Network Capital where
 ```
 
 ## Testing Status
-- Backend: 39/39 tests passing (100%)
+- Backend: 47/47 tests passing (100%)
 - Frontend: All features verified (100%)
-- Test iterations: iteration_1 (core), iteration_2 (onboarding/help), iteration_3 (legal/consent)
+- Test iterations: 
+  - iteration_1 (core), 
+  - iteration_2 (onboarding/help), 
+  - iteration_3 (legal/consent),
+  - iteration_4 (premium onboarding refactor)
 
 ## Known Issues
 - Minor: "Made with Emergent" badge at bottom may overlap with buttons on some screens (requires force click in tests)
