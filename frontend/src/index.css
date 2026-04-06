@@ -31,3 +31,40 @@ code {
 .gradient-chart {
   background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
 }
+
+/* Logo styling - transparent background integration */
+.logo-transparent {
+  filter: drop-shadow(0 0 20px rgba(245, 158, 11, 0.3));
+  mix-blend-mode: normal;
+}
+
+.logo-glow {
+  filter: drop-shadow(0 0 15px rgba(245, 158, 11, 0.4)) drop-shadow(0 0 30px rgba(245, 158, 11, 0.2));
+  border-radius: 12px;
+}
+
+.logo-dark-header {
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+  border-radius: 8px;
+}
+
+/* Logo container with subtle glow background */
+.logo-container {
+  position: relative;
+  display: inline-block;
+}
+
+.logo-container::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  background: radial-gradient(ellipse at center, rgba(245, 158, 11, 0.15) 0%, transparent 70%);
+  border-radius: 50%;
+  z-index: -1;
+}
+
+/* Dark header style for internal pages */
+.dark-header {
+  background: linear-gradient(180deg, #0a1628 0%, #132743 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}

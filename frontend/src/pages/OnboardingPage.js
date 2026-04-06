@@ -165,13 +165,17 @@ const OnboardingPage = ({ onComplete, onLogin }) => {
       id: 'auth',
       render: () => (
         <div className="flex-1 flex flex-col px-6 pb-6">
-          {/* Logo */}
+          {/* Logo - with glow effect blending into dark background */}
           <div className="text-center pt-4 pb-6">
-            <img 
-              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
-              alt="Network Capital" 
-              className="h-20 mx-auto mb-3"
-            />
+            <div className="logo-container">
+              <div className="absolute inset-0 bg-gradient-to-br from-secondary/30 to-transparent blur-3xl scale-150 rounded-full" />
+              <img 
+                src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+                alt="Network Capital" 
+                className="h-20 mx-auto mb-3 relative logo-glow rounded-xl"
+                style={{ background: 'linear-gradient(135deg, rgba(10,22,40,0.9) 0%, rgba(30,58,138,0.9) 100%)', padding: '8px' }}
+              />
+            </div>
             <p className="text-white/70 text-sm">Transform your network into net worth</p>
           </div>
 

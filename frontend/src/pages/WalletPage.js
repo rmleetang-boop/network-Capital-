@@ -63,22 +63,23 @@ const WalletPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT">
-      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
+      <div className="sticky top-0 z-10 dark-header px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
               src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
               alt="Network Capital" 
-              className="h-10 w-auto"
+              className="h-10 w-auto logo-dark-header rounded-lg"
+              style={{ background: 'linear-gradient(135deg, rgba(10,22,40,0.9) 0%, rgba(30,58,138,0.9) 100%)', padding: '4px' }}
             />
             <div>
-              <h1 className="text-xl font-heading font-bold text-primary">Wallet</h1>
-              <p className="text-xs text-text-secondary">Manage your funds</p>
+              <h1 className="text-xl font-heading font-bold text-white">Wallet</h1>
+              <p className="text-xs text-white/60">Manage your funds</p>
             </div>
           </div>
           <button
             onClick={() => setShowDepositModal(true)}
-            className="bg-primary hover:bg-primary-hover text-white p-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all"
+            className="bg-secondary hover:bg-secondary-hover text-primary p-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all"
             data-testid="add-funds-button"
           >
             <Plus size={20} />
