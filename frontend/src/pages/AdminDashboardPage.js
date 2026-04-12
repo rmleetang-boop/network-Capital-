@@ -17,11 +17,19 @@ import {
   DollarSign,
   Eye,
   X,
-  Briefcase
+  Briefcase,
+  Lock,
+  Shield
 } from 'lucide-react';
 import { axiosInstance } from '../App';
 
+// Admin password - change this to your secure password
+const ADMIN_PASSWORD = 'NetworkCapital2025!';
+
 const AdminDashboardPage = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -32,8 +40,39 @@ const AdminDashboardPage = () => {
   const [userStokvels, setUserStokvels] = useState([]);
 
   useEffect(() => {
-    fetchData();
+    // Check if already authenticated
+    const adminAuth = sessionStorage.getItem('adminAuthenticated');
+    if (adminAuth === 'true') {
+      setIsAuthenticated(true);
+    } else {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchData();
+    }
+  }, [isAuthenticated]);
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (passwordInput === ADMIN_PASSWORD) {
+      sessionStorage.setItem('adminAuthenticated', 'true');
+      setIsAuthenticated(true);
+      setPasswordError('');
+    } else {
+      setPasswordError('Invalid password');
+      setPasswordInput('');
+    }
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('adminAuthenticated');
+    setIsAuthenticated(false);
+    setUsers([]);
+    setStats(null);
+  };
 
   const fetchData = async () => {
     try {
@@ -133,6 +172,60 @@ const AdminDashboardPage = () => {
     );
   }
 
+  // Admin Login Screen
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md"
+        >
+          <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 p-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-secondary/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <Shield className="text-secondary" size={32} />
+              </div>
+              <h1 className="text-2xl font-heading font-bold text-white mb-2">Admin Access</h1>
+              <p className="text-white/60 text-sm">Enter the admin password to continue</p>
+            </div>
+
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="Admin Password"
+                  className="w-full pl-12 pr-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary focus:ring-1 focus:ring-secondary outline-none"
+                  data-testid="admin-password-input"
+                  autoFocus
+                />
+              </div>
+
+              {passwordError && (
+                <p className="text-red-400 text-sm text-center">{passwordError}</p>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl font-semibold bg-gradient-to-r from-secondary to-yellow-500 text-primary hover:shadow-lg transition-all"
+                data-testid="admin-login-button"
+              >
+                Access Dashboard
+              </button>
+            </form>
+
+            <p className="text-white/40 text-xs text-center mt-6">
+              Protected admin area • Network Capital
+            </p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628]">
       {/* Header */}
@@ -147,14 +240,24 @@ const AdminDashboardPage = () => {
               <p className="text-xs text-white/60">Network Capital User Management</p>
             </div>
           </div>
-          <button
-            onClick={exportToCSV}
-            className="flex items-center gap-2 bg-secondary hover:bg-secondary-hover text-primary font-medium px-4 py-2 rounded-lg transition-all"
-            data-testid="export-csv"
-          >
-            <Download size={18} />
-            Export CSV
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={exportToCSV}
+              className="flex items-center gap-2 bg-secondary hover:bg-secondary-hover text-primary font-medium px-4 py-2 rounded-lg transition-all"
+              data-testid="export-csv"
+            >
+              <Download size={18} />
+              Export CSV
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white font-medium px-4 py-2 rounded-lg transition-all border border-white/20"
+              data-testid="admin-logout"
+            >
+              <Lock size={18} />
+              Logout
+            </button>
+          </div>
         </div>
       </div>
 
