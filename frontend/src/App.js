@@ -6,6 +6,7 @@ import AuthPage from './pages/AuthPage';
 import OnboardingPage from './pages/OnboardingPage';
 import HelpCenterPage from './pages/HelpCenterPage';
 import LegalDocumentsPage from './pages/LegalDocumentsPage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 import FeedPage from './pages/FeedPage';
 import ProfilePage from './pages/ProfilePage';
 import LeaderboardPage from './pages/LeaderboardPage';
@@ -96,14 +97,15 @@ function App() {
   }
 
   if (!user) {
-    // Show onboarding for first-time visitors (but not on legal page)
-    if (showOnboarding && !window.location.pathname.startsWith('/legal')) {
+    // Show onboarding for first-time visitors (but not on legal/admin page)
+    if (showOnboarding && !window.location.pathname.startsWith('/legal') && !window.location.pathname.startsWith('/admin')) {
       return (
         <>
           <Toaster position="top-center" />
           <BrowserRouter>
             <Routes>
               <Route path="/legal" element={<LegalDocumentsPage />} />
+              <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="*" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
             </Routes>
           </BrowserRouter>
@@ -119,6 +121,7 @@ function App() {
             <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
             <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
+            <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="*" element={<Navigate to="/auth" replace />} />
           </Routes>
         </BrowserRouter>
@@ -148,6 +151,7 @@ function App() {
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
+            <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

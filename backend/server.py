@@ -1478,6 +1478,76 @@ async def get_my_badges(current_user: dict = Depends(get_current_user)):
     
     return earned_badges
 
+# ============== ADMIN ENDPOINTS ==============
+
+@api_router.get("/admin/users")
+async def get_all_users():
+    """Get all users for admin dashboard"""
+    users = await db.users.find(
+        {},
+        {
+            "_id": 0,
+            "password": 0  # Exclude password
+        }
+    ).sort("created_at", -1).to_list(1000)
+    
+    return {"users": users, "total": len(users)}
+
+@api_router.get("/admin/stats")
+async def get_admin_stats():
+    """Get overall platform statistics"""
+    total_users = await db.users.count_documents({})
+    
+    # Get today's signups
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    new_users_today = await db.users.count_documents({
+        "created_at": {"$gte": today_start.isoformat()}
+    })
+    
+    # Aggregate stats
+    pipeline = [
+        {
+            "$group": {
+                "_id": None,
+                "total_wallet_balance": {"$sum": "$wallet_balance"},
+                "avg_network_score": {"$avg": "$network_score"},
+                "total_referrals": {
+                    "$sum": {"$cond": [{"$ne": ["$referred_by_code", None]}, 1, 0]}
+                }
+            }
+        }
+    ]
+    
+    stats_result = await db.users.aggregate(pipeline).to_list(1)
+    stats = stats_result[0] if stats_result else {}
+    
+    return {
+        "total_users": total_users,
+        "new_users_today": new_users_today,
+        "total_wallet_balance": stats.get("total_wallet_balance", 0),
+        "avg_network_score": stats.get("avg_network_score", 0),
+        "total_referrals": stats.get("total_referrals", 0)
+    }
+
+@api_router.get("/admin/users/{user_id}/details")
+async def get_user_details(user_id: str):
+    """Get detailed user info including their stokvels"""
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "password": 0}
+    )
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get user's stokvels
+    stokvels = await db.stokvels.find(
+        {"members.user_id": user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    return {"user": user, "stokvels": stokvels}
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -1487,6 +1557,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 logging.basicConfig(
     level=logging.INFO,
