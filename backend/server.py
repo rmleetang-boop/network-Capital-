@@ -194,6 +194,82 @@ class Contribution(BaseModel):
 class DepositRequest(BaseModel):
     amount: float
 
+# ============== CREATOR/PRODUCT MODELS ==============
+
+class CreateProductRequest(BaseModel):
+    name: str
+    problem_solved: str
+    description: Optional[str] = ""
+    estimated_cost: float
+    timeline: str  # e.g., "3 months", "6 months"
+    interest_level: str  # "idea", "prototype", "ready_to_launch"
+    category: Optional[str] = "general"
+    release_date: Optional[str] = None
+    min_support: Optional[float] = 10.0
+    max_support: Optional[float] = 1000.0
+    images: Optional[List[str]] = []
+
+class Product(BaseModel):
+    id: str
+    creator_id: str
+    creator_name: str
+    name: str
+    problem_solved: str
+    description: str
+    estimated_cost: float
+    timeline: str
+    interest_level: str
+    category: str
+    release_date: Optional[str]
+    min_support: float
+    max_support: float
+    images: List[str]
+    status: str  # "pending_review", "approved", "rejected"
+    total_supporters: int
+    total_support_amount: float
+    created_at: str
+    approved_at: Optional[str]
+
+class ProductFollower(BaseModel):
+    id: str
+    product_id: str
+    name: str
+    email: str
+    phone: str
+    created_at: str
+
+class FollowProductRequest(BaseModel):
+    name: str
+    email: str
+    phone: str
+
+class ProductSupportRequest(BaseModel):
+    amount: float
+    note: Optional[str] = ""
+
+class ProductSupport(BaseModel):
+    id: str
+    product_id: str
+    user_id: str
+    username: str
+    stokvel_id: Optional[str]  # If contributed via stokvel
+    amount: float
+    note: str
+    created_at: str
+
+class ProgressiveSignupRequest(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    password: str
+    step: int = 1
+
+class CompleteProfileRequest(BaseModel):
+    full_name: str
+    username: str
+    bio: Optional[str] = ""
+    intent: str  # "member" or "creator"
+    terms_accepted: bool
+
 class UserScore(BaseModel):
     user_id: str
     username: str
@@ -1477,6 +1553,518 @@ async def get_my_badges(current_user: dict = Depends(get_current_user)):
         })
     
     return earned_badges
+
+# ============== CREATOR/PRODUCT ENDPOINTS ==============
+
+@api_router.post("/products")
+async def create_product(request: CreateProductRequest, current_user: dict = Depends(get_current_user)):
+    """Create a new product (goes to pending review)"""
+    product_id = str(uuid.uuid4())
+    
+    product_data = {
+        "id": product_id,
+        "creator_id": current_user["id"],
+        "creator_name": current_user.get("full_name") or current_user["username"],
+        "name": request.name,
+        "problem_solved": request.problem_solved,
+        "description": request.description or "",
+        "estimated_cost": request.estimated_cost,
+        "timeline": request.timeline,
+        "interest_level": request.interest_level,
+        "category": request.category or "general",
+        "release_date": request.release_date,
+        "min_support": request.min_support or 10.0,
+        "max_support": request.max_support or 1000.0,
+        "images": request.images or [],
+        "status": "pending_review",  # Moderation required
+        "total_supporters": 0,
+        "total_support_amount": 0.0,
+        "followers": [],
+        "supports": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "approved_at": None
+    }
+    
+    await db.products.insert_one(product_data)
+    
+    # Update user as creator
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"is_creator": True, "user_type": "creator"}}
+    )
+    
+    if "_id" in product_data:
+        del product_data["_id"]
+    return {"message": "Product submitted for review", "product": product_data}
+
+@api_router.get("/products")
+async def get_products(status: str = "approved", category: str = None):
+    """Get all approved products (public)"""
+    query = {"status": status}
+    if category:
+        query["category"] = category
+    
+    products = await db.products.find(query, {"_id": 0, "followers": 0}).sort("created_at", -1).to_list(100)
+    return {"products": products}
+
+@api_router.get("/products/my")
+async def get_my_products(current_user: dict = Depends(get_current_user)):
+    """Get creator's own products"""
+    products = await db.products.find(
+        {"creator_id": current_user["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {"products": products}
+
+@api_router.get("/products/{product_id}")
+async def get_product(product_id: str):
+    """Get single product details"""
+    product = await db.products.find_one({"id": product_id}, {"_id": 0, "followers": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Get creator info
+    creator = await db.users.find_one(
+        {"id": product["creator_id"]},
+        {"_id": 0, "password": 0}
+    )
+    
+    return {"product": product, "creator": creator}
+
+@api_router.post("/products/{product_id}/follow")
+async def follow_product(product_id: str, request: FollowProductRequest):
+    """Register as a follower/supporter for a product"""
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    follower_id = str(uuid.uuid4())
+    follower_data = {
+        "id": follower_id,
+        "product_id": product_id,
+        "name": request.name,
+        "email": request.email,
+        "phone": request.phone,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.products.update_one(
+        {"id": product_id},
+        {
+            "$push": {"followers": follower_data},
+            "$inc": {"total_supporters": 1}
+        }
+    )
+    
+    return {"message": "Successfully registered as supporter", "follower_id": follower_id}
+
+@api_router.post("/products/{product_id}/support")
+async def support_product(product_id: str, request: ProductSupportRequest, current_user: dict = Depends(get_current_user)):
+    """Contribute support to a product"""
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    if product["status"] != "approved":
+        raise HTTPException(status_code=400, detail="Product is not yet approved for support")
+    
+    # Validate support amount
+    if request.amount < product["min_support"] or request.amount > product["max_support"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Support amount must be between ${product['min_support']} and ${product['max_support']}"
+        )
+    
+    # Check wallet balance
+    if current_user.get("wallet_balance", 0) < request.amount:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+    
+    support_id = str(uuid.uuid4())
+    support_data = {
+        "id": support_id,
+        "product_id": product_id,
+        "user_id": current_user["id"],
+        "username": current_user["username"],
+        "stokvel_id": None,
+        "amount": request.amount,
+        "note": request.note or "",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Deduct from wallet
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$inc": {"wallet_balance": -request.amount}}
+    )
+    
+    # Add support to product
+    await db.products.update_one(
+        {"id": product_id},
+        {
+            "$push": {"supports": support_data},
+            "$inc": {"total_support_amount": request.amount}
+        }
+    )
+    
+    # Record transaction
+    transaction = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "type": "product_support",
+        "amount": -request.amount,
+        "description": f"Support for: {product['name']}",
+        "product_id": product_id,
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.transactions.insert_one(transaction)
+    
+    return {"message": "Support contribution recorded", "support_id": support_id}
+
+@api_router.get("/products/{product_id}/insights")
+async def get_product_insights(product_id: str, tier: str = "free", current_user: dict = Depends(get_current_user)):
+    """Get audience insights for creator (tiered access)"""
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    if product["creator_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can view insights")
+    
+    followers = product.get("followers", [])
+    total_followers = len(followers)
+    
+    if tier == "free":
+        # Free tier: count only
+        return {
+            "tier": "free",
+            "total_followers": total_followers,
+            "total_support": product.get("total_support_amount", 0),
+            "followers": None,
+            "unlock_message": "Unlock Basic ($5) to see 25% of your audience"
+        }
+    elif tier == "basic":
+        # Basic tier ($5): 25% of followers
+        limit = max(1, total_followers // 4)
+        return {
+            "tier": "basic",
+            "total_followers": total_followers,
+            "total_support": product.get("total_support_amount", 0),
+            "followers": followers[:limit],
+            "showing": limit,
+            "unlock_message": "Unlock Pro ($15) to see all your audience"
+        }
+    elif tier == "pro":
+        # Pro tier ($15): full list
+        return {
+            "tier": "pro",
+            "total_followers": total_followers,
+            "total_support": product.get("total_support_amount", 0),
+            "followers": followers,
+            "showing": total_followers
+        }
+    
+    return {"tier": "free", "total_followers": total_followers}
+
+@api_router.post("/products/{product_id}/unlock-insights")
+async def unlock_insights(product_id: str, tier: str, current_user: dict = Depends(get_current_user)):
+    """Pay to unlock audience insights tier"""
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    if product["creator_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can unlock insights")
+    
+    tier_prices = {"basic": 5.0, "pro": 15.0}
+    if tier not in tier_prices:
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    
+    price = tier_prices[tier]
+    if current_user.get("wallet_balance", 0) < price:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+    
+    # Deduct from wallet
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$inc": {"wallet_balance": -price}}
+    )
+    
+    # Record unlock
+    await db.products.update_one(
+        {"id": product_id},
+        {"$set": {f"insights_unlocked_{tier}": True}}
+    )
+    
+    # Record transaction
+    transaction = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "type": "insights_unlock",
+        "amount": -price,
+        "description": f"Unlocked {tier} analytics for: {product['name']}",
+        "product_id": product_id,
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.transactions.insert_one(transaction)
+    
+    return {"message": f"{tier.capitalize()} insights unlocked", "tier": tier}
+
+# Stokvel product support
+@api_router.post("/stokvels/{stokvel_id}/support-product/{product_id}")
+async def stokvel_support_product(stokvel_id: str, product_id: str, request: ProductSupportRequest, current_user: dict = Depends(get_current_user)):
+    """Group support for a product from stokvel pool"""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Check if user is member
+    member_ids = [m["user_id"] for m in stokvel.get("members", [])]
+    if current_user["id"] not in member_ids:
+        raise HTTPException(status_code=403, detail="Not a member of this stokvel")
+    
+    # Validate amount
+    if request.amount < product["min_support"] or request.amount > product["max_support"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Support amount must be between ${product['min_support']} and ${product['max_support']}"
+        )
+    
+    # Check stokvel pool
+    if stokvel.get("total_pool", 0) < request.amount:
+        raise HTTPException(status_code=400, detail="Insufficient group pool")
+    
+    support_id = str(uuid.uuid4())
+    support_data = {
+        "id": support_id,
+        "product_id": product_id,
+        "user_id": current_user["id"],
+        "username": current_user["username"],
+        "stokvel_id": stokvel_id,
+        "stokvel_name": stokvel["name"],
+        "amount": request.amount,
+        "note": request.note or f"Group support from {stokvel['name']}",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Deduct from stokvel pool
+    await db.stokvels.update_one(
+        {"id": stokvel_id},
+        {"$inc": {"total_pool": -request.amount}}
+    )
+    
+    # Add support to product
+    await db.products.update_one(
+        {"id": product_id},
+        {
+            "$push": {"supports": support_data},
+            "$inc": {"total_support_amount": request.amount}
+        }
+    )
+    
+    return {"message": "Group support contribution recorded", "support_id": support_id}
+
+# Admin: Approve/reject products
+@api_router.post("/admin/products/{product_id}/moderate")
+async def moderate_product(product_id: str, action: str):
+    """Admin: Approve or reject a product"""
+    if action not in ["approve", "reject"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    new_status = "approved" if action == "approve" else "rejected"
+    update_data = {"status": new_status}
+    
+    if action == "approve":
+        update_data["approved_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.products.update_one(
+        {"id": product_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": f"Product {action}d", "status": new_status}
+
+@api_router.get("/admin/products/pending")
+async def get_pending_products():
+    """Admin: Get products awaiting moderation"""
+    products = await db.products.find(
+        {"status": "pending_review"},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(100)
+    return {"products": products, "total": len(products)}
+
+# Dashboard Net Worth endpoint
+@api_router.get("/dashboard/net-worth")
+async def get_net_worth(current_user: dict = Depends(get_current_user)):
+    """Get user's net worth and network value"""
+    user_id = current_user["id"]
+    
+    # Wallet balance
+    wallet_balance = current_user.get("wallet_balance", 0)
+    
+    # Stokvel participation (sum of user's contributions)
+    stokvels = await db.stokvels.find(
+        {"members.user_id": user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    stokvel_value = 0
+    active_stokvels = 0
+    for s in stokvels:
+        active_stokvels += 1
+        # Calculate user's share in each stokvel
+        for m in s.get("members", []):
+            if m["user_id"] == user_id:
+                stokvel_value += m.get("total_contributed", 0)
+    
+    # Products supported
+    products_supported = await db.products.find(
+        {"supports.user_id": user_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    total_product_support = 0
+    for p in products_supported:
+        for s in p.get("supports", []):
+            if s["user_id"] == user_id:
+                total_product_support += s["amount"]
+    
+    # Calculate Network Value (activity-based score)
+    posts_count = await db.posts.count_documents({"user_id": user_id})
+    network_score = current_user.get("network_score", 0)
+    referrals = await db.users.count_documents({"referred_by": user_id})
+    
+    # Network Value formula: engagement + participation + network score
+    network_value = (
+        (posts_count * 5) +  # Posts
+        (active_stokvels * 20) +  # Stokvel memberships
+        (len(products_supported) * 10) +  # Products supported
+        (referrals * 50) +  # Referrals
+        (network_score * 2)  # Network score
+    )
+    
+    return {
+        "net_worth": {
+            "total": wallet_balance + stokvel_value,
+            "wallet_balance": wallet_balance,
+            "stokvel_participation": stokvel_value,
+            "products_supported": total_product_support,
+            "active_stokvels": active_stokvels
+        },
+        "network_value": {
+            "score": network_value,
+            "breakdown": {
+                "posts": posts_count,
+                "stokvels": active_stokvels,
+                "products_supported": len(products_supported),
+                "referrals": referrals,
+                "network_score": network_score
+            }
+        }
+    }
+
+# Progressive signup
+@api_router.post("/auth/progressive-signup")
+async def progressive_signup(request: ProgressiveSignupRequest):
+    """Step 1: Create account with minimal info"""
+    # Check if email/phone already exists
+    query = {}
+    if request.email:
+        query["email"] = request.email
+    elif request.phone:
+        query["phone"] = request.phone
+    else:
+        raise HTTPException(status_code=400, detail="Email or phone required")
+    
+    existing = await db.users.find_one(query)
+    if existing:
+        raise HTTPException(status_code=400, detail="Account already exists")
+    
+    user_id = str(uuid.uuid4())
+    hashed_password = hash_password(request.password)
+    
+    user_data = {
+        "id": user_id,
+        "email": request.email or f"{request.phone}@phone.networkcapital.app",
+        "phone": request.phone,
+        "password": hashed_password,
+        "username": f"user_{user_id[:8]}",
+        "full_name": None,
+        "bio": "",
+        "photo": "",
+        "network_score": 0,
+        "rank": "Rising Star",
+        "user_type": "member",  # "member" or "creator"
+        "is_creator": False,
+        "profile_completed": False,
+        "onboarding_step": 2,  # Next step
+        "wallet_balance": 0.0,
+        "total_earned": 0.0,
+        "total_spent": 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "referral_code": user_id[:8],
+        "referred_by": None,
+        "achievements": [],
+        "terms_accepted": False,
+        "terms_accepted_at": None
+    }
+    
+    await db.users.insert_one(user_data)
+    
+    token = create_access_token(user_id)
+    
+    del user_data["password"]
+    if "_id" in user_data:
+        del user_data["_id"]
+    
+    return {
+        "token": token,
+        "user": user_data,
+        "next_step": 2,
+        "message": "Account created. Please complete your profile."
+    }
+
+@api_router.post("/auth/complete-profile")
+async def complete_profile(request: CompleteProfileRequest, current_user: dict = Depends(get_current_user)):
+    """Step 2: Complete profile and select intent"""
+    # Check username availability
+    existing = await db.users.find_one({"username": request.username, "id": {"$ne": current_user["id"]}})
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    
+    update_data = {
+        "full_name": request.full_name,
+        "username": request.username,
+        "bio": request.bio or "",
+        "user_type": request.intent,
+        "is_creator": request.intent == "creator",
+        "profile_completed": True,
+        "onboarding_step": 3 if request.intent == "creator" else 0,  # Creator goes to product creation
+        "terms_accepted": request.terms_accepted,
+        "terms_accepted_at": datetime.now(timezone.utc).isoformat() if request.terms_accepted else None
+    }
+    
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": update_data}
+    )
+    
+    updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
+    
+    return {
+        "user": updated_user,
+        "next_step": 3 if request.intent == "creator" else 0,
+        "message": "Profile completed" if request.intent != "creator" else "Profile completed. Create your first product."
+    }
 
 # ============== ADMIN ENDPOINTS ==============
 

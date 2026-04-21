@@ -20,6 +20,10 @@ import CreateStokvelPage from './pages/CreateStokvelPage';
 import StokvelDetailPage from './pages/StokvelDetailPage';
 import ScoreDashboardPage from './pages/ScoreDashboardPage';
 import RewardsPage from './pages/RewardsPage';
+import ProductListPage from './pages/ProductListPage';
+import ProductDetailPage from './pages/ProductDetailPage';
+import CreateProductPage from './pages/CreateProductPage';
+import NetWorthPage from './pages/NetWorthPage';
 import Layout from './components/Layout';
 import './App.css';
 
@@ -148,6 +152,10 @@ function App() {
             <Route path="/stokvels/:stokvelId" element={<StokvelDetailPage user={user} />} />
             <Route path="/stokvels/:stokvelId/score" element={<ScoreDashboardPage user={user} />} />
             <Route path="/stokvels/:stokvelId/rewards" element={<RewardsPage />} />
+            <Route path="/products" element={<ProductListPage user={user} />} />
+            <Route path="/products/create" element={<CreateProductPage user={user} />} />
+            <Route path="/products/:productId" element={<ProductDetailPage user={user} />} />
+            <Route path="/net-worth" element={<NetWorthPage user={user} />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
