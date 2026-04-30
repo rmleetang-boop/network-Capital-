@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -41,6 +41,13 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def verify_admin(x_admin_password: str = Header(None)):
+    """Admin auth guard: requires X-Admin-Password header to match env."""
+    expected = os.environ.get('ADMIN_PASSWORD')
+    if not expected or x_admin_password != expected:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return True
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -1871,7 +1878,7 @@ async def stokvel_support_product(stokvel_id: str, product_id: str, request: Pro
 
 # Admin: Approve/reject products
 @api_router.post("/admin/products/{product_id}/moderate")
-async def moderate_product(product_id: str, action: str):
+async def moderate_product(product_id: str, action: str, _: bool = Depends(verify_admin)):
     """Admin: Approve or reject a product"""
     if action not in ["approve", "reject"]:
         raise HTTPException(status_code=400, detail="Invalid action")
@@ -1894,7 +1901,7 @@ async def moderate_product(product_id: str, action: str):
     return {"message": f"Product {action}d", "status": new_status}
 
 @api_router.get("/admin/products/pending")
-async def get_pending_products():
+async def get_pending_products(_: bool = Depends(verify_admin)):
     """Admin: Get products awaiting moderation"""
     products = await db.products.find(
         {"status": "pending_review"},
@@ -2020,7 +2027,7 @@ async def progressive_signup(request: ProgressiveSignupRequest):
     
     await db.users.insert_one(user_data)
     
-    token = create_access_token(user_id)
+    token = create_access_token({"sub": user_id})
     
     del user_data["password"]
     if "_id" in user_data:
@@ -2069,7 +2076,7 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
 # ============== ADMIN ENDPOINTS ==============
 
 @api_router.get("/admin/users")
-async def get_all_users():
+async def get_all_users(_: bool = Depends(verify_admin)):
     """Get all users for admin dashboard"""
     users = await db.users.find(
         {},
@@ -2082,7 +2089,7 @@ async def get_all_users():
     return {"users": users, "total": len(users)}
 
 @api_router.get("/admin/stats")
-async def get_admin_stats():
+async def get_admin_stats(_: bool = Depends(verify_admin)):
     """Get overall platform statistics"""
     total_users = await db.users.count_documents({})
     
@@ -2118,7 +2125,7 @@ async def get_admin_stats():
     }
 
 @api_router.get("/admin/users/{user_id}/details")
-async def get_user_details(user_id: str):
+async def get_user_details(user_id: str, _: bool = Depends(verify_admin)):
     """Get detailed user info including their stokvels"""
     user = await db.users.find_one(
         {"id": user_id},

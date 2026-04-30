@@ -24,6 +24,7 @@ import ProductListPage from './pages/ProductListPage';
 import ProductDetailPage from './pages/ProductDetailPage';
 import CreateProductPage from './pages/CreateProductPage';
 import NetWorthPage from './pages/NetWorthPage';
+import AudienceInsightsPage from './pages/AudienceInsightsPage';
 import Layout from './components/Layout';
 import './App.css';
 
@@ -155,6 +156,7 @@ function App() {
             <Route path="/products" element={<ProductListPage user={user} />} />
             <Route path="/products/create" element={<CreateProductPage user={user} />} />
             <Route path="/products/:productId" element={<ProductDetailPage user={user} />} />
+            <Route path="/products/:productId/insights" element={<AudienceInsightsPage user={user} />} />
             <Route path="/net-worth" element={<NetWorthPage user={user} />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Users, TrendingUp, Plus, Activity, UserPlus, DollarSign, Award, Gift, Trophy } from 'lucide-react';
+import { ArrowLeft, Users, TrendingUp, Plus, Activity, UserPlus, DollarSign, Award, Gift, Trophy, Package, Heart, ArrowRight } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -26,20 +26,55 @@ const StokvelDetailPage = ({ user }) => {
 
   const fetchStokvelData = async () => {
     try {
-      const [stokvelRes, contributionsRes, strengthRes] = await Promise.all([
+      const [stokvelRes, contributionsRes, strengthRes, productsRes] = await Promise.all([
         axiosInstance.get(`/stokvels/${stokvelId}`),
         axiosInstance.get(`/stokvels/${stokvelId}/contributions`),
         axiosInstance.get(`/stokvels/${stokvelId}/strength`),
+        axiosInstance.get(`/products`),
       ]);
       
       setStokvel(stokvelRes.data);
       setContributions(contributionsRes.data);
       setStrength(strengthRes.data);
+      setProducts(productsRes.data.products || []);
     } catch (error) {
       toast.error('Failed to load stokvel details');
       navigate('/stokvels');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openGroupSupport = (product) => {
+    setSelectedProduct(product);
+    setSupportAmount(String(product.min_support || 10));
+    setSupportNote('');
+    setShowGroupSupportModal(true);
+  };
+
+  const handleGroupSupport = async () => {
+    if (!selectedProduct) return;
+    const amount = parseFloat(supportAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await axiosInstance.post(
+        `/stokvels/${stokvelId}/support-product/${selectedProduct.id}`,
+        { amount, note: supportNote }
+      );
+      toast.success('Group support recorded!');
+      setShowGroupSupportModal(false);
+      setSelectedProduct(null);
+      setSupportAmount('');
+      setSupportNote('');
+      fetchStokvelData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to back product');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -295,6 +330,86 @@ const StokvelDetailPage = ({ user }) => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.28 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+          data-testid="opportunities-to-support"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-heading font-bold text-text-primary flex items-center gap-2">
+              <Package size={20} />
+              Opportunities to Support
+            </h2>
+            <button
+              onClick={() => navigate('/products')}
+              className="text-primary text-sm font-medium hover:underline flex items-center gap-1"
+            >
+              Explore all <ArrowRight size={14} />
+            </button>
+          </div>
+
+          {products.length === 0 ? (
+            <div className="text-center py-6 bg-background-subtle rounded-xl">
+              <Package className="mx-auto mb-2 text-text-muted" size={32} />
+              <p className="text-text-secondary text-sm">
+                No products available for group support yet
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {products.slice(0, 3).map((product) => (
+                <div
+                  key={product.id}
+                  className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-background-subtle transition-all"
+                  data-testid={`opportunity-${product.id}`}
+                >
+                  <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Package className="text-white" size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-text-primary text-sm truncate">{product.name}</p>
+                    <p className="text-xs text-text-muted truncate">by {product.creator_name}</p>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-text-secondary">
+                      <span className="flex items-center gap-1">
+                        <Users size={12} />
+                        {product.total_supporters || 0}
+                      </span>
+                      <span className="text-primary font-medium">
+                        ${product.min_support}-${product.max_support}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => navigate(`/products/${product.id}`)}
+                      className="text-xs text-primary font-medium hover:underline"
+                    >
+                      View
+                    </button>
+                    <button
+                      onClick={() => openGroupSupport(product)}
+                      className="bg-secondary hover:bg-secondary-hover text-white text-xs font-semibold px-3 py-1.5 rounded-full transition-all flex items-center gap-1"
+                      data-testid={`back-product-${product.id}`}
+                    >
+                      <Heart size={12} />
+                      Back
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 p-3 bg-primary/5 rounded-xl border border-primary/10">
+            <p className="text-xs text-text-secondary">
+              <strong className="text-primary">Group Backing:</strong> Members can agree to support an approved product from the Stokvel pool.
+              This is community contribution, not an investment — no returns are offered.
+            </p>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
         >
@@ -419,6 +534,98 @@ const StokvelDetailPage = ({ user }) => {
                 className="flex-1 bg-primary hover:bg-primary-hover text-white font-medium py-3 rounded-full transition-all active:scale-95 disabled:opacity-50"
               >
                 {submitting ? 'Inviting...' : 'Invite'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {showGroupSupportModal && selectedProduct && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowGroupSupportModal(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="group-support-modal"
+          >
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center flex-shrink-0">
+                <Package className="text-white" size={22} />
+              </div>
+              <div>
+                <h2 className="text-lg font-heading font-bold">Back from Group Pool</h2>
+                <p className="text-sm text-text-secondary">{selectedProduct.name}</p>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 bg-background-subtle rounded-xl">
+              <div className="flex justify-between text-sm">
+                <span className="text-text-secondary">Group pool</span>
+                <span className="font-semibold text-text-primary">
+                  R{stokvel?.total_pool?.toFixed(2) || '0.00'}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-text-secondary">Allowed range</span>
+                <span className="font-semibold text-text-primary">
+                  ${selectedProduct.min_support} - ${selectedProduct.max_support}
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-text-primary mb-2">Amount ($)</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={20} />
+                <input
+                  type="number"
+                  value={supportAmount}
+                  onChange={(e) => setSupportAmount(e.target.value)}
+                  min={selectedProduct.min_support}
+                  max={selectedProduct.max_support}
+                  step="0.01"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+                  placeholder="10.00"
+                  data-testid="group-support-amount"
+                />
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-text-primary mb-2">Note (optional)</label>
+              <textarea
+                value={supportNote}
+                onChange={(e) => setSupportNote(e.target.value)}
+                rows={2}
+                className="w-full p-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none"
+                placeholder="Why are we backing this?"
+              />
+            </div>
+
+            <div className="bg-primary/5 rounded-xl p-3 mb-4 border border-primary/10">
+              <p className="text-xs text-text-secondary">
+                Group contribution. No returns or profit sharing — pure community backing.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowGroupSupportModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-primary font-medium py-3 rounded-full transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGroupSupport}
+                disabled={submitting}
+                className="flex-1 bg-secondary hover:bg-secondary-hover text-white font-medium py-3 rounded-full transition-all active:scale-95 disabled:opacity-50"
+                data-testid="confirm-group-support"
+              >
+                {submitting ? 'Submitting...' : 'Back from Pool'}
               </button>
             </div>
           </motion.div>

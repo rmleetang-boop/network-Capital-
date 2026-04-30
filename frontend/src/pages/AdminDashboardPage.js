@@ -74,11 +74,13 @@ const AdminDashboardPage = () => {
     setStats(null);
   };
 
+  const adminHeaders = { headers: { 'X-Admin-Password': ADMIN_PASSWORD } };
+
   const fetchData = async () => {
     try {
       const [usersRes, statsRes] = await Promise.all([
-        axiosInstance.get('/admin/users'),
-        axiosInstance.get('/admin/stats')
+        axiosInstance.get('/admin/users', adminHeaders),
+        axiosInstance.get('/admin/stats', adminHeaders)
       ]);
       setUsers(usersRes.data.users);
       setStats(statsRes.data);
@@ -91,7 +93,7 @@ const AdminDashboardPage = () => {
 
   const fetchUserDetails = async (userId) => {
     try {
-      const res = await axiosInstance.get(`/admin/users/${userId}/details`);
+      const res = await axiosInstance.get(`/admin/users/${userId}/details`, adminHeaders);
       setSelectedUser(res.data.user);
       setUserStokvels(res.data.stokvels || []);
     } catch (error) {
