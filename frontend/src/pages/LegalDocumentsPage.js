@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, FileText, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import BrandAttribution from '../components/BrandAttribution';
 
 const LegalDocumentsPage = () => {
   const navigate = useNavigate();
@@ -271,6 +272,9 @@ Users may request deletion, subject to legal obligations.`
             © 2025 Mici (Pty) Ltd. All rights reserved.
           </p>
         </div>
+      </div>
+      <div className="pb-6 pt-2">
+        <BrandAttribution tone="light" position="static" />
       </div>
     </div>
   );

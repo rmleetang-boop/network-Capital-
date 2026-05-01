@@ -4,6 +4,7 @@ import { Mail, Lock, User, FileText, HelpCircle, Check, ExternalLink, ArrowLeft,
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import BrandAttribution from '../components/BrandAttribution';
 
 const AuthPage = ({ onLogin }) => {
   const navigate = useNavigate();
@@ -310,6 +311,7 @@ const AuthPage = ({ onLogin }) => {
           </div>
         </div>
       </motion.div>
+      <BrandAttribution tone="dark" />
     </div>
   );
 };

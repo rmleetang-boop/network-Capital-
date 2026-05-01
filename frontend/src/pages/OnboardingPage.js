@@ -26,6 +26,7 @@ import {
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import BrandAttribution from '../components/BrandAttribution';
 
 const OnboardingPage = ({ onComplete, onLogin }) => {
   const navigate = useNavigate();
@@ -694,8 +695,7 @@ const OnboardingPage = ({ onComplete, onLogin }) => {
 
       {/* Navigation (not on auth slide or last slide) */}
       {!isAuthSlide && !isLastSlide && (
-        <div className="px-6 pb-8 safe-area-pb">
-          {/* Progress dots */}
+        <div className="px-6 pb-8 safe-area-pb">          {/* Progress dots */}
           <div className="flex justify-center gap-2 mb-6">
             {slides.slice(1, -1).map((_, idx) => (
               <button
@@ -734,6 +734,7 @@ const OnboardingPage = ({ onComplete, onLogin }) => {
           </div>
         </div>
       )}
+      <BrandAttribution tone="dark" />
     </div>
   );
 };
