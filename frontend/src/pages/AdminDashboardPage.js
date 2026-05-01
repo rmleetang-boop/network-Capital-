@@ -19,7 +19,10 @@ import {
   X,
   Briefcase,
   Lock,
-  Shield
+  Shield,
+  Package,
+  Check as CheckIcon,
+  XCircle
 } from 'lucide-react';
 import { axiosInstance } from '../App';
 
@@ -32,6 +35,9 @@ const AdminDashboardPage = () => {
   const [passwordError, setPasswordError] = useState('');
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
+  const [pendingProducts, setPendingProducts] = useState([]);
+  const [activeTab, setActiveTab] = useState('users'); // users | products
+  const [moderating, setModerating] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState('created_at');
@@ -324,6 +330,103 @@ const AdminDashboardPage = () => {
           </div>
         )}
 
+        {/* Tab Switcher */}
+        <div className="flex gap-2 mb-6 bg-white/5 p-1 rounded-full w-fit">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-5 py-2 rounded-full font-medium text-sm flex items-center gap-2 transition-all ${
+              activeTab === 'users' ? 'bg-secondary text-primary' : 'text-white/60 hover:text-white'
+            }`}
+            data-testid="admin-tab-users"
+          >
+            <Users size={16} /> Users ({users.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('products')}
+            className={`px-5 py-2 rounded-full font-medium text-sm flex items-center gap-2 transition-all ${
+              activeTab === 'products' ? 'bg-secondary text-primary' : 'text-white/60 hover:text-white'
+            }`}
+            data-testid="admin-tab-products"
+          >
+            <Package size={16} /> Pending Products
+            {pendingProducts.length > 0 && (
+              <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingProducts.length}</span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'products' ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 p-6"
+            data-testid="pending-products-panel"
+          >
+            {pendingProducts.length === 0 ? (
+              <div className="text-center py-12">
+                <Package className="mx-auto mb-3 text-white/30" size={48} />
+                <p className="text-white text-lg font-semibold">No pending products</p>
+                <p className="text-white/60 text-sm mt-1">All caught up — new submissions will appear here</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pendingProducts.map((p) => (
+                  <div
+                    key={p.id}
+                    className="bg-white/5 rounded-xl p-4 border border-white/10"
+                    data-testid={`pending-product-${p.id}`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-14 h-14 bg-gradient-to-br from-secondary to-primary rounded-xl flex items-center justify-center flex-shrink-0">
+                        <Package className="text-white" size={24} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3 mb-1">
+                          <h3 className="text-white font-bold text-lg">{p.name}</h3>
+                          <span className="text-[10px] uppercase font-bold tracking-wide bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded-full">
+                            Pending
+                          </span>
+                        </div>
+                        <p className="text-white/60 text-xs mb-2">
+                          by @{p.creator_name || p.creator_id?.slice(0, 8)} · {p.category}
+                        </p>
+                        {p.problem_solved && (
+                          <p className="text-white/80 text-sm mb-2 line-clamp-2">
+                            <strong>Problem:</strong> {p.problem_solved}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-3 text-xs text-white/70 mb-3">
+                          <span>Cost: ${p.cost || 0}</span>
+                          <span>Timeline: {p.timeline || '—'}</span>
+                          <span>Range: ${p.min_support}–${p.max_support}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleModerate(p.id, 'reject')}
+                            disabled={moderating === p.id}
+                            className="flex-1 sm:flex-none px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            data-testid={`reject-product-${p.id}`}
+                          >
+                            <XCircle size={14} /> Reject
+                          </button>
+                          <button
+                            onClick={() => handleModerate(p.id, 'approve')}
+                            disabled={moderating === p.id}
+                            className="flex-1 sm:flex-none px-4 py-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/40 text-green-300 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            data-testid={`approve-product-${p.id}`}
+                          >
+                            <CheckIcon size={14} /> {moderating === p.id ? '...' : 'Approve'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        ) : (
+          <>
         {/* Search Bar */}
         <div className="relative mb-6">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40" size={20} />
@@ -454,6 +557,8 @@ const AdminDashboardPage = () => {
         <p className="text-white/40 text-sm mt-4 text-center">
           Showing {filteredUsers.length} of {users.length} users
         </p>
+          </>
+        )}
       </div>
 
       {/* User Detail Modal */}

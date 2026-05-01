@@ -363,6 +363,14 @@ class RequestSmartAccess(BaseModel):
     stokvel_id: str
     requested_amount: float
 
+class WithdrawalRequest(BaseModel):
+    amount: float
+    purpose: str
+    recipient_user_id: Optional[str] = None  # defaults to requester
+
+class SetSignatoriesRequest(BaseModel):
+    signatory_ids: List[str]  # 1–3 user_ids who can approve withdrawals
+
 class Badge(BaseModel):
     id: str
     name: str
@@ -1778,6 +1786,150 @@ async def check_smart_access_eligibility(stokvel_id: str, current_user: dict = D
         "pool_liquidity": available_liquidity,
         "reason": "Eligible for Smart Access" if eligible else f"Score must be 70+ (current: {user_score:.1f})"
     }
+
+# ============== MULTI-SIGNATURE WALLET WITHDRAWALS ==============
+
+def _required_approvals(signatory_count: int) -> int:
+    """2-of-3 rule. With 1 signatory, 1 approval. With 2, both. With 3+, any 2."""
+    if signatory_count <= 1:
+        return 1
+    if signatory_count == 2:
+        return 2
+    return 2  # 2 of 3 (or more)
+
+@api_router.put("/stokvels/{stokvel_id}/signatories")
+async def set_signatories(stokvel_id: str, payload: SetSignatoriesRequest, current_user: dict = Depends(get_current_user)):
+    """Creator sets up to 3 signatories who can approve pool withdrawals."""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    if stokvel["created_by"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can set signatories")
+    if len(payload.signatory_ids) < 1 or len(payload.signatory_ids) > 3:
+        raise HTTPException(status_code=400, detail="Pick 1–3 signatories")
+    member_ids = {m["user_id"] for m in stokvel.get("members", [])}
+    bad = [s for s in payload.signatory_ids if s not in member_ids]
+    if bad:
+        raise HTTPException(status_code=400, detail="All signatories must be group members")
+    await db.stokvels.update_one(
+        {"id": stokvel_id},
+        {"$set": {"signatories": payload.signatory_ids}}
+    )
+    return {
+        "signatory_ids": payload.signatory_ids,
+        "required_approvals": _required_approvals(len(payload.signatory_ids)),
+    }
+
+@api_router.post("/stokvels/{stokvel_id}/withdrawals")
+async def create_withdrawal(stokvel_id: str, payload: WithdrawalRequest, current_user: dict = Depends(get_current_user)):
+    """Member proposes a withdrawal from the group pool."""
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    member_ids = {m["user_id"] for m in stokvel.get("members", [])}
+    if current_user["id"] not in member_ids:
+        raise HTTPException(status_code=403, detail="Not a member")
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    if payload.amount > stokvel.get("total_pool", 0):
+        raise HTTPException(status_code=400, detail="Amount exceeds group pool")
+    recipient_id = payload.recipient_user_id or current_user["id"]
+    if recipient_id not in member_ids:
+        raise HTTPException(status_code=400, detail="Recipient must be a group member")
+
+    signatories = stokvel.get("signatories") or [stokvel["created_by"]]
+    required = _required_approvals(len(signatories))
+
+    wid = str(uuid.uuid4())
+    withdrawal = {
+        "id": wid,
+        "stokvel_id": stokvel_id,
+        "stokvel_name": stokvel["name"],
+        "requested_by": current_user["id"],
+        "requester_username": current_user["username"],
+        "recipient_id": recipient_id,
+        "amount": payload.amount,
+        "purpose": payload.purpose or "",
+        "signatories": signatories,
+        "approvals": [],   # list of user_ids who approved
+        "rejections": [],  # list of user_ids who rejected
+        "required_approvals": required,
+        "status": "pending",  # pending | approved | rejected | executed
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "executed_at": None,
+    }
+    await db.withdrawals.insert_one(withdrawal)
+    if "_id" in withdrawal:
+        del withdrawal["_id"]
+    return {"withdrawal": withdrawal}
+
+@api_router.get("/stokvels/{stokvel_id}/withdrawals")
+async def list_withdrawals(stokvel_id: str, current_user: dict = Depends(get_current_user)):
+    stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0, "members": 1, "signatories": 1, "created_by": 1})
+    if not stokvel:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    member_ids = {m["user_id"] for m in stokvel.get("members", [])}
+    if current_user["id"] not in member_ids:
+        raise HTTPException(status_code=403, detail="Not a member")
+    rows = await db.withdrawals.find({"stokvel_id": stokvel_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {
+        "withdrawals": rows,
+        "signatories": stokvel.get("signatories") or [stokvel["created_by"]],
+    }
+
+async def _vote_withdrawal(stokvel_id: str, withdrawal_id: str, user_id: str, vote: str):
+    if vote not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="Invalid vote")
+    w = await db.withdrawals.find_one({"id": withdrawal_id, "stokvel_id": stokvel_id})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if w["status"] not in ("pending",):
+        raise HTTPException(status_code=400, detail=f"Already {w['status']}")
+    if user_id not in w.get("signatories", []):
+        raise HTTPException(status_code=403, detail="Not a signatory")
+    if user_id in w.get("approvals", []) or user_id in w.get("rejections", []):
+        raise HTTPException(status_code=400, detail="Already voted")
+    field = "approvals" if vote == "approve" else "rejections"
+    await db.withdrawals.update_one({"id": withdrawal_id}, {"$push": {field: user_id}})
+    w = await db.withdrawals.find_one({"id": withdrawal_id})
+    # Decide outcome
+    sig_count = len(w["signatories"])
+    needed = w["required_approvals"]
+    if len(w["approvals"]) >= needed:
+        # Execute
+        stokvel = await db.stokvels.find_one({"id": stokvel_id})
+        if stokvel.get("total_pool", 0) < w["amount"]:
+            await db.withdrawals.update_one({"id": withdrawal_id}, {"$set": {"status": "rejected"}})
+            raise HTTPException(status_code=400, detail="Pool no longer has enough funds")
+        await db.stokvels.update_one({"id": stokvel_id}, {"$inc": {"total_pool": -w["amount"]}})
+        await db.users.update_one({"id": w["recipient_id"]}, {"$inc": {"wallet_balance": w["amount"]}})
+        await db.withdrawals.update_one(
+            {"id": withdrawal_id},
+            {"$set": {"status": "executed", "executed_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        await db.transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": w["recipient_id"],
+            "type": "stokvel_withdrawal",
+            "amount": w["amount"],
+            "description": f"Withdrawal from {w['stokvel_name']}: {w.get('purpose','')}",
+            "status": "completed",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"status": "executed", "approvals": len(w["approvals"]), "required": needed}
+    if len(w["rejections"]) > sig_count - needed:
+        # Cannot reach threshold any more
+        await db.withdrawals.update_one({"id": withdrawal_id}, {"$set": {"status": "rejected"}})
+        return {"status": "rejected", "approvals": len(w["approvals"]), "required": needed}
+    return {"status": "pending", "approvals": len(w["approvals"]), "required": needed}
+
+@api_router.post("/stokvels/{stokvel_id}/withdrawals/{withdrawal_id}/approve")
+async def approve_withdrawal(stokvel_id: str, withdrawal_id: str, current_user: dict = Depends(get_current_user)):
+    return await _vote_withdrawal(stokvel_id, withdrawal_id, current_user["id"], "approve")
+
+@api_router.post("/stokvels/{stokvel_id}/withdrawals/{withdrawal_id}/reject")
+async def reject_withdrawal(stokvel_id: str, withdrawal_id: str, current_user: dict = Depends(get_current_user)):
+    return await _vote_withdrawal(stokvel_id, withdrawal_id, current_user["id"], "reject")
 
 # Leaderboards API
 @api_router.get("/leaderboard/users")

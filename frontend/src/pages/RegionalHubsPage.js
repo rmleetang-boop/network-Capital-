@@ -115,20 +115,26 @@ const RegionalHubsPage = ({ user }) => {
           </div>
 
           <div className="flex gap-2">
-            <select
-              value={city}
-              onChange={(e) => handleSetMyCity(e.target.value)}
-              disabled={savingCity}
-              className="flex-1 bg-white/10 border border-white/20 text-white rounded-xl px-3 py-2.5 outline-none focus:border-secondary"
-              data-testid="city-selector"
-            >
-              <option value="" className="bg-[#0a1628]">Pick a city…</option>
-              {cities.map((c) => (
-                <option key={c.value} value={c.value} className="bg-[#0a1628]">
-                  {c.label} ({c.user_count || 0})
-                </option>
-              ))}
-            </select>
+            <Select value={city} onValueChange={handleSetMyCity} disabled={savingCity}>
+              <SelectTrigger
+                className="flex-1 bg-white/10 border-white/20 text-white rounded-xl px-3 h-11 focus:border-secondary"
+                data-testid="city-selector"
+              >
+                <SelectValue placeholder="Pick a city…" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#0a1628] border-white/20 text-white">
+                {cities.map((c) => (
+                  <SelectItem
+                    key={c.value}
+                    value={c.value}
+                    className="text-white focus:bg-secondary/20 focus:text-white cursor-pointer"
+                    data-testid={`city-option-${c.value}`}
+                  >
+                    {c.label} ({c.user_count || 0})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <button
               onClick={() => navigate('/connections')}
               className="px-4 py-2.5 bg-secondary text-primary font-semibold rounded-xl hover:bg-secondary-hover transition-all flex items-center gap-1.5"

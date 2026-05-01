@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 7: P1 features (Smart Access UI, Multi-sig withdrawals, Admin moderation tab, Regional Hubs shadcn Select). Backend multi-sig endpoints 100% passing (15/15). Found CRITICAL frontend bugs in AdminDashboardPage: pendingProducts is never fetched and handleModerate handler is undefined — so approve/reject buttons will throw ReferenceError and pending product list always shows empty state even when API returns data.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminDashboardPage",
+        "issue": "pendingProducts state is declared (line 38) but NEVER populated. fetchData() only calls /admin/users and /admin/stats, never /admin/products/pending. Result: 'Pending Products' tab always shows 'No pending products' even when API has pending items (verified: GET /api/admin/products/pending returns the test product, UI still shows 'No pending products'). Also the red count badge never appears.",
+        "selector": "[data-testid=\"pending-products-panel\"]",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "AdminDashboardPage",
+        "issue": "handleModerate(p.id, 'approve'|'reject') referenced on lines 405/413 but function is NOT DEFINED anywhere in the file. Clicking Approve/Reject will throw ReferenceError: handleModerate is not defined, so moderation cannot work from UI.",
+        "selector": "[data-testid^=\"approve-product-\"], [data-testid^=\"reject-product-\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Admin moderation",
+        "issue": "Frontend never calls GET /api/admin/products/pending on login/tab-switch, and never calls POST /api/admin/products/{id}/moderate. Entire admin moderation flow is broken end-to-end.",
+        "affected_selectors": ["[data-testid=\"admin-tab-products\"]", "[data-testid^=\"pending-product-\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_multisig_withdrawals.py",
+    "/app/test_reports/pytest/iteration_7_multisig.xml"
+  ],
+  "action_items": [
+    "AdminDashboardPage.js: fetch GET /api/admin/products/pending (with X-Admin-Password header) inside fetchData() and call setPendingProducts(res.data.products). Also re-fetch after each approve/reject.",
+    "AdminDashboardPage.js: Define handleModerate(productId, action) to POST /api/admin/products/{productId}/moderate?action={action} with X-Admin-Password header, setModerating state before/after, remove product from list on success, show toast.",
+    "Optional: recompute tab badge count from pendingProducts.length after fetch."
+  ],
+  "critical_code_review_comments": [
+    "AdminDashboardPage: two undefined references (handleModerate, and missing setPendingProducts call path) show the moderation UI was wired visually but never connected. A simple first-load check or lint with no-undef would have caught handleModerate.",
+    "Backend multi-sig _vote_withdrawal: rejection threshold logic `len(rejections) > sig_count - needed` is correct for the 2-of-3 / 2-of-2 / 1-of-1 cases (verified in tests) but comment could be clearer.",
+    "Withdrawal create endpoint falls back to `[stokvel.created_by]` when no signatories set — good default, documented and tested.",
+    "StokvelDetailPage.js is approaching 1000 lines with 3 modals in one file — consider splitting the modals into sub-components."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_multisig_withdrawals.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 multi-sig + signatories + smart-access regression)",
+    "frontend": "Admin tabs toggle works, RegionalHubsPage uses shadcn Select as required, StokvelDetailPage renders. BUT admin moderation flow is BROKEN (missing fetch + undefined handler)."
+  },
+  "test_credentials": "Admin: X-Admin-Password: NetworkCapital2025! (from /app/memory/test_credentials.md). Test users registered fresh per-run via /api/auth/progressive-signup.",
+  "seed_data_creation": "Created 1 pending product for admin UI verification: id=785fe3a2-8049-454d-8b5a-01d67fe197f5 by creator 'Creator One'. It is still in pending_review state (frontend did not actually call moderate).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend multi-sig is solid. After main agent fixes AdminDashboardPage (add fetchPendingProducts call inside fetchData and define handleModerate), re-run this iteration's playwright admin test AND verify GET /api/admin/products/pending empties out after approve. Test file at /app/backend/tests/test_multisig_withdrawals.py is reusable as regression. Keep noting that registration uses response field 'token' not 'access_token'.",
+  "rca of the issue": "AdminDashboardPage.js: P1 feature #3 (Admin moderation UI) was implemented visually (JSX, tabs, testids, buttons, count badge) but two wiring pieces are missing: (1) fetchData() on line 85 never hits /admin/products/pending and never calls setPendingProducts, so the list stays empty. (2) handleModerate invoked on lines 405/413 is never declared; runtime will throw ReferenceError the moment a user clicks Approve/Reject. Reproduction: login to /admin with NetworkCapital2025!, create a pending product via API, click 'Pending Products' tab — UI shows 'No pending products' despite API returning 1 record. Mitigation: add inside fetchData: `const pp = await axiosInstance.get('/admin/products/pending', adminHeaders); setPendingProducts(pp.data.products || []);` and define a handleModerate async function that POSTs to /admin/products/{id}/moderate?action=... with X-Admin-Password header, then filters the product out of state on success."
+}
