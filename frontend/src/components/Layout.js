@@ -92,7 +92,7 @@ const Layout = ({ children, user, onLogout }) => {
                 className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all ${
                   active ? 'text-primary' : 'text-text-secondary hover:text-text-primary'
                 }`}
-                data-testid={`nav-${item.label.toLowerCase()}`}
+                data-testid={`bottom-nav-${item.label.toLowerCase().replace(/\s+/g, '-').replace(/\+/g, '')}`}
               >
                 <Icon size={22} strokeWidth={active ? 2.5 : 1.5} />
                 <span className={`text-[10px] mt-0.5 font-medium ${active ? 'font-semibold' : ''}`}>

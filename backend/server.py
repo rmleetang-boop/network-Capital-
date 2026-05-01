@@ -98,6 +98,17 @@ class User(BaseModel):
     referral_code: str
     referred_by: Optional[str] = None
     achievements: List[str] = []
+    city: Optional[str] = None
+    country: Optional[str] = None
+    profession: Optional[str] = None
+    interests: List[str] = []
+    full_name: Optional[str] = None
+    is_creator: Optional[bool] = False
+    user_type: Optional[str] = "member"
+    wallet_balance: Optional[float] = 0.0
+    photos: List[Dict[str, Any]] = []
+    videos: List[Dict[str, Any]] = []
+    articles: List[Dict[str, Any]] = []
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
