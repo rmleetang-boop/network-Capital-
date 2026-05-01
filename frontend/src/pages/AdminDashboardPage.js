@@ -84,16 +84,30 @@ const AdminDashboardPage = () => {
 
   const fetchData = async () => {
     try {
-      const [usersRes, statsRes] = await Promise.all([
+      const [usersRes, statsRes, pendingRes] = await Promise.all([
         axiosInstance.get('/admin/users', adminHeaders),
-        axiosInstance.get('/admin/stats', adminHeaders)
+        axiosInstance.get('/admin/stats', adminHeaders),
+        axiosInstance.get('/admin/products/pending', adminHeaders).catch(() => ({ data: { products: [] } })),
       ]);
       setUsers(usersRes.data.users);
       setStats(statsRes.data);
+      setPendingProducts(pendingRes.data.products || []);
     } catch (error) {
       console.error('Error fetching admin data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleModerate = async (productId, action) => {
+    setModerating(productId);
+    try {
+      await axiosInstance.post(`/admin/products/${productId}/moderate?action=${action}`, null, adminHeaders);
+      setPendingProducts((prev) => prev.filter((p) => p.id !== productId));
+    } catch (e) {
+      console.error('Moderate failed:', e);
+    } finally {
+      setModerating(null);
     }
   };
 
