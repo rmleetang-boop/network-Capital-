@@ -1,0 +1,98 @@
+{
+  "summary": "Tested Regional Hubs, 3-type Connections (Social/Financial/Professional), Profile Media (photos/videos/articles), and Posts with video. All 31 backend tests pass. Frontend pages render with correct tabs and structure, but discovered a critical data-shape bug: GET /api/users/me strips city/profession/country/interests/photos/videos/articles because response_model=User doesn't declare them — this breaks the RegionalHubsPage city auto-selection flow (user.city is never populated after reload).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/users/me",
+        "issue": "response_model=User omits newly added fields (city, country, profession, interests, photos, videos, articles). Fields are saved correctly (PUT returns them), but stripped on the GET the frontend calls at app-load. RegionalHubsPage reads user.city from this response → always undefined → hub never auto-loads even when city was persisted.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/users/{user_id}",
+        "issue": "Same User response_model strips city/profession. Public profile will miss these fields."
+      },
+      {
+        "endpoint": "POST /api/connections/request",
+        "issue": "For type=financial, stokvel_id is optional and not validated to actually exist in db.stokvels. Probably acceptable for MVP but worth a note."
+      },
+      {
+        "endpoint": "Media size validation",
+        "issue": "Uses len(data_url) which counts characters of the full data URL. Edge case: giant caption is NOT size-limited, only data_url is."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "RegionalHubsPage",
+        "issue": "After PUT city, on reload the dropdown stays at 'Pick a city...' and the empty state persists. Root cause = backend GET /users/me doesn't return city (see critical backend issue). Once backend is fixed this should resolve automatically, but frontend should also defensively call GET /users/me after PUT and use the returned city.",
+        "selector": "[data-testid=\"regional-hubs-page\"] select",
+        "priority": "HIGH"
+      },
+      {
+        "component": "RegionalHubsPage - city dropdown",
+        "issue": "Native <select> uses <option>{c.label}</option> which React renders a <span> inside <option> due to instrumentation; produces hydration warning in console. Cosmetic.",
+        "selector": "select > option",
+        "priority": "LOW"
+      },
+      {
+        "component": "Layout top-right menu",
+        "issue": "Floating menu button visible but missing data-testid (expected 'top-menu-button'). Works via click, but auto-tests can't reliably target it.",
+        "selector": "top-right hamburger button",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Layout bottom nav",
+        "issue": "Bottom nav items (Feed, Hubs, Stokvel+, Products, Profile) have NO data-testid attributes. Violates testability guideline.",
+        "selector": "[data-testid^=\"bottom-nav-\"] (none found)",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Hub auto-load after setting city",
+        "issue": "User sets city in dropdown → PUT succeeds → app reload → user.city is absent from GET /users/me payload → hub shows empty state.",
+        "affected_selectors": ["[data-testid=\"regional-hubs-page\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Hubs page",
+        "issues": ["Native browser <select> used for city picker instead of shadcn Select (inconsistent with rest of app). Also triggers hydration warning."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_hubs_connections_media.py",
+    "/app/test_reports/pytest/pytest_hubs_conn_media.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Update GET /api/users/me (and GET /api/users/{id}) to return city, country, profession, interests, photos, videos, articles — either drop response_model=User or extend the User model with these optional fields. Without this, RegionalHubsPage city auto-selection is broken.",
+    "Add data-testid to bottom nav items (e.g., bottom-nav-feed, bottom-nav-hubs, bottom-nav-stokvels, bottom-nav-products, bottom-nav-profile) and to the top-right floating menu button (top-menu-button) for robust testing.",
+    "Replace native <select> in RegionalHubsPage with shadcn Select to match app styling and eliminate the <option> hydration warning.",
+    "Minor: validate stokvel_id exists when type=financial in POST /api/connections/request."
+  ],
+  "critical_code_review_comments": [
+    "response_model=User on get_me/get_user silently drops newly added user fields; any time the User schema is extended, these endpoints must be kept in sync or the model removed.",
+    "Connection document stores from_photo but not to_photo; list_my_connections sets other_photo='' for outbound rows (the requester never sees the target's avatar after accepting). Minor UX issue.",
+    "MAX_MEDIA_BYTES check uses len(data_url) which conflates base64 chars with bytes; multiplier 1.4 is a rough guard, acceptable but should be documented.",
+    "Photos/videos/articles stored as embedded arrays inside the user document — $slice caps at 50/20/100 but no pagination endpoint; for heavy users document size will balloon (MongoDB 16MB limit).",
+    "Public endpoints /users/{id}/photos|videos|articles have no auth or rate limiting; data URLs up to 3MB each are exposed to anonymous callers.",
+    "server.py is 2000+ lines — recommend splitting into routers (auth/users/hubs/connections/media/posts/stokvels)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_hubs_connections_media.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (31/31 pytest) — but GET /users/me has a functional regression on new fields",
+    "frontend": "~70% (pages render, tabs visible, but Hubs flow broken due to backend field omission)"
+  },
+  "test_credentials": "Generated per-run via POST /api/auth/progressive-signup + /auth/complete-profile, e.g., TEST_ui_<rand>@example.com / Test1234!",
+  "seed_data_creation": "Two ephemeral users created per backend test run; peer user in cape_town created during frontend test.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend api suite at /app/backend/tests/test_hubs_connections_media.py (31 tests, ~7s). The blocker is a single backend fix on GET /users/me response_model. After fix, re-verify RegionalHubsPage: load /hubs, pick a city, check user list populates and S/F/P connect buttons show pending state after click. Also verify profile media upload flow end-to-end (upload photo → appears in grid → delete works).",
+  "rca of the issue": "RCA: UpdateProfileRequest accepts city/country/profession/interests and persists them (confirmed via curl: PUT stores and returns them). However GET /api/users/me uses response_model=User, and the User Pydantic model in server.py (lines 89–100) only declares id/email/username/bio/photo/network_score/rank/created_at/referral_code/referred_by/achievements. FastAPI silently drops all other fields. RegionalHubsPage reads user.city from this response to decide whether to auto-load the hub; it's always undefined. Fix: either remove response_model=User from get_me/get_user, or add city/country/profession/interests/photos/videos/articles (all Optional) to the User model. Verified with curl — after PUT {city:'durban'}, GET /users/me returns keys=[id,email,username,bio,photo,network_score,rank,created_at,referral_code,referred_by,achievements], 'city' absent."
+}

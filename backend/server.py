@@ -103,6 +103,27 @@ class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
     bio: Optional[str] = None
     photo: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    profession: Optional[str] = None
+    interests: Optional[List[str]] = None
+
+# ============== CONNECTIONS / HUBS / MEDIA ==============
+
+class ConnectionRequestPayload(BaseModel):
+    to_user_id: str
+    type: str  # "social" | "financial" | "professional"
+    message: Optional[str] = ""
+    stokvel_id: Optional[str] = None  # only for financial type
+
+class ArticleCreate(BaseModel):
+    title: str
+    content: str
+    cover_image: Optional[str] = None
+
+class MediaUpload(BaseModel):
+    data_url: str  # base64 data URL
+    caption: Optional[str] = ""
 
 class Post(BaseModel):
     id: str
@@ -112,6 +133,7 @@ class Post(BaseModel):
     user_score: int
     content: str
     image: Optional[str] = None
+    video: Optional[str] = None
     likes: List[str] = []
     comments: List[Dict[str, Any]] = []
     shares: int = 0
@@ -120,6 +142,7 @@ class Post(BaseModel):
 class CreatePostRequest(BaseModel):
     content: str
     image: Optional[str] = None
+    video: Optional[str] = None
 
 class CommentRequest(BaseModel):
     content: str
@@ -480,6 +503,14 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
         update_data["bio"] = request.bio
     if request.photo is not None:
         update_data["photo"] = request.photo
+    if request.city is not None:
+        update_data["city"] = request.city
+    if request.country is not None:
+        update_data["country"] = request.country
+    if request.profession is not None:
+        update_data["profession"] = request.profession
+    if request.interests is not None:
+        update_data["interests"] = request.interests
     
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
@@ -494,6 +525,270 @@ async def get_user(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
+# ============== REGIONAL HUBS ==============
+
+@api_router.get("/hubs/cities")
+async def list_cities():
+    """Curated SA city list + auto-discovered cities from existing users."""
+    curated = [
+        {"value": "johannesburg", "label": "Johannesburg"},
+        {"value": "cape_town", "label": "Cape Town"},
+        {"value": "durban", "label": "Durban"},
+        {"value": "pretoria", "label": "Pretoria"},
+        {"value": "port_elizabeth", "label": "Port Elizabeth"},
+        {"value": "bloemfontein", "label": "Bloemfontein"},
+        {"value": "east_london", "label": "East London"},
+        {"value": "polokwane", "label": "Polokwane"},
+        {"value": "nelspruit", "label": "Nelspruit"},
+        {"value": "kimberley", "label": "Kimberley"},
+        {"value": "other", "label": "Other"},
+    ]
+    # Stats per city (count of users)
+    pipeline = [
+        {"$match": {"city": {"$exists": True, "$ne": None}}},
+        {"$group": {"_id": "$city", "count": {"$sum": 1}}},
+    ]
+    counts_raw = await db.users.aggregate(pipeline).to_list(100)
+    counts = {c["_id"]: c["count"] for c in counts_raw if c["_id"]}
+    for c in curated:
+        c["user_count"] = counts.get(c["value"], 0)
+    return {"cities": curated}
+
+@api_router.get("/hubs/users")
+async def list_hub_users(city: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """List users in a city (excluding self). If no city provided, uses caller's city."""
+    target_city = city or current_user.get("city")
+    if not target_city:
+        return {"users": [], "city": None, "message": "Set your city to discover the hub"}
+    users = await db.users.find(
+        {"city": target_city, "id": {"$ne": current_user["id"]}},
+        {"_id": 0, "password": 0, "photos": 0, "videos": 0, "articles": 0}
+    ).limit(200).to_list(200)
+    # Enrich with existing-connection status
+    sent = await db.connections.find(
+        {"from_user_id": current_user["id"]}, {"_id": 0, "to_user_id": 1, "type": 1, "status": 1}
+    ).to_list(500)
+    incoming = await db.connections.find(
+        {"to_user_id": current_user["id"]}, {"_id": 0, "from_user_id": 1, "type": 1, "status": 1}
+    ).to_list(500)
+    sent_map = {(s["to_user_id"], s["type"]): s["status"] for s in sent}
+    incoming_map = {(s["from_user_id"], s["type"]): s["status"] for s in incoming}
+    for u in users:
+        u["connection_status"] = {
+            t: sent_map.get((u["id"], t)) or incoming_map.get((u["id"], t))
+            for t in ["social", "financial", "professional"]
+        }
+    return {"users": users, "city": target_city, "total": len(users)}
+
+# ============== CONNECTIONS ==============
+
+@api_router.post("/connections/request")
+async def send_connection_request(payload: ConnectionRequestPayload, current_user: dict = Depends(get_current_user)):
+    if payload.type not in ["social", "financial", "professional"]:
+        raise HTTPException(status_code=400, detail="Invalid connection type")
+    if payload.to_user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot connect with yourself")
+    target = await db.users.find_one({"id": payload.to_user_id}, {"_id": 0, "id": 1, "username": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Idempotency: only one pending request per (pair, type)
+    existing = await db.connections.find_one({
+        "from_user_id": current_user["id"],
+        "to_user_id": payload.to_user_id,
+        "type": payload.type,
+    })
+    if existing and existing.get("status") in ("pending", "accepted"):
+        raise HTTPException(status_code=400, detail=f"Already {existing['status']}")
+    conn_id = str(uuid.uuid4())
+    conn = {
+        "id": conn_id,
+        "from_user_id": current_user["id"],
+        "from_username": current_user["username"],
+        "from_photo": current_user.get("photo", ""),
+        "to_user_id": payload.to_user_id,
+        "to_username": target["username"],
+        "type": payload.type,
+        "status": "pending",
+        "message": payload.message or "",
+        "stokvel_id": payload.stokvel_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "responded_at": None,
+    }
+    await db.connections.insert_one(conn)
+    if "_id" in conn:
+        del conn["_id"]
+    return {"connection": conn}
+
+@api_router.get("/connections/inbox")
+async def connection_inbox(type: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    query = {"to_user_id": current_user["id"], "status": "pending"}
+    if type and type in ["social", "financial", "professional"]:
+        query["type"] = type
+    inbox = await db.connections.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"inbox": inbox, "total": len(inbox)}
+
+@api_router.get("/connections/outbox")
+async def connection_outbox(type: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    query = {"from_user_id": current_user["id"]}
+    if type and type in ["social", "financial", "professional"]:
+        query["type"] = type
+    outbox = await db.connections.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"outbox": outbox, "total": len(outbox)}
+
+@api_router.get("/connections")
+async def list_my_connections(type: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """Accepted connections (both directions)."""
+    user_id = current_user["id"]
+    query = {
+        "$or": [{"from_user_id": user_id}, {"to_user_id": user_id}],
+        "status": "accepted",
+    }
+    if type and type in ["social", "financial", "professional"]:
+        query["type"] = type
+    rows = await db.connections.find(query, {"_id": 0}).sort("responded_at", -1).to_list(500)
+    # Normalize the "other" user
+    out = []
+    for r in rows:
+        is_outbound = r["from_user_id"] == user_id
+        out.append({
+            **r,
+            "other_user_id": r["to_user_id"] if is_outbound else r["from_user_id"],
+            "other_username": r["to_username"] if is_outbound else r["from_username"],
+            "other_photo": "" if is_outbound else r.get("from_photo", ""),
+        })
+    return {"connections": out, "total": len(out)}
+
+@api_router.post("/connections/{connection_id}/accept")
+async def accept_connection(connection_id: str, current_user: dict = Depends(get_current_user)):
+    conn = await db.connections.find_one({"id": connection_id})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if conn["to_user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if conn["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Already {conn['status']}")
+    await db.connections.update_one(
+        {"id": connection_id},
+        {"$set": {"status": "accepted", "responded_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": "Connection accepted"}
+
+@api_router.post("/connections/{connection_id}/reject")
+async def reject_connection(connection_id: str, current_user: dict = Depends(get_current_user)):
+    conn = await db.connections.find_one({"id": connection_id})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if conn["to_user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    await db.connections.update_one(
+        {"id": connection_id},
+        {"$set": {"status": "rejected", "responded_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": "Connection declined"}
+
+# ============== PROFILE MEDIA: Photos / Videos / Articles ==============
+
+MAX_MEDIA_BYTES = 3 * 1024 * 1024  # ~3MB after base64 ≈ ~2.2MB raw
+
+def _validate_media_size(data_url: str):
+    if not data_url or not isinstance(data_url, str):
+        raise HTTPException(status_code=400, detail="data_url required")
+    # Rough size guard (base64 length ~ 1.37x raw bytes)
+    if len(data_url) > MAX_MEDIA_BYTES * 1.4:
+        raise HTTPException(status_code=413, detail="File too large (max ~3MB)")
+
+@api_router.post("/users/me/photos")
+async def upload_photo(payload: MediaUpload, current_user: dict = Depends(get_current_user)):
+    _validate_media_size(payload.data_url)
+    photo = {
+        "id": str(uuid.uuid4()),
+        "data_url": payload.data_url,
+        "caption": payload.caption or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$push": {"photos": {"$each": [photo], "$position": 0, "$slice": 50}}}
+    )
+    return {"photo": photo}
+
+@api_router.delete("/users/me/photos/{photo_id}")
+async def delete_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$pull": {"photos": {"id": photo_id}}}
+    )
+    return {"message": "Deleted"}
+
+@api_router.get("/users/{user_id}/photos")
+async def list_photos(user_id: str):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "photos": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"photos": user.get("photos", [])}
+
+@api_router.post("/users/me/videos")
+async def upload_video(payload: MediaUpload, current_user: dict = Depends(get_current_user)):
+    _validate_media_size(payload.data_url)
+    video = {
+        "id": str(uuid.uuid4()),
+        "data_url": payload.data_url,
+        "caption": payload.caption or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$push": {"videos": {"$each": [video], "$position": 0, "$slice": 20}}}
+    )
+    return {"video": video}
+
+@api_router.delete("/users/me/videos/{video_id}")
+async def delete_video(video_id: str, current_user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$pull": {"videos": {"id": video_id}}}
+    )
+    return {"message": "Deleted"}
+
+@api_router.get("/users/{user_id}/videos")
+async def list_videos(user_id: str):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "videos": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"videos": user.get("videos", [])}
+
+@api_router.post("/users/me/articles")
+async def create_article(payload: ArticleCreate, current_user: dict = Depends(get_current_user)):
+    if not payload.title.strip() or not payload.content.strip():
+        raise HTTPException(status_code=400, detail="Title and content required")
+    article = {
+        "id": str(uuid.uuid4()),
+        "title": payload.title.strip(),
+        "content": payload.content.strip(),
+        "cover_image": payload.cover_image or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$push": {"articles": {"$each": [article], "$position": 0, "$slice": 100}}}
+    )
+    return {"article": article}
+
+@api_router.delete("/users/me/articles/{article_id}")
+async def delete_article(article_id: str, current_user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$pull": {"articles": {"id": article_id}}}
+    )
+    return {"message": "Deleted"}
+
+@api_router.get("/users/{user_id}/articles")
+async def list_articles(user_id: str):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "articles": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"articles": user.get("articles", [])}
+
 @api_router.post("/posts", response_model=Post)
 async def create_post(request: CreatePostRequest, current_user: dict = Depends(get_current_user)):
     post_id = str(uuid.uuid4())
@@ -505,6 +800,7 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         "user_score": current_user["network_score"],
         "content": request.content,
         "image": request.image,
+        "video": request.video,
         "likes": [],
         "comments": [],
         "shares": 0,

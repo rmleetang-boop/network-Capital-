@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -20,7 +20,17 @@ const ProfilePage = ({ user, setUser }) => {
     username: user.username,
     bio: user.bio,
     photo: user.photo,
+    city: user.city || '',
+    profession: user.profession || '',
   });
+  const [cities, setCities] = useState([]);
+  const [photos, setPhotos] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [articles, setArticles] = useState([]);
+  const [mediaTab, setMediaTab] = useState('photos');
+  const [showArticleModal, setShowArticleModal] = useState(false);
+  const [articleDraft, setArticleDraft] = useState({ title: '', content: '' });
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!isOwnProfile && userId) {
@@ -29,6 +39,83 @@ const ProfilePage = ({ user, setUser }) => {
       setProfileUser(user);
     }
   }, [userId, user]);
+
+  useEffect(() => {
+    axiosInstance.get('/hubs/cities').then((r) => setCities(r.data.cities || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const id = profileUser?.id;
+    if (!id) return;
+    axiosInstance.get(`/users/${id}/photos`).then((r) => setPhotos(r.data.photos || [])).catch(() => {});
+    axiosInstance.get(`/users/${id}/videos`).then((r) => setVideos(r.data.videos || [])).catch(() => {});
+    axiosInstance.get(`/users/${id}/articles`).then((r) => setArticles(r.data.articles || [])).catch(() => {});
+  }, [profileUser?.id]);
+
+  const readDataUrl = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+
+  const handleAddPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { toast.error('Max 3MB'); return; }
+    setUploading(true);
+    try {
+      const data_url = await readDataUrl(file);
+      const res = await axiosInstance.post('/users/me/photos', { data_url });
+      setPhotos((p) => [res.data.photo, ...p]);
+      toast.success('Photo added');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Upload failed');
+    } finally { setUploading(false); e.target.value = ''; }
+  };
+
+  const handleAddVideo = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { toast.error('Max 3MB — try a shorter clip'); return; }
+    setUploading(true);
+    try {
+      const data_url = await readDataUrl(file);
+      const res = await axiosInstance.post('/users/me/videos', { data_url });
+      setVideos((v) => [res.data.video, ...v]);
+      toast.success('Video added');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Upload failed');
+    } finally { setUploading(false); e.target.value = ''; }
+  };
+
+  const handleDeletePhoto = async (id) => {
+    await axiosInstance.delete(`/users/me/photos/${id}`);
+    setPhotos((p) => p.filter((x) => x.id !== id));
+  };
+  const handleDeleteVideo = async (id) => {
+    await axiosInstance.delete(`/users/me/videos/${id}`);
+    setVideos((v) => v.filter((x) => x.id !== id));
+  };
+  const handleDeleteArticle = async (id) => {
+    await axiosInstance.delete(`/users/me/articles/${id}`);
+    setArticles((a) => a.filter((x) => x.id !== id));
+  };
+
+  const handlePublishArticle = async () => {
+    if (!articleDraft.title.trim() || !articleDraft.content.trim()) {
+      toast.error('Title and content required'); return;
+    }
+    try {
+      const res = await axiosInstance.post('/users/me/articles', articleDraft);
+      setArticles((a) => [res.data.article, ...a]);
+      setShowArticleModal(false);
+      setArticleDraft({ title: '', content: '' });
+      toast.success('Article published');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed');
+    }
+  };
 
   const fetchUserProfile = async (id) => {
     setLoading(true);
@@ -44,7 +131,14 @@ const ProfilePage = ({ user, setUser }) => {
 
   const handleSave = async () => {
     try {
-      const response = await axiosInstance.put('/users/me', editData);
+      const payload = {
+        username: editData.username,
+        bio: editData.bio,
+        photo: editData.photo,
+        city: editData.city,
+        profession: editData.profession,
+      };
+      const response = await axiosInstance.put('/users/me', payload);
       setUser(response.data);
       setProfileUser(response.data);
       setEditing(false);
@@ -162,6 +256,8 @@ const ProfilePage = ({ user, setUser }) => {
                           username: user.username,
                           bio: user.bio,
                           photo: user.photo,
+                          city: user.city || '',
+                          profession: user.profession || '',
                         });
                       }}
                       className="bg-gray-200 hover:bg-gray-300 text-text-primary p-2 rounded-full transition-all"
@@ -184,18 +280,55 @@ const ProfilePage = ({ user, setUser }) => {
           </div>
 
           {editing ? (
-            <textarea
-              value={editData.bio}
-              onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
-              placeholder="Write something about yourself..."
-              rows={4}
-              className="w-full p-3 border border-gray-300 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none mb-4"
-              data-testid="bio-edit-input"
-            />
+            <div className="space-y-3 mb-4">
+              <textarea
+                value={editData.bio}
+                onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
+                placeholder="Write something about yourself..."
+                rows={3}
+                className="w-full p-3 border border-gray-300 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none"
+                data-testid="bio-edit-input"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <select
+                  value={editData.city}
+                  onChange={(e) => setEditData({ ...editData, city: e.target.value })}
+                  className="p-3 border border-gray-300 rounded-xl outline-none"
+                  data-testid="city-edit-input"
+                >
+                  <option value="">Select city…</option>
+                  {cities.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={editData.profession}
+                  onChange={(e) => setEditData({ ...editData, profession: e.target.value })}
+                  placeholder="Profession (e.g., Designer)"
+                  className="p-3 border border-gray-300 rounded-xl outline-none"
+                  data-testid="profession-edit-input"
+                />
+              </div>
+            </div>
           ) : (
-            <p className="text-text-secondary mb-6">
-              {profileUser.bio || 'No bio yet'}
-            </p>
+            <div className="mb-6">
+              <p className="text-text-secondary mb-2">{profileUser.bio || 'No bio yet'}</p>
+              <div className="flex flex-wrap gap-2 text-sm">
+                {profileUser.city && (
+                  <span className="inline-flex items-center gap-1 bg-primary/10 text-primary px-3 py-1 rounded-full">
+                    <MapPin size={12} />
+                    {cities.find((c) => c.value === profileUser.city)?.label || profileUser.city}
+                  </span>
+                )}
+                {profileUser.profession && (
+                  <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary px-3 py-1 rounded-full">
+                    <Network size={12} />
+                    {profileUser.profession}
+                  </span>
+                )}
+              </div>
+            </div>
           )}
 
           <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 mb-6">
@@ -238,6 +371,128 @@ const ProfilePage = ({ user, setUser }) => {
             </div>
           )}
 
+          {/* ============== MEDIA GALLERY ============== */}
+          <div className="border-t border-gray-100 pt-5 mb-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-heading font-bold text-text-primary">Profile Media</h3>
+              {isOwnProfile && mediaTab === 'articles' && (
+                <button
+                  onClick={() => setShowArticleModal(true)}
+                  className="text-secondary hover:text-secondary-hover font-medium text-sm flex items-center gap-1"
+                  data-testid="new-article-btn"
+                >
+                  <Plus size={16} /> New
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-full text-sm">
+              {[
+                { k: 'photos', label: 'Photos', icon: Camera, count: photos.length },
+                { k: 'videos', label: 'Videos', icon: Video, count: videos.length },
+                { k: 'articles', label: 'Articles', icon: FileText, count: articles.length },
+              ].map((t) => {
+                const Icon = t.icon;
+                const active = mediaTab === t.k;
+                return (
+                  <button
+                    key={t.k}
+                    onClick={() => setMediaTab(t.k)}
+                    className={`flex-1 py-1.5 rounded-full font-medium flex items-center justify-center gap-1 transition-all ${
+                      active ? 'bg-primary text-white shadow-sm' : 'text-text-secondary'
+                    }`}
+                    data-testid={`media-tab-${t.k}`}
+                  >
+                    <Icon size={13} /> {t.label} ({t.count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {mediaTab === 'photos' && (
+              <div className="grid grid-cols-3 gap-2">
+                {isOwnProfile && (
+                  <label className="aspect-square bg-gray-100 hover:bg-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer text-text-muted transition-all" data-testid="add-photo-tile">
+                    <Plus size={24} />
+                    <span className="text-xs mt-1">{uploading ? 'Uploading…' : 'Add'}</span>
+                    <input type="file" accept="image/*" onChange={handleAddPhoto} className="hidden" disabled={uploading} />
+                  </label>
+                )}
+                {photos.map((p) => (
+                  <div key={p.id} className="relative aspect-square rounded-xl overflow-hidden group">
+                    <img src={p.data_url} alt={p.caption} className="w-full h-full object-cover" />
+                    {isOwnProfile && (
+                      <button
+                        onClick={() => handleDeletePhoto(p.id)}
+                        className="absolute top-1 right-1 bg-red-500/80 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        data-testid={`delete-photo-${p.id}`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {photos.length === 0 && !isOwnProfile && (
+                  <p className="col-span-3 text-center text-text-muted text-sm py-6">No photos yet</p>
+                )}
+              </div>
+            )}
+
+            {mediaTab === 'videos' && (
+              <div className="space-y-3">
+                {isOwnProfile && (
+                  <label className="block w-full bg-gray-100 hover:bg-gray-200 border-2 border-dashed border-gray-300 rounded-xl py-6 text-center cursor-pointer text-text-muted" data-testid="add-video-tile">
+                    <Video className="mx-auto mb-1" size={24} />
+                    <p className="text-sm font-medium">{uploading ? 'Uploading…' : 'Upload video (max 3MB)'}</p>
+                    <input type="file" accept="video/*" onChange={handleAddVideo} className="hidden" disabled={uploading} />
+                  </label>
+                )}
+                {videos.map((v) => (
+                  <div key={v.id} className="relative bg-black rounded-xl overflow-hidden">
+                    <video src={v.data_url} controls className="w-full max-h-72" />
+                    {isOwnProfile && (
+                      <button
+                        onClick={() => handleDeleteVideo(v.id)}
+                        className="absolute top-2 right-2 bg-red-500/80 text-white p-1.5 rounded-full"
+                        data-testid={`delete-video-${v.id}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {videos.length === 0 && !isOwnProfile && (
+                  <p className="text-center text-text-muted text-sm py-6">No videos yet</p>
+                )}
+              </div>
+            )}
+
+            {mediaTab === 'articles' && (
+              <div className="space-y-3">
+                {articles.map((a) => (
+                  <div key={a.id} className="bg-background-subtle rounded-xl p-4 relative group">
+                    <h4 className="font-bold text-text-primary mb-1">{a.title}</h4>
+                    <p className="text-text-secondary text-sm whitespace-pre-wrap line-clamp-3">{a.content}</p>
+                    <p className="text-xs text-text-muted mt-2">{new Date(a.created_at).toLocaleDateString()}</p>
+                    {isOwnProfile && (
+                      <button
+                        onClick={() => handleDeleteArticle(a.id)}
+                        className="absolute top-2 right-2 bg-red-100 text-red-600 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        data-testid={`delete-article-${a.id}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {articles.length === 0 && (
+                  <p className="text-center text-text-muted text-sm py-6">
+                    {isOwnProfile ? 'Write your first article — share notes, thoughts, ideas' : 'No articles yet'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {isOwnProfile && (
             <>
               <button
@@ -268,6 +523,56 @@ const ProfilePage = ({ user, setUser }) => {
           )}
         </motion.div>
       </div>
+
+      {showArticleModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowArticleModal(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="article-modal"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-heading font-bold">Write an Article</h2>
+              <button onClick={() => setShowArticleModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+            <input
+              type="text"
+              value={articleDraft.title}
+              onChange={(e) => setArticleDraft({ ...articleDraft, title: e.target.value })}
+              placeholder="Title"
+              className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-primary mb-3"
+              data-testid="article-title-input"
+            />
+            <textarea
+              value={articleDraft.content}
+              onChange={(e) => setArticleDraft({ ...articleDraft, content: e.target.value })}
+              placeholder="Share your notes, thoughts, or a short article…"
+              rows={8}
+              className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-primary resize-none"
+              data-testid="article-content-input"
+            />
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setShowArticleModal(false)}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-primary font-medium py-3 rounded-full"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePublishArticle}
+                className="flex-1 bg-primary hover:bg-primary-hover text-white font-medium py-3 rounded-full"
+                data-testid="publish-article-btn"
+              >
+                Publish
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, X } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -11,7 +11,7 @@ const FeedPage = ({ user }) => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreatePost, setShowCreatePost] = useState(false);
-  const [newPost, setNewPost] = useState({ content: '', image: '' });
+  const [newPost, setNewPost] = useState({ content: '', image: '', video: '' });
   const [posting, setPosting] = useState(false);
   const navigate = useNavigate();
 
@@ -40,7 +40,7 @@ const FeedPage = ({ user }) => {
     try {
       const response = await axiosInstance.post('/posts', newPost);
       setPosts([response.data, ...posts]);
-      setNewPost({ content: '', image: '' });
+      setNewPost({ content: '', image: '', video: '' });
       setShowCreatePost(false);
       toast.success('Post created! +10 points');
     } catch (error) {
@@ -101,9 +101,22 @@ const FeedPage = ({ user }) => {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (file.size > 3 * 1024 * 1024) { toast.error('Image too large (max 3MB)'); return; }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setNewPost({ ...newPost, image: reader.result });
+        setNewPost({ ...newPost, image: reader.result, video: '' });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleVideoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 3 * 1024 * 1024) { toast.error('Video too large (max 3MB)'); return; }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setNewPost({ ...newPost, video: reader.result, image: '' });
       };
       reader.readAsDataURL(file);
     }
@@ -203,6 +216,19 @@ const FeedPage = ({ user }) => {
               </div>
             )}
 
+            {newPost.video && (
+              <div className="relative mb-4">
+                <video src={newPost.video} controls className="w-full max-h-72 rounded-xl bg-black" />
+                <button
+                  onClick={() => setNewPost({ ...newPost, video: '' })}
+                  className="absolute top-2 right-2 bg-white rounded-full p-2 shadow-md hover:bg-gray-100 transition-colors"
+                  data-testid="remove-video"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all">
                 <ImageIcon className="mx-auto mb-1 text-text-muted" size={24} />
@@ -213,6 +239,17 @@ const FeedPage = ({ user }) => {
                   onChange={handleImageUpload}
                   className="hidden"
                   data-testid="image-upload-input"
+                />
+              </label>
+              <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all" data-testid="video-upload-tile">
+                <VideoIcon className="mx-auto mb-1 text-text-muted" size={24} />
+                <span className="text-sm text-text-secondary">Add Video</span>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={handleVideoUpload}
+                  className="hidden"
+                  data-testid="video-upload-input"
                 />
               </label>
             </div>
@@ -272,6 +309,10 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
 
       {post.image && (
         <img src={post.image} alt="Post" className="w-full rounded-xl mb-3 max-h-96 object-cover" />
+      )}
+
+      {post.video && (
+        <video src={post.video} controls className="w-full rounded-xl mb-3 max-h-96 bg-black" />
       )}
 
       <div className="flex items-center gap-6 text-text-secondary border-t border-gray-100 pt-3">
