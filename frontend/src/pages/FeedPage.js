@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
+import MockAdButton from '../components/MockAdButton';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -159,6 +160,7 @@ const FeedPage = ({ user }) => {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
+        <MockAdButton />
         {posts.map((post, index) => (
           <PostCard
             key={post.id}

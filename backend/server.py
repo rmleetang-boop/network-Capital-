@@ -111,6 +111,12 @@ class User(BaseModel):
     articles: List[Dict[str, Any]] = []
     currency: Optional[str] = "USD"
     premium_unlocked: Optional[bool] = False
+    monthly_score: Optional[int] = 0
+    month_key: Optional[str] = None
+    cap_reached_at: Optional[str] = None
+    session_minutes_today: Optional[int] = 0
+    likes_received_count: Optional[int] = 0
+    comments_given_count: Optional[int] = 0
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
@@ -425,29 +431,112 @@ def calculate_rank(score: int) -> str:
     else:
         return "Builder"
 
-async def update_user_score(user_id: str, points: int, notification_msg: str):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+async def update_user_score(user_id: str, points: int, notification_msg: str, action: str = "legacy", source_id: Optional[str] = None):
+    """Award points using new monthly-cap + premium-2x system. Backwards compatible."""
+    await award_points(user_id, action, points, source_id=source_id, message=notification_msg)
+
+
+# ============== NEW NETWORK SCORE SYSTEM ==============
+
+MONTHLY_SCORE_CAP = 10000
+PREMIUM_TOP_GRACE_DAYS = 90  # 3 months for premium users at cap
+
+def _month_key(dt: Optional[datetime] = None) -> str:
+    dt = dt or datetime.now(timezone.utc)
+    return dt.strftime("%Y-%m")
+
+def _date_key(dt: Optional[datetime] = None) -> str:
+    dt = dt or datetime.now(timezone.utc)
+    return dt.strftime("%Y-%m-%d")
+
+async def _ensure_month_state(user: dict) -> dict:
+    """If the calendar month has rolled over since user's last activity, reset monthly_score
+    (preserving 3-month grace at top score for premium accounts that hit the cap)."""
+    cur_key = _month_key()
+    if user.get("month_key") == cur_key:
+        return user
+
+    new_state = {"month_key": cur_key, "session_minutes_today": 0, "last_session_date": _date_key()}
+
+    # Premium grace: stay at top score for 3 months from cap
+    keep_at_top = False
+    if (
+        user.get("premium_unlocked")
+        and user.get("monthly_score", 0) >= MONTHLY_SCORE_CAP
+        and user.get("cap_reached_at")
+    ):
+        try:
+            cap_dt = datetime.fromisoformat(user["cap_reached_at"].replace("Z", "+00:00"))
+            if (datetime.now(timezone.utc) - cap_dt).days < PREMIUM_TOP_GRACE_DAYS:
+                keep_at_top = True
+        except Exception:
+            pass
+
+    if keep_at_top:
+        new_state["monthly_score"] = MONTHLY_SCORE_CAP
+    else:
+        new_state["monthly_score"] = 0
+        new_state["cap_reached_at"] = None
+
+    await db.users.update_one({"id": user["id"]}, {"$set": new_state})
+    user.update(new_state)
+    return user
+
+async def award_points(user_id: str, action: str, base_points: int, source_id: Optional[str] = None, message: Optional[str] = None) -> int:
+    """Awards points with: monthly cap (10K), premium 2× multiplier, event log."""
+    user = await db.users.find_one({"id": user_id})
     if not user:
-        return
-    
-    new_score = user.get("network_score", 0) + points
-    new_rank = calculate_rank(new_score)
-    
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"network_score": new_score, "rank": new_rank}}
-    )
-    
-    notification = {
+        return 0
+
+    user = await _ensure_month_state(user)
+
+    current_monthly = user.get("monthly_score", 0)
+    if current_monthly >= MONTHLY_SCORE_CAP:
+        return 0
+
+    multiplier = 2 if user.get("premium_unlocked") else 1
+    awarded = base_points * multiplier
+    awarded = min(awarded, MONTHLY_SCORE_CAP - current_monthly)
+    if awarded <= 0:
+        return 0
+
+    new_monthly = current_monthly + awarded
+    new_lifetime = user.get("network_score", 0) + awarded
+
+    update = {
+        "monthly_score": new_monthly,
+        "network_score": new_lifetime,
+        "rank": calculate_rank(new_lifetime),
+    }
+    if new_monthly >= MONTHLY_SCORE_CAP and not user.get("cap_reached_at"):
+        update["cap_reached_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.users.update_one({"id": user_id}, {"$set": update})
+
+    await db.score_events.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user_id,
-        "type": "score_increase",
-        "message": notification_msg,
-        "points": points,
-        "read": False,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.notifications.insert_one(notification)
+        "action": action,
+        "points": awarded,
+        "base_points": base_points,
+        "multiplier": multiplier,
+        "source_id": source_id,
+        "month_key": _month_key(),
+        "date_key": _date_key(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    if message:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "type": "score_increase",
+            "message": message,
+            "points": awarded,
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    return awarded
 
 @api_router.post("/auth/signup", response_model=AuthResponse)
 async def signup(request: SignupRequest):
@@ -634,6 +723,261 @@ def require_premium(current_user: dict):
             status_code=402,  # Payment Required
             detail="Premium subscription required. Unlock at /api/users/me/premium"
         )
+
+# ============== HEARTBEAT, ADS, SCORE SUMMARY, ACTIVITY TRACKER ==============
+
+class HeartbeatResponse(BaseModel):
+    minutes_today: int
+    points_awarded: int
+
+@api_router.post("/users/me/heartbeat")
+async def heartbeat(current_user: dict = Depends(get_current_user)):
+    """Frontend pings every 60s while user is active. Awards 10 pts per 180 cumulative minutes."""
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user:
+        raise HTTPException(status_code=404)
+    user = await _ensure_month_state(user)
+
+    today = _date_key()
+    last_date = user.get("last_session_date")
+    if last_date != today:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"last_session_date": today, "session_minutes_today": 0}}
+        )
+        user["session_minutes_today"] = 0
+
+    prev_minutes = user.get("session_minutes_today", 0)
+    new_minutes = prev_minutes + 1
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"session_minutes_today": new_minutes}}
+    )
+
+    awarded = 0
+    if new_minutes // 180 > prev_minutes // 180:
+        awarded = await award_points(
+            user["id"], "time_on_app", 10,
+            message="3 hours active +10"
+        )
+    return {"minutes_today": new_minutes, "points_awarded": awarded}
+
+
+class AdWatchPayload(BaseModel):
+    with_share: bool = False
+    with_engagement: bool = False
+    ad_id: Optional[str] = None
+
+@api_router.post("/ads/watch")
+async def watch_ad(payload: AdWatchPayload, current_user: dict = Depends(get_current_user)):
+    """MOCK ad reward. with_engagement=True (product/service conversion) → 500 pts.
+    with_share=True only → 100 pts. Otherwise → 0."""
+    if payload.with_engagement:
+        action, base = "ad_engagement", 500
+    elif payload.with_share:
+        action, base = "ad_share", 100
+    else:
+        return {"points": 0, "reason": "Watch fully + share or engage to earn points"}
+
+    awarded = await award_points(
+        current_user["id"], action, base,
+        source_id=payload.ad_id,
+        message=f"Watched ad + {'engagement' if payload.with_engagement else 'share'} +{base}"
+    )
+    return {"points": awarded, "action": action, "mocked": True}
+
+
+@api_router.get("/score/summary")
+async def score_summary(current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user:
+        raise HTTPException(status_code=404)
+    user = await _ensure_month_state(user)
+
+    monthly = user.get("monthly_score", 0)
+    cap = MONTHLY_SCORE_CAP
+    percentage = round((monthly / cap) * 100, 1) if cap else 0
+    cap_reached = monthly >= cap
+
+    today = _date_key()
+    daily_total = await db.score_events.aggregate([
+        {"$match": {"user_id": user["id"], "date_key": today}},
+        {"$group": {"_id": None, "total": {"$sum": "$points"}}}
+    ]).to_list(1)
+    daily_score = daily_total[0]["total"] if daily_total else 0
+
+    week_start = (datetime.now(timezone.utc) - timedelta(days=6)).strftime("%Y-%m-%d")
+    weekly_total = await db.score_events.aggregate([
+        {"$match": {"user_id": user["id"], "date_key": {"$gte": week_start}}},
+        {"$group": {"_id": None, "total": {"$sum": "$points"}}}
+    ]).to_list(1)
+    weekly_score = weekly_total[0]["total"] if weekly_total else 0
+
+    # Premium grace status
+    premium_grace = None
+    if user.get("premium_unlocked") and user.get("cap_reached_at"):
+        try:
+            cap_dt = datetime.fromisoformat(user["cap_reached_at"].replace("Z", "+00:00"))
+            days_remaining = max(0, PREMIUM_TOP_GRACE_DAYS - (datetime.now(timezone.utc) - cap_dt).days)
+            premium_grace = {"days_remaining": days_remaining, "active": days_remaining > 0}
+        except Exception:
+            pass
+
+    can_claim_premium = cap_reached and not user.get("premium_unlocked", False)
+
+    return {
+        "monthly_score": monthly,
+        "monthly_cap": cap,
+        "percentage": percentage,
+        "cap_reached": cap_reached,
+        "daily_score": daily_score,
+        "weekly_score": weekly_score,
+        "lifetime_score": user.get("network_score", 0),
+        "rank": user.get("rank", "Rising Star"),
+        "premium_unlocked": bool(user.get("premium_unlocked")),
+        "premium_multiplier_active": bool(user.get("premium_unlocked")),
+        "premium_grace": premium_grace,
+        "can_claim_premium": can_claim_premium,
+        "session_minutes_today": user.get("session_minutes_today", 0),
+        "month_key": user.get("month_key"),
+    }
+
+
+@api_router.get("/score/activity")
+async def score_activity(period: str = "daily", days: int = 30, current_user: dict = Depends(get_current_user)):
+    """Returns score events grouped by day/week/month for charts."""
+    if period not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="period must be daily|weekly|monthly")
+
+    if period == "daily":
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = await db.score_events.aggregate([
+            {"$match": {"user_id": current_user["id"], "date_key": {"$gte": since}}},
+            {"$group": {"_id": "$date_key", "total": {"$sum": "$points"}, "count": {"$sum": 1}}},
+            {"$sort": {"_id": 1}},
+        ]).to_list(365)
+        return {"period": "daily", "buckets": [{"key": r["_id"], "points": r["total"], "events": r["count"]} for r in rows]}
+
+    if period == "weekly":
+        since = (datetime.now(timezone.utc) - timedelta(days=days * 7)).isoformat()
+        events = await db.score_events.find(
+            {"user_id": current_user["id"], "created_at": {"$gte": since}},
+            {"_id": 0}
+        ).to_list(2000)
+        from collections import defaultdict
+        buckets = defaultdict(lambda: {"points": 0, "events": 0})
+        for e in events:
+            try:
+                dt = datetime.fromisoformat(e["created_at"].replace("Z", "+00:00"))
+                year, week, _ = dt.isocalendar()
+                key = f"{year}-W{week:02d}"
+                buckets[key]["points"] += e["points"]
+                buckets[key]["events"] += 1
+            except Exception:
+                pass
+        return {"period": "weekly", "buckets": [{"key": k, **v} for k, v in sorted(buckets.items())]}
+
+    rows = await db.score_events.aggregate([
+        {"$match": {"user_id": current_user["id"]}},
+        {"$group": {"_id": "$month_key", "total": {"$sum": "$points"}, "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]).to_list(120)
+    return {"period": "monthly", "buckets": [{"key": r["_id"], "points": r["total"], "events": r["count"]} for r in rows]}
+
+
+@api_router.get("/score/events")
+async def score_events_list(limit: int = 50, current_user: dict = Depends(get_current_user)):
+    rows = await db.score_events.find(
+        {"user_id": current_user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"events": rows}
+
+
+@api_router.post("/score/claim-premium")
+async def claim_premium_via_score(current_user: dict = Depends(get_current_user)):
+    """Free users who hit the monthly 10K cap can claim premium (no $ charge)."""
+    user = await db.users.find_one({"id": current_user["id"]})
+    if not user:
+        raise HTTPException(status_code=404)
+    user = await _ensure_month_state(user)
+    if user.get("premium_unlocked"):
+        return {"already_premium": True}
+    if user.get("monthly_score", 0) < MONTHLY_SCORE_CAP:
+        raise HTTPException(status_code=400, detail="Reach 10,000 points this month to claim")
+
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "premium_unlocked": True,
+            "premium_paid_at": datetime.now(timezone.utc).isoformat(),
+            "premium_claim_method": "top_score",
+            "currency": user.get("currency", "USD"),
+        }}
+    )
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "type": "premium_unlock_claimed",
+        "amount_usd": 0,
+        "currency": user.get("currency", "USD"),
+        "description": "Premium unlocked by hitting 10,000 monthly points (no charge)",
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"premium_unlocked": True, "claimed_via": "top_score"}
+
+
+# ============== HUB PULSE ==============
+
+@api_router.get("/hubs/pulse")
+async def hub_pulse(city: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """Live activity stats for a city: new members this week, active stokvels, recent connections."""
+    target_city = city or current_user.get("city")
+    if not target_city:
+        return {"city": None, "stats": None}
+
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+
+    new_members_week = await db.users.count_documents({
+        "city": target_city, "created_at": {"$gte": week_ago}
+    })
+    new_members_month = await db.users.count_documents({
+        "city": target_city, "created_at": {"$gte": month_ago}
+    })
+    total_in_city = await db.users.count_documents({"city": target_city})
+
+    # Active stokvels: ones with members from this city
+    user_ids_in_city = [u["id"] async for u in db.users.find({"city": target_city}, {"_id": 0, "id": 1})]
+    active_stokvels = 0
+    if user_ids_in_city:
+        active_stokvels = await db.stokvels.count_documents({
+            "members.user_id": {"$in": user_ids_in_city}
+        })
+
+    # Connections this week (in or out, where one of the parties is in this city)
+    connections_week = 0
+    if user_ids_in_city:
+        connections_week = await db.connections.count_documents({
+            "$or": [
+                {"from_user_id": {"$in": user_ids_in_city}},
+                {"to_user_id": {"$in": user_ids_in_city}},
+            ],
+            "status": "accepted",
+            "created_at": {"$gte": week_ago},
+        })
+
+    return {
+        "city": target_city,
+        "stats": {
+            "total_members": total_in_city,
+            "new_members_week": new_members_week,
+            "new_members_month": new_members_month,
+            "active_stokvels": active_stokvels,
+            "connections_week": connections_week,
+        }
+    }
+
 
 # ============== REGIONAL HUBS ==============
 
@@ -918,7 +1262,7 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
     }
     
     await db.posts.insert_one(post_data)
-    await update_user_score(current_user["id"], 10, "Posted new content +10")
+    await award_points(current_user["id"], "post", 20, source_id=post_data["id"], message="Posted new content +20")
     
     return post_data
 
@@ -941,10 +1285,24 @@ async def like_post(post_id: str, current_user: dict = Depends(get_current_user)
     else:
         likes.append(current_user["id"])
         await db.posts.update_one({"id": post_id}, {"$set": {"likes": likes}})
-        
+
         if post["user_id"] != current_user["id"]:
-            await update_user_score(post["user_id"], 2, f"{current_user['username']} liked your post +2")
-        
+            # Track lifetime likes received and award 10 pts every 50 likes
+            owner = await db.users.find_one({"id": post["user_id"]}, {"_id": 0})
+            if owner:
+                prev = owner.get("likes_received_count", 0)
+                new_count = prev + 1
+                await db.users.update_one(
+                    {"id": post["user_id"]},
+                    {"$set": {"likes_received_count": new_count}}
+                )
+                if new_count // 50 > prev // 50:
+                    await award_points(
+                        post["user_id"], "like_milestone", 10,
+                        source_id=post_id,
+                        message=f"You hit {new_count} likes received +10"
+                    )
+
         return {"liked": True, "likes_count": len(likes)}
 
 @api_router.post("/posts/{post_id}/comment")
@@ -967,8 +1325,16 @@ async def comment_post(post_id: str, request: CommentRequest, current_user: dict
     await db.posts.update_one({"id": post_id}, {"$set": {"comments": comments}})
     
     if post["user_id"] != current_user["id"]:
-        await update_user_score(post["user_id"], 5, f"{current_user['username']} commented on your post +5")
-    
+        await award_points(post["user_id"], "comment_received", 2, source_id=post_id,
+                           message=f"{current_user['username']} commented on your post +2")
+    # Award 20 pts to commenter once they've left 10 cumulative comments (10 comments = 20pts/spec)
+    prev_comments = current_user.get("comments_given_count", 0)
+    new_comments = prev_comments + 1
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"comments_given_count": new_comments}})
+    if new_comments // 10 > prev_comments // 10:
+        await award_points(current_user["id"], "comment_milestone", 20,
+                           message=f"You hit {new_comments} comments +20")
+
     return comment
 
 @api_router.post("/posts/{post_id}/share")
@@ -981,8 +1347,11 @@ async def share_post(post_id: str, current_user: dict = Depends(get_current_user
     await db.posts.update_one({"id": post_id}, {"$set": {"shares": shares}})
     
     if post["user_id"] != current_user["id"]:
-        await update_user_score(post["user_id"], 8, f"{current_user['username']} shared your post +8")
-    
+        await award_points(post["user_id"], "share_received", 5, source_id=post_id,
+                           message=f"{current_user['username']} shared your post +5")
+    # Award the sharer per spec: 10 pts per share
+    await award_points(current_user["id"], "share", 10, source_id=post_id, message="You shared a post +10")
+
     return {"shares": shares}
 
 @api_router.get("/leaderboard", response_model=List[User])

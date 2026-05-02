@@ -24,13 +24,13 @@ const BrandAttribution = ({ tone = 'dark', position = 'fixed' }) => {
     <div
       className={`${positionClass} flex justify-center px-4`}
       data-testid="brand-attribution"
-      aria-label="Powered by Mici Business"
+      aria-label="Powered by Mici Business pty ltd"
     >
       <p
         className={`text-[11px] sm:text-xs font-medium tracking-wide select-none transition-colors ${colorClass}`}
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
-        Powered by Mici Business
+        Powered by Mici Business pty ltd
       </p>
     </div>
   );

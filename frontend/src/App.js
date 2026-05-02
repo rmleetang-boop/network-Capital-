@@ -27,6 +27,8 @@ import NetWorthPage from './pages/NetWorthPage';
 import AudienceInsightsPage from './pages/AudienceInsightsPage';
 import RegionalHubsPage from './pages/RegionalHubsPage';
 import ConnectionsPage from './pages/ConnectionsPage';
+import ActivityTrackerPage from './pages/ActivityTrackerPage';
+import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
 import './App.css';
@@ -50,6 +52,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Heartbeat: ping every 60s while authenticated for time-on-app score
+  useHeartbeat(!!user);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -164,6 +169,7 @@ function App() {
             <Route path="/net-worth" element={<NetWorthPage user={user} />} />
             <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
             <Route path="/connections" element={<ConnectionsPage user={user} />} />
+            <Route path="/activity" element={<ActivityTrackerPage user={user} />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />

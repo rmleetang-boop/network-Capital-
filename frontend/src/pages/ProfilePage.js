@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -495,6 +495,31 @@ const ProfilePage = ({ user, setUser }) => {
 
           {isOwnProfile && (
             <>
+              {/* Quick Access grid (formerly in floating menu) */}
+              <div className="grid grid-cols-3 gap-3 mb-5" data-testid="quick-access-grid">
+                {[
+                  { icon: Inbox, label: 'Connections', path: '/connections' },
+                  { icon: Wallet, label: 'Wallet', path: '/wallet' },
+                  { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
+                  { icon: Activity, label: 'Activity', path: '/activity' },
+                  { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
+                  { icon: HelpCircle, label: 'Help', path: '/help' },
+                ].map((q) => {
+                  const QIcon = q.icon;
+                  return (
+                    <button
+                      key={q.path}
+                      onClick={() => (window.location.href = q.path)}
+                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-background-subtle hover:bg-gray-100 transition-colors"
+                      data-testid={`quick-${q.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <QIcon size={20} className="text-primary" />
+                      <span className="text-xs font-medium text-text-primary">{q.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <button
                 onClick={() => window.location.href = '/referral'}
                 className="w-full flex items-center justify-center gap-2 bg-secondary hover:bg-secondary-hover text-white font-medium py-3 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95 mb-3"
