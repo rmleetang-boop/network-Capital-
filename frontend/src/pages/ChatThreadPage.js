@@ -308,7 +308,7 @@ const ChatThreadPage = ({ user }) => {
             )}
             <textarea
               value={text}
-              onChange={(e) => { setText(e.target.value); setConfirmFlagged(false); }}
+              onChange={(e) => setText(e.target.value)}
               rows={1}
               placeholder="Message"
               className={`flex-1 resize-none px-4 py-2 rounded-2xl border outline-none text-sm max-h-24 ${flags.length > 0 ? 'border-yellow-400 bg-yellow-50/30' : 'border-gray-200 focus:border-primary'}`}
