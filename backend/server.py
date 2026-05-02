@@ -1630,7 +1630,204 @@ async def reject_connection(connection_id: str, current_user: dict = Depends(get
     )
     return {"message": "Connection declined"}
 
+
 # ============== PROFILE MEDIA: Photos / Videos / Articles ==============
+# ============== DIRECT MESSAGES ==============
+
+BLOCKED_COMPLIANCE_WORDS = {
+    "invest": "contribute",
+    "invests": "contributes",
+    "investing": "backing",
+    "invested": "contributed",
+    "investment": "contribution",
+    "investments": "contributions",
+    "investor": "supporter",
+    "investors": "supporters",
+    "profit": "support",
+    "profits": "rewards",
+    "profitable": "rewarding",
+    "return": "reward",
+    "returns": "rewards",
+    "interest": "support",
+    "guaranteed": "planned",
+    "guarantee": "intention",
+}
+
+DM_MAX_MEDIA_BYTES = 3 * 1024 * 1024  # ~3MB base64
+
+
+def compliance_scan(text: str) -> List[Dict[str, Any]]:
+    """Return [{word, suggestion}, ...] for any blocked word (case-insensitive, word-boundary)."""
+    if not text:
+        return []
+    import re as _re
+    flags = []
+    lower = text.lower()
+    for word, suggestion in BLOCKED_COMPLIANCE_WORDS.items():
+        if _re.search(rf"\b{_re.escape(word)}\b", lower):
+            flags.append({"word": word, "suggestion": suggestion})
+    # De-dup by word preserving order
+    seen = set()
+    out = []
+    for f in flags:
+        if f["word"] in seen:
+            continue
+        seen.add(f["word"])
+        out.append(f)
+    return out
+
+
+def _thread_key(a: str, b: str) -> str:
+    return ":".join(sorted([a, b]))
+
+
+class DMSendRequest(BaseModel):
+    recipient_id: str
+    text: Optional[str] = ""
+    image: Optional[str] = None     # base64 data URL
+    audio: Optional[str] = None     # base64 audio data URL (voice note)
+    shared_post_id: Optional[str] = None
+
+
+class ComplianceCheckRequest(BaseModel):
+    text: str
+
+
+@api_router.post("/dm/compliance-check")
+async def dm_compliance_check(payload: ComplianceCheckRequest, current_user: dict = Depends(get_current_user)):
+    """Client calls this before sending to get a soft warning. Server still re-checks on send."""
+    return {"flags": compliance_scan(payload.text or "")}
+
+
+@api_router.post("/dm/send")
+async def dm_send(payload: DMSendRequest, current_user: dict = Depends(get_current_user)):
+    if payload.recipient_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot DM yourself")
+    recipient = await db.users.find_one({"id": payload.recipient_id}, {"_id": 0})
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    text = (payload.text or "").strip()
+    if not any([text, payload.image, payload.audio, payload.shared_post_id]):
+        raise HTTPException(status_code=400, detail="Message is empty")
+
+    # Size guards
+    for field_name, field_val in (("image", payload.image), ("audio", payload.audio)):
+        if field_val and len(field_val) > int(DM_MAX_MEDIA_BYTES * 1.4):
+            raise HTTPException(status_code=413, detail=f"{field_name} too large (max ~3MB)")
+
+    # Resolve shared_post preview (denormalized snapshot)
+    shared_post_preview = None
+    if payload.shared_post_id:
+        p = await db.posts.find_one({"id": payload.shared_post_id}, {"_id": 0})
+        if p:
+            shared_post_preview = {
+                "id": p["id"],
+                "user_id": p.get("user_id"),
+                "username": p.get("username"),
+                "user_photo": p.get("user_photo", ""),
+                "content": (p.get("content") or "")[:240],
+                "image": p.get("image"),
+                "video": p.get("video"),
+                "is_auto_narrated": bool(p.get("is_auto_narrated")),
+            }
+
+    flags = compliance_scan(text)
+
+    thread_key = _thread_key(current_user["id"], payload.recipient_id)
+    now = datetime.now(timezone.utc).isoformat()
+    msg = {
+        "id": str(uuid.uuid4()),
+        "thread_key": thread_key,
+        "sender_id": current_user["id"],
+        "sender_username": current_user["username"],
+        "sender_photo": current_user.get("photo", ""),
+        "recipient_id": payload.recipient_id,
+        "text": text,
+        "image": payload.image or None,
+        "audio": payload.audio or None,
+        "shared_post": shared_post_preview,
+        "compliance_warnings": flags,
+        "created_at": now,
+    }
+    await db.dm_messages.insert_one(msg)
+
+    # Upsert thread cache (lightweight — used for list view)
+    await db.dm_threads.update_one(
+        {"thread_key": thread_key},
+        {"$set": {
+            "thread_key": thread_key,
+            "participants": sorted([current_user["id"], payload.recipient_id]),
+            "last_message_id": msg["id"],
+            "last_text": text or ("📎 media" if (payload.image or payload.audio or payload.shared_post_id) else ""),
+            "last_sender_id": current_user["id"],
+            "last_at": now,
+        }},
+        upsert=True,
+    )
+    # strip Mongo _id before returning
+    msg.pop("_id", None)
+    return {"message": msg, "compliance_warnings": flags}
+
+
+@api_router.get("/dm/threads")
+async def dm_threads(current_user: dict = Depends(get_current_user)):
+    """List all threads for current user, newest first."""
+    uid = current_user["id"]
+    rows = await db.dm_threads.find(
+        {"participants": uid}, {"_id": 0}
+    ).sort("last_at", -1).to_list(200)
+    out = []
+    for t in rows:
+        other_id = next((p for p in t["participants"] if p != uid), None)
+        if not other_id:
+            continue
+        other = await db.users.find_one({"id": other_id}, {"_id": 0, "username": 1, "photo": 1, "full_name": 1})
+        if not other:
+            continue
+        out.append({
+            "thread_key": t["thread_key"],
+            "other_user_id": other_id,
+            "other_username": other.get("username"),
+            "other_full_name": other.get("full_name"),
+            "other_photo": other.get("photo", ""),
+            "last_text": t.get("last_text", ""),
+            "last_at": t.get("last_at"),
+            "last_sender_id": t.get("last_sender_id"),
+        })
+    return {"threads": out, "total": len(out)}
+
+
+@api_router.get("/dm/threads/{other_user_id}")
+async def dm_thread_messages(
+    other_user_id: str,
+    limit: int = 200,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get messages for the thread between current_user and other_user_id.
+    Also returns the other user's public profile for headers."""
+    if other_user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot DM yourself")
+    other = await db.users.find_one({"id": other_user_id}, {"_id": 0, "password": 0})
+    if not other:
+        raise HTTPException(status_code=404, detail="User not found")
+    thread_key = _thread_key(current_user["id"], other_user_id)
+    msgs = await db.dm_messages.find(
+        {"thread_key": thread_key}, {"_id": 0}
+    ).sort("created_at", 1).to_list(limit)
+    return {
+        "thread_key": thread_key,
+        "other_user": {
+            "id": other["id"],
+            "username": other.get("username"),
+            "full_name": other.get("full_name"),
+            "photo": other.get("photo", ""),
+            "network_score": other.get("network_score", 0),
+        },
+        "messages": msgs,
+    }
+
+
 
 MAX_MEDIA_BYTES = 3 * 1024 * 1024  # ~3MB after base64 ≈ ~2.2MB raw
 

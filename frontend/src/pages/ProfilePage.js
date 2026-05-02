@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -277,6 +277,15 @@ const ProfilePage = ({ user, setUser }) => {
                 )}
               </div>
             )}
+            {!isOwnProfile && profileUser.id && (
+              <button
+                onClick={() => navigate(`/messages/${profileUser.id}`)}
+                className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-full text-sm font-semibold shadow-md hover:shadow-lg active:scale-95 transition-all"
+                data-testid="profile-message-button"
+              >
+                <MessageCircle size={16} /> Message
+              </button>
+            )}
           </div>
 
           {editing ? (
@@ -499,6 +508,7 @@ const ProfilePage = ({ user, setUser }) => {
               <div className="grid grid-cols-3 gap-3 mb-5" data-testid="quick-access-grid">
                 {[
                   { icon: Inbox, label: 'Connections', path: '/connections' },
+                  { icon: MessageCircle, label: 'Messages', path: '/messages' },
                   { icon: Wallet, label: 'Wallet', path: '/wallet' },
                   { icon: Package, label: 'Products', path: '/products' },
                   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },

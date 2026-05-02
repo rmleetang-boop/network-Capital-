@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Share2, X, Copy, Check } from 'lucide-react';
+import { Share2, X, Copy, Check, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 // Lightweight platform icons using Simple Icons SVGs inline (no extra deps)
 const TwitterIcon = (props) => (
@@ -32,6 +33,7 @@ const TelegramIcon = (props) => (
 
 const ShareMenu = ({ post, onShared, onClose }) => {
   const [copied, setCopied] = useState(false);
+  const navigate = useNavigate();
   const appUrl = window.location.origin;
   const postUrl = `${appUrl}/?post=${post.id}`;
   const text = post.content?.slice(0, 200) || 'Check out this post on Network Capital';
@@ -121,6 +123,14 @@ const ShareMenu = ({ post, onShared, onClose }) => {
             </button>
           ))}
         </div>
+
+        <button
+          onClick={() => { onShared && onShared(); onClose(); navigate(`/messages?share_post=${post.id}`); }}
+          className="w-full mb-2 py-3 bg-primary hover:bg-primary-hover text-white rounded-full flex items-center justify-center gap-2 font-semibold transition-all active:scale-95"
+          data-testid="share-send-dm"
+        >
+          <MessageCircle size={16} /> Send in a DM
+        </button>
 
         <button
           onClick={handleCopy}
