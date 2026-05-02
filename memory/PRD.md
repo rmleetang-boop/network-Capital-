@@ -15,6 +15,20 @@ Mobile-first social network ("Network Capital") with:
 
 ## Implemented Features (cumulative)
 
+### Iteration 11 — Direct Messaging (DMs) v1
+
+- **Endpoints**: `POST /api/dm/compliance-check`, `POST /api/dm/send`, `GET /api/dm/threads`, `GET /api/dm/threads/:other_user_id`. Collections: `dm_messages`, `dm_threads`.
+- **Open DM model** — any user can DM any other user (no connection gating, per user choice).
+- **Multimedia**: text + base64 image (3MB) + voice notes via MediaRecorder (3MB) + share-a-post with denormalized snapshot (`username`, `content`, `image`, `is_auto_narrated`).
+- **Compliance**: word-boundary regex over `BLOCKED_COMPLIANCE_WORDS` (invest/profit/returns/guaranteed/interest…). Both `/dm/compliance-check` (live debounced sender preview) and `/dm/send` (server hard-check) return per-message `compliance_warnings`. Composer requires **two-tap send** for flagged text — first tap arms the warning, second tap actually sends.
+- **Polling**: 5s interval on `/messages` and `/messages/:id`.
+- **Entry points**: Profile → Quick Access "Messages" item, "Message" button on other users' profile headers, "Send in a DM" inside ShareMenu (auto-sends the shared post on thread tap).
+- **Layout fixes**:
+  - `Layout.js` hides BottomNav on `/messages*` (Instagram-style full-screen chat).
+  - `ChatThreadPage` composer at `fixed bottom-16` so it sits above the 40px Emergent platform badge.
+  - Scroll container `pb-44` so the latest message is never obscured.
+- **Idempotency**: `useRef` sentinel keyed `${userId}:${sharePostId}` prevents StrictMode double-fire on share-post auto-send.
+
 ### Iteration 10 — Stripe Real Payments + Instagram-Vibe Pivot
 
 **Stripe (real test checkout) for USD/EUR/GBP/CAD/AUD/JPY:**
@@ -79,6 +93,11 @@ frontend/src/
     └── ProfilePage.js             (Products + Notifications added to Quick Access)
 ```
 
+## Testing (Iteration 11 — DMs)
+- `iteration_11.json`: 19/19 backend pytest (compliance-check, send happy/edge, threads, both-participants, auth-gating).
+- `iteration_12.json`: BottomNav fix verified; surfaced Emergent-badge overlap on composer.
+- `iteration_13.json`: 8/8 TAP flows green after composer bumped to `bottom-16` + `pb-44`. One minor StrictMode double-fire on share-post auto-send → fixed in this commit with `useRef` sentinel.
+
 ## Testing (Iteration 10)
 - `iteration_10.json`: **100% (14/14 backend pytest + 5/5 frontend Playwright)** — Stripe end-to-end (session creation, status polling, redirect verification), price-tampering rejected, idempotent unlock, cross-user 403, webhook doesn't 500.
 - `iteration_9.json`: 100% (11/11 frontend flows + 5/5 backend sanity endpoints) — Instagram-vibe pivot green.
@@ -90,14 +109,14 @@ frontend/src/
 
 ## Next Action Items
 - **P1 — Paystack integration** (waiting on user's test keys → flips NGN/GHS/KES/ZAR from MOCK to real)
-- **P1 — Direct Messaging** between connections
 - **P1 — Reels-style vertical video feed** + carousel posts
 - **P1 — Real ad SDK integration** (AdMob / Meta Audience Network)
-- **P2 — Cloud media storage** (S3/R2) — base64 in Mongo will hit 16MB doc cap
+- **P2 — Cloud media storage** (S3/R2) — base64 in Mongo will hit 16MB doc cap (now also stores audio+images in DMs)
 - **P2 — Live FX rates** via exchangerate.host; creator-currency pricing
-- **P2 — Modularize server.py** (~3,590 lines) — Stripe block is a clean first candidate for `/app/backend/routers/payments.py`
+- **P2 — Modularize server.py** (~3,800 lines now) — split `/app/backend/routers/payments.py`, `/app/backend/routers/dm.py`
 - **P3 — Driver Pool extension**, PWA + Capacitor wrap
-- Cleanup: split PostCard out of FeedPage.js; fix `isOwnProfile` useEffect dep warning in ProfilePage.js; guard Stripe webhook on `event_type == 'checkout.session.completed'`
+- **DM v2 candidates**: WebSockets (replace 5s polling), unread badges, group/Stokvel chats, message reactions, typing indicators
+- Cleanup: split PostCard out of FeedPage.js; visibility-aware DM polling pause; move compliance word list to DB config
 
 ## Project Health
 - Backend: Stripe real-payment live; Paystack fallback on legacy path; auto-narration + welcome bonus idempotent.

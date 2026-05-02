@@ -31,6 +31,7 @@ const ChatThreadPage = ({ user }) => {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const scrollerRef = useRef(null);
+  const sharedSentRef = useRef(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -68,10 +69,12 @@ const ChatThreadPage = ({ user }) => {
     return () => clearTimeout(t);
   }, [text]);
 
-  // Auto-send a shared post if ?share_post=<id> is present (fired once)
+  // Auto-send a shared post if ?share_post=<id> is present (fired once per id+user)
   useEffect(() => {
     if (!sharePostId) return;
-    let done = false;
+    const key = `${userId}:${sharePostId}`;
+    if (sharedSentRef.current.has(key)) return;
+    sharedSentRef.current.add(key);
     const sendShared = async () => {
       try {
         const res = await axiosInstance.post('/dm/send', {
@@ -82,16 +85,14 @@ const ChatThreadPage = ({ user }) => {
         toast.success('Post shared');
       } catch (e) {
         toast.error(e.response?.data?.detail || 'Failed to share post');
+        sharedSentRef.current.delete(key); // allow retry on failure
       } finally {
-        done = true;
-        // clear the param so a page re-render doesn't re-send
         const next = new URLSearchParams(params);
         next.delete('share_post');
         setParams(next, { replace: true });
       }
     };
     sendShared();
-    return () => { if (!done) {} };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sharePostId, userId]);
 
