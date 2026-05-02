@@ -1,0 +1,36 @@
+{
+  "summary": "Iter 13 — Re-test of DM v1 after BOTH overlap fixes (BottomNav hidden on /messages* + composer bumped to bottom-16 / pb-44). ALL deferred TAP-flows now PASS via real .click() on dm-send-button. document.elementFromPoint at the centre of dm-send-button now returns a <path> whose closest [data-testid] is 'dm-send-button' (isBtnOrChild=true). Send-button rect (340,734,38,38), badge rect (196,788,178,40) — the button is now 54px above the top of the badge with no overlap. T3 (clean tap), T4 (compliance 2-tap), T5 (image attach + tap-send), T6 (mic visible), T7 (back-to-list + reopen), T8 (share-post auto-send via tap chain) all PASS. Regression: BottomNav HIDDEN on /messages and /messages/:id (count=0); BottomNav still RENDERS on /, /explore, /hubs, /stokvels, /profile (count=5 each).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Share-post auto-send (T8)",
+        "issue": "When entering /messages/:id?share_post=<id> the useEffect that POSTs /dm/send with shared_post_id fires TWICE — observed shared_count=2 from a single share-flow tap. Probable cause: React 18 StrictMode double-invokes effects in dev/preview, or the `setParams(replace:true)` re-renders the route component before the deps change is settled. The `done` flag inside the effect is local-to-each-effect-run so it does not de-dupe across the second invocation. Recommend either guarding with a useRef sentinel (e.g. const sentRef = useRef(false); if (sentRef.current) return; sentRef.current = true;) or tracking `${userId}:${sharePostId}` in localStorage with a short TTL.",
+        "affected_selectors": ["[data-testid^=\"dm-shared-post-\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/dm_quick_verify.py",
+    "/app/test_reports/dm_e2e_test.py"
+  ],
+  "action_items": [
+    "(MINOR) Fix share-post auto-send duplicate fire in /app/frontend/src/pages/ChatThreadPage.js useEffect [sharePostId, userId] — add useRef sentinel to prevent double POST in StrictMode / re-mount. Repro: from Feed tap any post's share-button → ShareMenu → share-send-dm → tap thread row. Expected 1 dm-shared-post row, observed 2."
+  ],
+  "critical_code_review_comments": [
+    "ChatThreadPage.js share-post auto-send useEffect fires twice — needs ref-based de-dupe (see action item). The current `let done = false` flag is scoped per-invocation and does NOT prevent the second invocation that StrictMode triggers.",
+    "Composer fix `fixed bottom-16` (=64px) clears the 40px Emergent badge with a 8-12px gap — verified by elementFromPoint at button centre returning a child of dm-send-button. Good minimal fix.",
+    "pb-44 (=176px) on the scroll container provides 176-64=112px clearance below the last message visible above the composer top — last message is no longer obscured. Verified visually: 3 messages fully visible above composer.",
+    "(Pre-existing, unchanged) ChatThreadPage poll interval is 5000ms with no document.hidden check — keeps polling while tab/app is backgrounded. Low priority."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not retested per request)", "frontend": "8/8 TAP tests PASS (T3,T4,T5,T6,T7,T8 + hit-area + bottom-nav regression). 1 minor duplicate-fire bug in T8 share-post auto-send."},
+  "test_credentials": "Ad-hoc per run via /api/auth/progressive-signup + /api/auth/complete-profile (TEST_dm_* prefix). No fixed accounts.",
+  "seed_data_creation": "~6 TEST_dm users + several dm_messages (clean text, image, shared_post variants) created during the run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "DM v1 composer-tap blocking is fully resolved. Hit-area at viewport 390x844: dm-send-button rect (340,734,38,38) sits cleanly above badge rect (196,788,178,40) — 54px gap. elementFromPoint at button centre returns a <path>/<svg> whose closest [data-testid] is 'dm-send-button'. T3-T8 all green via real .click(). One minor follow-up: T8 shared-post effect double-fires (shared_count=2 from a single share). Fix is a useRef sentinel in ChatThreadPage.js useEffect [sharePostId, userId]. Auth: token in localStorage key 'token'. Use add_init_script(\"localStorage.setItem('token', '<jwt>')\") BEFORE first goto to avoid /auth redirect; then goto /messages/:id with wait_until='commit' + wait_for_selector('[data-testid=\"chat-thread-page\"]', timeout>=25000). Share-button data-testid is `share-button-${index}` (NOT 'share-button').",
+  "rca of the issue": "Iter 12 blocker (Emergent badge overlapping send-button) is RESOLVED. Fix applied: composer moved from `fixed bottom-0` to `fixed bottom-16` (64px); scroll container padding raised to pb-44 (176px) to keep the last message visible above the composer. Verified at 390x844: send-button now at y=734 (top) / y=772 (bottom) and badge at y=788 (top) / y=828 (bottom) — composer ends 16px above the badge top. document.elementFromPoint at button centre returns a node whose closest [data-testid] is 'dm-send-button'. New minor finding (T8): React 18 StrictMode causes the share-post auto-send useEffect to invoke twice; the `let done` flag is per-invocation and does not de-dupe. Mitigation: add useRef sentinel guarded against `${userId}:${sharePostId}`."
+}
