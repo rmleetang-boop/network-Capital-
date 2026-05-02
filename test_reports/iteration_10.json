@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 10 — Full backend + frontend coverage of the NEW Stripe real-payment integration (USD/EUR/GBP/CAD/AUD/JPY) and the preserved Paystack-MOCK legacy path (NGN/GHS/KES/ZAR) on /api/users/me/premium. 14/14 pytest backend tests pass and 5/5 Playwright UI flows pass. Price-tampering, idempotency, webhook-not-500, cross-user 403, unknown-session 404, and already-premium-blocks-Stripe all verified. Redirect to https://checkout.stripe.com/... confirmed end-to-end from /wallet → paywall-pay-button.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_stripe_premium.py",
+    "/app/test_reports/pytest/stripe_premium.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 3590+ lines — approaching maintainability limit. The Stripe block (lines ~729-983) is a clean self-contained feature and is an obvious candidate to extract into /app/backend/routers/payments.py with the Pydantic models and _unlock_premium_for_user helper. Not blocking.",
+    "Legacy POST /api/users/me/premium returns 200 with {already_premium: True} on repeat calls for already-premium users (see lines 698-703). This is correctly idempotent for welcome bonus, but semantically the endpoint contract is inconsistent: a 1st-call returns {premium_unlocked, paid_usd, ...}, a 2nd-call returns a DIFFERENT shape. Consider 409 Conflict or unify the response shape for frontend consumers.",
+    "Stripe webhook handler at /api/webhook/stripe raises HTTPException(400) on signature validation failure — good, but the event handler does NOT verify that event.event_type == 'checkout.session.completed' before unlocking. It trusts event.payment_status alone. If the emergentintegrations library ever routes non-terminal events with payment_status='paid' it could cause premature unlock. Consider guarding on event_type.",
+    "PremiumPaywall.js localAmount formatting hard-codes 0-decimal for JPY and NGN only (lines 26-27). If new zero-decimal currencies are ever added to SUPPORTED_CURRENCIES (e.g. KRW, VND) the frontend will render '.00' while backend sends integer. Source of truth should be the server's SUPPORTED_CURRENCIES decimals flag.",
+    "PremiumSuccessPage.js polls 8×2s=16s and then shows 'Still processing'. If the Stripe session was cancelled by the user, status endpoint returns payment_status='unpaid' and status='expired' — handled via setState('error'). Good. But the 'error' state copy says 'if you were charged' which could confuse cancelled users. Consider differentiating cancel vs error.",
+    "create_payment_checkout does NOT prevent the same user from creating multiple concurrent pending sessions — a user could create N sessions if the first redirect is abandoned. Not a security bug (server-side amount is fixed) but could bloat payment_transactions. Consider reusing an 'initiated' session if one exists and is < X minutes old."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_stripe_premium.py (new regression test file — 14 tests, 19s runtime)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14): create USD session + Stripe URL; pre-payment status 'unpaid'; wrong-user 403; unknown-session 404; NGN rejected with Paystack hint; XYZ 400; no-auth 401/403; JPY integer-amount & price-tamper-ignored; legacy USD→Stripe 400; legacy NGN unlocks + awards 500; idempotent (single score_event row after 2nd call); already-premium → Stripe session 400; webhook empty body not 500; webhook bogus sig not 500",
+    "frontend": "100% (5/5): paywall renders on /wallet with default USD $10; Stripe badge for USD + Paystack·MOCK badge after NGN selection; paywall-pay-button → captured redirect to https://checkout.stripe.com/c/pay/cs_test_...; NGN click keeps user in-app, unlocks premium, paywall disappears; /premium/success?session_id=<pending> shows 'Finalising…' then transitions to 'Still processing' after ~16s; /premium/success without session_id shows 'Missing session ID'"
+  },
+  "test_credentials": "Ad-hoc per run via /api/auth/progressive-signup + /api/auth/complete-profile (prefix TEST_). Admin password: NetworkCapital2025! (unchanged). Stripe test key sk_test_emergent is loaded in backend/.env.",
+  "seed_data_creation": "4 test users created during the run (TEST_stripe_a_*, TEST_paystack_b_*, TEST_stripe_jpy_*, TEST_fe_* / TEST_ngn_* / TEST_t_*). 3+ pending payment_transactions rows (status='initiated', payment_status='pending') and 1 completed NGN paystack_mock unlock with 1 premium_welcome_bonus score_event (+500 pts).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Stripe real-payment e2e CANNOT be completed from the harness — the test harness stops at the redirect and at the 'pending_timeout' state on /premium/success. If you need to verify the 'paid' state end-to-end (confetti + welcome_bonus card + success-continue-button), you must either (a) complete a real test-card payment manually or (b) directly mutate db.payment_transactions to payment_status='paid' and then GET /api/payments/checkout/status/{sid} to trigger _unlock_premium_for_user. The emergentintegrations library routes via https://integrations.emergentagent.com/stripe/ and returns real cs_test_ Stripe session IDs. Webhook handler exists but signature verification is strict — do NOT try to forge Stripe-Signature headers. Idempotency is proven via score_events count after 2× /users/me/premium NGN calls (stays at 1).",
+  "rca of the issue": "No bugs found — all 19 testcases green. One non-bug observation: in Playwright, `page.wait_for_url('**checkout.stripe.com**', timeout=20000)` logged a timeout even though `page.url` and the captured `request.is_navigation_request` URL both correctly landed on https://checkout.stripe.com/c/pay/cs_test_... — this is a Playwright glob-matching artifact with Stripe's fragment-heavy URLs, not a product bug. Use request.url capture (like this test does) or wait_for_url with a regex in the future."
+}

@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Lock, Sparkles, Check } from 'lucide-react';
+import { Lock, Sparkles, Check, CreditCard, Globe } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { useCurrency } from '../context/CurrencyContext';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 
+const STRIPE_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'];
+const PAYSTACK_CURRENCIES = ['NGN', 'GHS', 'KES', 'ZAR'];
+
 /**
- * Shown in place of financial UIs when user has not paid the $10 premium fee.
- * Also works as a standalone banner / card (use `compact` for inline version).
+ * Premium paywall — routes by currency:
+ *  - Stripe (real test checkout): USD, EUR, GBP, CAD, AUD, JPY
+ *  - Paystack (MOCK until keys): NGN, GHS, KES, ZAR
  */
 const PremiumPaywall = ({ featureName = 'this feature', compact = false, onUnlock }) => {
   const { currencies, premiumFeeUsd, premiumUnlocked, refreshUser } = useCurrency();
@@ -23,13 +27,36 @@ const PremiumPaywall = ({ featureName = 'this feature', compact = false, onUnloc
     maximumFractionDigits: chosen === 'JPY' || chosen === 'NGN' ? 0 : 2,
   });
 
+  const provider = STRIPE_CURRENCIES.includes(chosen)
+    ? 'stripe'
+    : PAYSTACK_CURRENCIES.includes(chosen)
+    ? 'paystack'
+    : 'unknown';
+
   const handlePay = async () => {
     setLoading(true);
     try {
-      await axiosInstance.post('/users/me/premium', { currency: chosen });
-      toast.success('Premium unlocked! (mock payment)');
-      await refreshUser();
-      if (onUnlock) onUnlock();
+      if (provider === 'stripe') {
+        const origin = window.location.origin;
+        const response = await axiosInstance.post('/payments/checkout/session', {
+          package_id: 'premium_unlock',
+          currency: chosen,
+          origin_url: origin,
+        });
+        if (response.data?.url) {
+          window.location.href = response.data.url;
+          return; // browser redirects
+        }
+        toast.error('Checkout URL missing');
+      } else if (provider === 'paystack') {
+        // MOCK until Paystack keys provided
+        await axiosInstance.post('/users/me/premium', { currency: chosen });
+        toast.success('Premium unlocked! +500 bonus points (Paystack MOCK)');
+        await refreshUser();
+        if (onUnlock) onUnlock();
+      } else {
+        toast.error('Currency not supported');
+      }
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Payment failed');
     } finally {
@@ -38,11 +65,11 @@ const PremiumPaywall = ({ featureName = 'this feature', compact = false, onUnloc
   };
 
   const perks = [
-    'Stokvel contributions',
-    'Smart Access to pooled funds',
+    'Stokvel contributions & Smart Access',
     'Group multi-sig withdrawals',
     'Product backing & group support',
-    'Wallet deposits',
+    '2× Network Score multiplier',
+    '+500 welcome bonus points',
   ];
 
   return (
@@ -104,6 +131,21 @@ const PremiumPaywall = ({ featureName = 'this feature', compact = false, onUnloc
         </div>
       </div>
 
+      {/* Provider badge */}
+      <div className="flex items-center gap-2 mb-3 text-[11px] text-text-muted">
+        {provider === 'stripe' ? (
+          <>
+            <CreditCard size={13} className="text-primary" />
+            <span>Secure checkout via <strong className="text-primary">Stripe</strong> · cards, Apple Pay, Google Pay</span>
+          </>
+        ) : (
+          <>
+            <Globe size={13} className="text-primary" />
+            <span><strong className="text-primary">Paystack</strong> · local cards + mobile money · <span className="italic">MOCK until keys added</span></span>
+          </>
+        )}
+      </div>
+
       <button
         onClick={handlePay}
         disabled={loading}
@@ -113,7 +155,7 @@ const PremiumPaywall = ({ featureName = 'this feature', compact = false, onUnloc
         {loading ? 'Processing…' : `Pay ${meta.symbol}${localAmount} ${chosen} & Unlock`}
       </button>
       <p className="text-[10px] text-text-muted text-center mt-2">
-        One-time fee. MOCK payment for prototype — real payment rail coming soon.
+        One-time fee. You'll be redirected to Stripe's secure checkout.
       </p>
     </motion.div>
   );

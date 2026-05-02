@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -12,6 +12,9 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
+from emergentintegrations.payments.stripe.checkout import (
+    StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -682,10 +685,16 @@ async def list_currencies():
 
 @api_router.post("/users/me/premium")
 async def unlock_premium(payload: PremiumPaymentRequest, current_user: dict = Depends(get_current_user)):
-    """Mock payment: user pays $10 (converted to chosen currency) to unlock financial features.
-    In production, replace with Stripe/Paystack/Razorpay integration."""
+    """Legacy MOCK fallback. Stripe-eligible currencies must use /payments/checkout/session.
+    Currently used for Paystack-target currencies (NGN, GHS, KES, ZAR) until keys are provided.
+    """
     if payload.currency not in SUPPORTED_CURRENCIES:
         raise HTTPException(status_code=400, detail="Unsupported currency")
+    if payload.currency in STRIPE_CURRENCIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Use Stripe checkout for {payload.currency}. POST /api/payments/checkout/session",
+        )
     if current_user.get("premium_unlocked"):
         return {
             "already_premium": True,
@@ -694,40 +703,16 @@ async def unlock_premium(payload: PremiumPaymentRequest, current_user: dict = De
         }
     meta = SUPPORTED_CURRENCIES[payload.currency]
     local_amount = round(PREMIUM_FEE_USD * meta["rate"], 2)
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": {
-            "premium_unlocked": True,
-            "currency": payload.currency,
-            "premium_paid_at": datetime.now(timezone.utc).isoformat(),
-            "premium_paid_amount_local": local_amount,
-            "premium_paid_currency": payload.currency,
-        }}
-    )
-    # Record as a transaction (mocked payment)
-    await db.transactions.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": current_user["id"],
-        "type": "premium_unlock",
-        "amount_usd": PREMIUM_FEE_USD,
-        "amount_local": local_amount,
-        "currency": payload.currency,
-        "description": f"Premium financial-features unlock ({meta['symbol']}{local_amount} {payload.currency}) — MOCK PAYMENT",
-        "status": "completed",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-    # Auto-narrate premium unlock
-    await _auto_post(
-        current_user["id"],
-        f"Just joined Premium! Ready to level up my savings journey {meta['symbol']}{local_amount:.0f} {payload.currency} #premium #networkcapital"
-    )
+    await _unlock_premium_for_user(current_user["id"], payload.currency, local_amount, None, "paystack_mock")
     return {
         "premium_unlocked": True,
         "currency": payload.currency,
         "paid_usd": PREMIUM_FEE_USD,
         "paid_local": local_amount,
         "symbol": meta["symbol"],
+        "welcome_bonus_points": PREMIUM_PACKAGE["welcome_bonus_points"],
         "mocked": True,
+        "provider": "paystack_mock",
     }
 
 
@@ -739,6 +724,263 @@ def require_premium(current_user: dict):
             status_code=402,  # Payment Required
             detail="Premium subscription required. Unlock at /api/users/me/premium"
         )
+
+
+# ============== STRIPE CHECKOUT (real payment path) ==============
+
+# Currency routing: Stripe handles major global currencies.
+# Paystack-eligible currencies (NGN, GHS, KES, ZAR) stay on the MOCK unlock endpoint
+# until Paystack keys are provided.
+STRIPE_CURRENCIES = {"USD", "EUR", "GBP", "CAD", "AUD", "JPY"}
+PAYSTACK_CURRENCIES = {"NGN", "GHS", "KES", "ZAR"}
+
+# Fixed packages — price is NEVER accepted from frontend
+PREMIUM_PACKAGE = {
+    "id": "premium_unlock",
+    "name": "Network Capital Premium",
+    "amount_usd": PREMIUM_FEE_USD,  # 10.00
+    "welcome_bonus_points": 500,
+}
+
+
+class StripeCheckoutRequest(BaseModel):
+    package_id: str = "premium_unlock"
+    currency: str = "USD"
+    origin_url: str  # window.location.origin from frontend
+
+
+async def _unlock_premium_for_user(user_id: str, currency: str, local_amount: float, session_id: Optional[str], provider: str):
+    """Idempotent: flips premium, awards welcome bonus once, records transaction, auto-narrates."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return False
+    if user.get("premium_unlocked"):
+        return False  # already unlocked — do nothing
+
+    meta = SUPPORTED_CURRENCIES.get(currency, {"symbol": "$", "rate": 1})
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "premium_unlocked": True,
+            "currency": currency,
+            "premium_paid_at": datetime.now(timezone.utc).isoformat(),
+            "premium_paid_amount_local": local_amount,
+            "premium_paid_currency": currency,
+            "premium_provider": provider,
+            "premium_session_id": session_id,
+        }}
+    )
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "type": "premium_unlock",
+        "amount_usd": PREMIUM_FEE_USD,
+        "amount_local": local_amount,
+        "currency": currency,
+        "description": f"Premium unlock via {provider} ({meta['symbol']}{local_amount} {currency})",
+        "status": "completed",
+        "provider": provider,
+        "session_id": session_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # Welcome bonus (one-time)
+    try:
+        await award_points(
+            user_id,
+            "premium_welcome_bonus",
+            PREMIUM_PACKAGE["welcome_bonus_points"],
+            source_id=session_id or provider,
+            message="Welcome to Premium — +500 bonus points",
+        )
+    except Exception as e:
+        logging.warning(f"Welcome bonus award failed: {e}")
+    # Auto-narrate to feed
+    try:
+        await _auto_post(
+            user_id,
+            f"Just joined Premium! Ready to level up my savings journey {meta['symbol']}{local_amount:.2f} {currency} #premium #networkcapital",
+        )
+    except Exception as e:
+        logging.warning(f"Auto-narrate premium post failed: {e}")
+    return True
+
+
+@api_router.post("/payments/checkout/session")
+async def create_payment_checkout(
+    payload: StripeCheckoutRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Creates a Stripe Checkout session for the Premium package.
+    Amount is server-defined — frontend CANNOT manipulate price."""
+    if current_user.get("premium_unlocked"):
+        raise HTTPException(status_code=400, detail="Premium already unlocked")
+    if payload.package_id != PREMIUM_PACKAGE["id"]:
+        raise HTTPException(status_code=400, detail="Unknown package")
+    currency = (payload.currency or "USD").upper()
+    if currency not in STRIPE_CURRENCIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Currency {currency} not supported by Stripe. Use USD/EUR/GBP/CAD/AUD/JPY, or Paystack (coming soon) for NGN/GHS/KES/ZAR.",
+        )
+
+    meta = SUPPORTED_CURRENCIES[currency]
+    # Server-side amount derivation
+    if currency == "JPY":
+        local_amount = round(PREMIUM_FEE_USD * meta["rate"])  # JPY has no decimals
+    else:
+        local_amount = round(PREMIUM_FEE_USD * meta["rate"], 2)
+
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    # Build dynamic URLs from the provided frontend origin
+    origin = payload.origin_url.rstrip("/")
+    success_url = f"{origin}/premium/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/profile?payment=cancelled"
+
+    # Webhook URL — derived from server host, never hardcoded
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    checkout_request = CheckoutSessionRequest(
+        amount=float(local_amount),
+        currency=currency.lower(),
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={
+            "user_id": current_user["id"],
+            "package_id": PREMIUM_PACKAGE["id"],
+            "source": "premium_paywall",
+        },
+    )
+    session: CheckoutSessionResponse = await stripe_checkout.create_checkout_session(checkout_request)
+
+    # Record pending transaction
+    await db.payment_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": session.session_id,
+        "user_id": current_user["id"],
+        "package_id": PREMIUM_PACKAGE["id"],
+        "amount_usd": PREMIUM_FEE_USD,
+        "amount_local": local_amount,
+        "currency": currency,
+        "provider": "stripe",
+        "status": "initiated",
+        "payment_status": "pending",
+        "metadata": {"source": "premium_paywall"},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {
+        "url": session.url,
+        "session_id": session.session_id,
+        "amount_local": local_amount,
+        "currency": currency,
+        "symbol": meta["symbol"],
+    }
+
+
+@api_router.get("/payments/checkout/status/{session_id}")
+async def get_payment_status(
+    session_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Polled by the frontend after Stripe redirect. Server verifies with Stripe
+    and flips premium exactly once."""
+    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not tx:
+        raise HTTPException(status_code=404, detail="Payment session not found")
+    if tx["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not your payment session")
+
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+
+    try:
+        status_resp: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
+    except Exception as e:
+        logging.exception("Stripe status check failed")
+        raise HTTPException(status_code=502, detail=f"Stripe status error: {e}")
+
+    # Update the transaction (idempotent — only flip once)
+    new_status = status_resp.status
+    new_payment_status = status_resp.payment_status
+    already_paid = tx.get("payment_status") == "paid"
+
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {"$set": {
+            "status": new_status,
+            "payment_status": new_payment_status,
+            "amount_stripe_cents": status_resp.amount_total,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+
+    unlocked_now = False
+    if new_payment_status == "paid" and not already_paid:
+        unlocked_now = await _unlock_premium_for_user(
+            tx["user_id"], tx["currency"], tx["amount_local"], session_id, "stripe"
+        )
+
+    return {
+        "session_id": session_id,
+        "status": new_status,
+        "payment_status": new_payment_status,
+        "amount_total": status_resp.amount_total,
+        "currency": status_resp.currency,
+        "premium_unlocked": (new_payment_status == "paid"),
+        "just_unlocked": unlocked_now,
+        "welcome_bonus_points": PREMIUM_PACKAGE["welcome_bonus_points"] if unlocked_now else 0,
+    }
+
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Stripe webhook handler — idempotent premium unlock on checkout.session.completed."""
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    body = await request.body()
+    signature = request.headers.get("Stripe-Signature")
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    stripe_checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    try:
+        event = await stripe_checkout.handle_webhook(body, signature)
+    except Exception as e:
+        logging.exception("Stripe webhook validation failed")
+        raise HTTPException(status_code=400, detail=f"Webhook error: {e}")
+
+    session_id = event.session_id
+    if not session_id:
+        return {"received": True}
+    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not tx:
+        return {"received": True}
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {"$set": {
+            "payment_status": event.payment_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "webhook_event_id": event.event_id,
+            "webhook_event_type": event.event_type,
+        }}
+    )
+    if event.payment_status == "paid" and tx.get("payment_status") != "paid":
+        await _unlock_premium_for_user(
+            tx["user_id"], tx["currency"], tx["amount_local"], session_id, "stripe"
+        )
+    return {"received": True}
+
 
 # ============== HEARTBEAT, ADS, SCORE SUMMARY, ACTIVITY TRACKER ==============
 

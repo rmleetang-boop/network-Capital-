@@ -30,6 +30,7 @@ import ConnectionsPage from './pages/ConnectionsPage';
 import ActivityTrackerPage from './pages/ActivityTrackerPage';
 import ExplorePage from './pages/ExplorePage';
 import HashtagPage from './pages/HashtagPage';
+import PremiumSuccessPage from './pages/PremiumSuccessPage';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
@@ -174,6 +175,7 @@ function App() {
             <Route path="/activity" element={<ActivityTrackerPage user={user} />} />
             <Route path="/explore" element={<ExplorePage user={user} />} />
             <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
+            <Route path="/premium/success" element={<PremiumSuccessPage />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
