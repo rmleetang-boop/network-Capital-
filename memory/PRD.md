@@ -15,7 +15,23 @@ Mobile-first social network ("Network Capital") with:
 
 ## Implemented Features (cumulative)
 
-### Iteration 10 — Instagram-Vibe Pivot (this session)
+### Iteration 10 — Stripe Real Payments + Instagram-Vibe Pivot
+
+**Stripe (real test checkout) for USD/EUR/GBP/CAD/AUD/JPY:**
+- `POST /api/payments/checkout/session` — server-fixed $10, creates Stripe Checkout session, writes pending row to `payment_transactions`
+- `GET  /api/payments/checkout/status/:sid` — polled by frontend, idempotent unlock on `payment_status='paid'`
+- `POST /api/webhook/stripe` — second idempotent unlock path via Stripe webhook
+- `_unlock_premium_for_user(user_id, currency, amount, session_id, provider)` — single idempotent helper: flips `premium_unlocked`, awards **one-time +500 welcome bonus**, records transaction, auto-narrates to feed
+- `/premium/success?session_id=...` page — polls status, fires `canvas-confetti` on paid, shows +500 bonus + perk list + "Explore Premium" CTA
+
+**Paystack (MOCK until keys added) for NGN/GHS/KES/ZAR:**
+- Legacy `/api/users/me/premium` now rejects Stripe currencies with 400 and pushes users to Stripe checkout
+- NGN/GHS/KES/ZAR continue using the legacy endpoint (now reuses `_unlock_premium_for_user` so idempotent + welcome bonus applies equally)
+
+**Instagram-vibe pivot (this session earlier):**
+(unchanged — Stories at top, Explore page, /hashtag/:tag, HashtagText clickable inline tags, double-tap-to-like, full-bleed media, gold Auto badge on `is_auto_narrated` posts)
+
+## Iteration 10 — Instagram-Vibe Details (reference)
 1. **Stories at top of Feed** — 24h ephemeral media, tap to view with progress bars, double-tap zones, auto-advance. Data-testid coverage for `stories-ribbon`, `create-story-button`, `create-story-modal`, `story-viewer`, `story-<user_id>`, `story-close`.
 2. **Explore page** at `/explore` — trending hashtag chips (last 7 days) + 3-column full-bleed media grid. Testids: `explore-page`, `explore-grid`, `explore-post-*`, `trending-*`.
 3. **Hashtag page** at `/hashtag/:tag` — grid of posts for a tag. Testid: `hashtag-page`, `hashtag-grid`, `hashtag-post-*`.
@@ -64,25 +80,26 @@ frontend/src/
 ```
 
 ## Testing (Iteration 10)
-- `iteration_9.json`: 100% (11/11 frontend flows + 5/5 backend sanity endpoints). Zero critical/minor bugs. No retest needed.
-- Known code-review nits (not blockers): FeedPage is ~485 lines — consider splitting PostCard; ExplorePage/HashtagPage lack loading skeletons.
+- `iteration_10.json`: **100% (14/14 backend pytest + 5/5 frontend Playwright)** — Stripe end-to-end (session creation, status polling, redirect verification), price-tampering rejected, idempotent unlock, cross-user 403, webhook doesn't 500.
+- `iteration_9.json`: 100% (11/11 frontend flows + 5/5 backend sanity endpoints) — Instagram-vibe pivot green.
+- Regression suite: `/app/backend/tests/test_stripe_premium.py` (14 tests, ~19s).
 
 ## MOCKED items
-- **$10 Premium payment**: MOCK — needs Stripe + Paystack integration
-- **Ad rewards**: MOCK — needs real ad SDK (AdMob / Meta / Unity)
+- **$10 Premium via Paystack** (NGN/GHS/KES/ZAR): still MOCK — waiting on user's Paystack test keys.
+- **Ad rewards**: MOCK — needs real ad SDK (AdMob / Meta / Unity).
 
 ## Next Action Items
-- **P1 — Real payments** (Stripe + Paystack) replacing the MOCK $10 premium
+- **P1 — Paystack integration** (waiting on user's test keys → flips NGN/GHS/KES/ZAR from MOCK to real)
 - **P1 — Direct Messaging** between connections
 - **P1 — Reels-style vertical video feed** + carousel posts
-- **P1 — Real ad SDK integration** (AdMob/Meta Audience Network)
+- **P1 — Real ad SDK integration** (AdMob / Meta Audience Network)
 - **P2 — Cloud media storage** (S3/R2) — base64 in Mongo will hit 16MB doc cap
 - **P2 — Live FX rates** via exchangerate.host; creator-currency pricing
-- **P2 — Modularize server.py** (3,300+ lines) into `/app/backend/routes/`
+- **P2 — Modularize server.py** (~3,590 lines) — Stripe block is a clean first candidate for `/app/backend/routers/payments.py`
 - **P3 — Driver Pool extension**, PWA + Capacitor wrap
-- Cleanup: split PostCard out of FeedPage.js; fix `isOwnProfile` useEffect dep warning in ProfilePage.js
+- Cleanup: split PostCard out of FeedPage.js; fix `isOwnProfile` useEffect dep warning in ProfilePage.js; guard Stripe webhook on `event_type == 'checkout.session.completed'`
 
 ## Project Health
-- Backend: auto-narration live; `posts` stores hashtags/mentions/is_auto_narrated.
-- Frontend: Instagram-vibe pivot complete and wired end-to-end.
-- Testing agent (iter 9): PASSED.
+- Backend: Stripe real-payment live; Paystack fallback on legacy path; auto-narration + welcome bonus idempotent.
+- Frontend: Instagram-vibe pivot + Stripe checkout redirect + `/premium/success` confetti page, all wired.
+- Testing agent (iter 10): **19/19 PASSED**.
