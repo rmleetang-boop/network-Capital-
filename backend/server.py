@@ -176,6 +176,8 @@ class Post(BaseModel):
     content: str
     image: Optional[str] = None
     video: Optional[str] = None
+    hashtags: List[str] = []
+    mentions: List[str] = []
     likes: List[str] = []
     comments: List[Dict[str, Any]] = []
     shares: int = 0
@@ -318,6 +320,13 @@ class FollowProductRequest(BaseModel):
 class ProductSupportRequest(BaseModel):
     amount: float
     note: Optional[str] = ""
+
+# ============== STORIES / BOOKMARKS / EXPLORE / NOTIFICATIONS ==============
+
+class StoryCreate(BaseModel):
+    media_type: str  # "image" | "video"
+    media_url: str   # base64 data URL
+    caption: Optional[str] = ""
 
 class ProductSupport(BaseModel):
     id: str
@@ -707,6 +716,11 @@ async def unlock_premium(payload: PremiumPaymentRequest, current_user: dict = De
         "status": "completed",
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
+    # Auto-narrate premium unlock
+    await _auto_post(
+        current_user["id"],
+        f"Just joined Premium! Ready to level up my savings journey {meta['symbol']}{local_amount:.0f} {payload.currency} #premium #networkcapital"
+    )
     return {
         "premium_unlocked": True,
         "currency": payload.currency,
@@ -715,6 +729,8 @@ async def unlock_premium(payload: PremiumPaymentRequest, current_user: dict = De
         "symbol": meta["symbol"],
         "mocked": True,
     }
+
+
 
 def require_premium(current_user: dict):
     """Guard to call inside any financial endpoint that should be premium-gated."""
@@ -925,6 +941,238 @@ async def claim_premium_via_score(current_user: dict = Depends(get_current_user)
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     return {"premium_unlocked": True, "claimed_via": "top_score"}
+
+
+import re
+
+async def _auto_post(user_id: str, content: str):
+    """Auto-create a post from a system event, as the user themselves."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return
+    post_data = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "username": user["username"],
+        "user_photo": user.get("photo", ""),
+        "user_score": user.get("network_score", 0),
+        "content": content,
+        "image": None,
+        "video": None,
+        "hashtags": extract_hashtags(content),
+        "mentions": extract_mentions(content),
+        "likes": [],
+        "comments": [],
+        "shares": 0,
+        "is_auto_narrated": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.posts.insert_one(post_data)
+
+
+# ============== STORIES (24h ephemeral) ==============
+
+STORY_TTL_HOURS = 24
+
+@api_router.post("/stories")
+async def create_story(payload: StoryCreate, current_user: dict = Depends(get_current_user)):
+    if payload.media_type not in ("image", "video"):
+        raise HTTPException(status_code=400, detail="media_type must be image or video")
+    if not payload.media_url:
+        raise HTTPException(status_code=400, detail="media_url required")
+    if len(payload.media_url) > 4 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Story too large (max ~3MB)")
+    now = datetime.now(timezone.utc)
+    story = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "username": current_user["username"],
+        "user_photo": current_user.get("photo", ""),
+        "media_type": payload.media_type,
+        "media_url": payload.media_url,
+        "caption": payload.caption or "",
+        "viewers": [],
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(hours=STORY_TTL_HOURS)).isoformat(),
+    }
+    await db.stories.insert_one(story)
+    if "_id" in story:
+        del story["_id"]
+    await award_points(current_user["id"], "story", 5, source_id=story["id"], message="Posted a story +5")
+    return {"story": story}
+
+@api_router.get("/stories/feed")
+async def stories_feed(current_user: dict = Depends(get_current_user)):
+    """Active (non-expired) stories grouped by user. Self first, then others."""
+    now = datetime.now(timezone.utc).isoformat()
+    rows = await db.stories.find({"expires_at": {"$gt": now}}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    grouped = {}
+    for s in rows:
+        grouped.setdefault(s["user_id"], {
+            "user_id": s["user_id"],
+            "username": s["username"],
+            "user_photo": s.get("user_photo", ""),
+            "stories": [],
+        })
+        grouped[s["user_id"]]["stories"].append(s)
+    # Mark which groups are "viewed" by current user (all their stories already viewed)
+    out = []
+    for g in grouped.values():
+        viewed = all(current_user["id"] in s.get("viewers", []) for s in g["stories"])
+        g["all_viewed"] = viewed
+        g["count"] = len(g["stories"])
+        out.append(g)
+    # Self first
+    out.sort(key=lambda x: (x["user_id"] != current_user["id"], x["all_viewed"]))
+    return {"groups": out}
+
+@api_router.post("/stories/{story_id}/view")
+async def view_story(story_id: str, current_user: dict = Depends(get_current_user)):
+    s = await db.stories.find_one({"id": story_id})
+    if not s:
+        raise HTTPException(status_code=404, detail="Story not found")
+    if current_user["id"] not in s.get("viewers", []):
+        await db.stories.update_one({"id": story_id}, {"$push": {"viewers": current_user["id"]}})
+    return {"viewed": True}
+
+@api_router.delete("/stories/{story_id}")
+async def delete_story(story_id: str, current_user: dict = Depends(get_current_user)):
+    s = await db.stories.find_one({"id": story_id})
+    if not s:
+        raise HTTPException(status_code=404)
+    if s["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403)
+    await db.stories.delete_one({"id": story_id})
+    return {"deleted": True}
+
+
+# ============== BOOKMARKS ==============
+
+@api_router.post("/posts/{post_id}/bookmark")
+async def bookmark_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})
+    if not post:
+        raise HTTPException(status_code=404)
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "bookmarks": 1})
+    bookmarks = (user or {}).get("bookmarks", [])
+    if post_id in bookmarks:
+        await db.users.update_one({"id": current_user["id"]}, {"$pull": {"bookmarks": post_id}})
+        return {"bookmarked": False}
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$push": {"bookmarks": {"$each": [post_id], "$position": 0, "$slice": 500}}}
+    )
+    return {"bookmarked": True}
+
+@api_router.get("/users/me/bookmarks")
+async def list_bookmarks(current_user: dict = Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "bookmarks": 1})
+    ids = (user or {}).get("bookmarks", [])
+    if not ids:
+        return {"posts": []}
+    posts = await db.posts.find({"id": {"$in": ids}}, {"_id": 0}).to_list(500)
+    by_id = {p["id"]: p for p in posts}
+    return {"posts": [by_id[i] for i in ids if i in by_id]}
+
+
+# ============== HASHTAGS ==============
+
+HASHTAG_RE = re.compile(r"#([A-Za-z0-9_]{2,30})")
+MENTION_RE = re.compile(r"@([A-Za-z0-9_]{2,30})")
+
+def extract_hashtags(text: str):
+    return list({m.group(1).lower() for m in HASHTAG_RE.finditer(text or "")})
+
+def extract_mentions(text: str):
+    return list({m.group(1).lower() for m in MENTION_RE.finditer(text or "")})
+
+@api_router.get("/hashtags/{tag}/posts")
+async def hashtag_posts(tag: str, limit: int = 50):
+    tag = tag.lower().lstrip("#")
+    posts = await db.posts.find(
+        {"hashtags": tag}, {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"tag": tag, "posts": posts, "count": len(posts)}
+
+@api_router.get("/hashtags/trending")
+async def trending_hashtags(limit: int = 12):
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    pipeline = [
+        {"$match": {"created_at": {"$gte": week_ago}, "hashtags": {"$exists": True, "$ne": []}}},
+        {"$unwind": "$hashtags"},
+        {"$group": {"_id": "$hashtags", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": limit},
+    ]
+    rows = await db.posts.aggregate(pipeline).to_list(limit)
+    return {"tags": [{"tag": r["_id"], "count": r["count"]} for r in rows]}
+
+
+# ============== EXPLORE ==============
+
+@api_router.get("/explore")
+async def explore_feed(limit: int = 60, current_user: dict = Depends(get_current_user)):
+    """Top recent posts ranked by likes + shares × 2 over the last 14 days. Visual content first."""
+    since = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    posts = await db.posts.find(
+        {"created_at": {"$gte": since}}, {"_id": 0}
+    ).to_list(500)
+    def score(p):
+        likes = len(p.get("likes", []))
+        shares = p.get("shares", 0)
+        has_media = 1 if (p.get("image") or p.get("video")) else 0
+        return likes + shares * 2 + has_media * 5
+    posts.sort(key=score, reverse=True)
+    return {"posts": posts[:limit]}
+
+
+# ============== NOTIFICATIONS ==============
+
+@api_router.get("/notifications")
+async def list_notifications(limit: int = 50, current_user: dict = Depends(get_current_user)):
+    rows = await db.notifications.find(
+        {"user_id": current_user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    unread = sum(1 for r in rows if not r.get("read"))
+    return {"notifications": rows, "unread_count": unread}
+
+@api_router.post("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    await db.notifications.update_one(
+        {"id": notification_id, "user_id": current_user["id"]},
+        {"$set": {"read": True}}
+    )
+    return {"read": True}
+
+@api_router.post("/notifications/read-all")
+async def mark_all_read(current_user: dict = Depends(get_current_user)):
+    await db.notifications.update_many(
+        {"user_id": current_user["id"], "read": False},
+        {"$set": {"read": True}}
+    )
+    return {"all_read": True}
+
+
+# ============== LIVE FX RATES ==============
+
+@api_router.post("/admin/refresh-fx")
+async def refresh_fx_rates(_: bool = Depends(verify_admin)):
+    """Pulls live FX rates from exchangerate.host (no API key required) and overrides static rates in memory."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10) as client:
+            symbols = ",".join(c for c in SUPPORTED_CURRENCIES if c != "USD")
+            r = await client.get(f"https://api.exchangerate.host/latest?base=USD&symbols={symbols}")
+            data = r.json()
+        rates = data.get("rates", {})
+        updated = 0
+        for code, val in rates.items():
+            if code in SUPPORTED_CURRENCIES and isinstance(val, (int, float)) and val > 0:
+                SUPPORTED_CURRENCIES[code]["rate"] = round(float(val), 4)
+                updated += 1
+        return {"updated": updated, "rates": {k: v["rate"] for k, v in SUPPORTED_CURRENCIES.items()}}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"FX fetch failed: {e}")
 
 
 # ============== HUB PULSE ==============
@@ -1255,6 +1503,8 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         "content": request.content,
         "image": request.image,
         "video": request.video,
+        "hashtags": extract_hashtags(request.content),
+        "mentions": extract_mentions(request.content),
         "likes": [],
         "comments": [],
         "shares": 0,
@@ -1676,6 +1926,14 @@ async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, c
     
     await update_user_score(current_user["id"], 15, f"Contributed to Stokvel+ +15")
     
+    # Auto-narrate if group just hit/crossed target
+    target = stokvel.get("target_amount", 0)
+    if target > 0 and new_total >= target > (new_total - request.amount):
+        await _auto_post(
+            current_user["id"],
+            f"🎉 Our Stokvel \"{stokvel['name']}\" just reached its goal of {target:.0f}! Proud of the group. #stokvel #goalreached",
+        )
+
     # Process rewards based on score
     await process_contribution_rewards(current_user["id"], stokvel_id, request.amount)
     
