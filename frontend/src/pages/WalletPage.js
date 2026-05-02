@@ -3,8 +3,12 @@ import { motion } from 'framer-motion';
 import { Wallet, Plus, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import { useCurrency } from '../context/CurrencyContext';
+import CurrencySwitcher from '../components/CurrencySwitcher';
+import PremiumPaywall from '../components/PremiumPaywall';
 
 const WalletPage = ({ user }) => {
+  const { format, premiumUnlocked } = useCurrency();
   const [wallet, setWallet] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +82,10 @@ const WalletPage = ({ user }) => {
             </div>
           </div>
           <button
-            onClick={() => setShowDepositModal(true)}
+            onClick={() => {
+              if (!premiumUnlocked) { toast.error('Unlock premium to add funds'); return; }
+              setShowDepositModal(true);
+            }}
             className="bg-secondary hover:bg-secondary-hover text-primary p-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all"
             data-testid="add-funds-button"
           >
@@ -88,6 +95,13 @@ const WalletPage = ({ user }) => {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-text-secondary text-sm">Displayed in your chosen currency</p>
+          <CurrencySwitcher compact testId="wallet-currency-switcher" />
+        </div>
+
+        {!premiumUnlocked && <PremiumPaywall featureName="wallet deposits" />}
+
         {/* Balance Card */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -98,8 +112,8 @@ const WalletPage = ({ user }) => {
             <Wallet size={24} />
             <p className="text-white/80 text-sm">Available Balance</p>
           </div>
-          <p className="text-5xl font-bold tracking-tighter mb-6">
-            ${wallet.balance.toFixed(2)}
+          <p className="text-5xl font-bold tracking-tighter mb-6" data-testid="wallet-balance">
+            {format(wallet.balance)}
           </p>
 
           <div className="grid grid-cols-2 gap-4">
@@ -108,14 +122,14 @@ const WalletPage = ({ user }) => {
                 <TrendingUp size={16} />
                 <p className="text-xs text-white/80">Total Earned</p>
               </div>
-              <p className="text-xl font-bold">${wallet.total_earned.toFixed(2)}</p>
+              <p className="text-xl font-bold">{format(wallet.total_earned)}</p>
             </div>
             <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
               <div className="flex items-center gap-2 mb-1">
                 <TrendingDown size={16} />
                 <p className="text-xs text-white/80">Total Spent</p>
               </div>
-              <p className="text-xl font-bold">${wallet.total_spent.toFixed(2)}</p>
+              <p className="text-xl font-bold">{format(wallet.total_spent)}</p>
             </div>
           </div>
         </motion.div>
@@ -174,7 +188,7 @@ const WalletPage = ({ user }) => {
                     </p>
                   </div>
                   <p className={`text-lg font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                    {isPositive ? '+' : ''}${Math.abs(transaction.amount).toFixed(2)}
+                    {isPositive ? '+' : ''}{format(Math.abs(transaction.amount))}
                   </p>
                 </div>
               );

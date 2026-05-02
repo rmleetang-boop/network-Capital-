@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Users, TrendingUp, Plus, Activity, UserPlus, DollarSign, Award, Gift, Trophy, Package, Heart, ArrowRight, Zap, KeyRound, ShieldCheck, Check as CheckIcon, X as XIcon, Clock } from 'lucide-react';
 import { axiosInstance } from '../App';
+import { useCurrency } from '../context/CurrencyContext';
+import PremiumPaywall from '../components/PremiumPaywall';
 import { toast } from 'sonner';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -9,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 const StokvelDetailPage = ({ user }) => {
   const { stokvelId } = useParams();
   const navigate = useNavigate();
+  const { format, premiumUnlocked } = useCurrency();
   const [stokvel, setStokvel] = useState(null);
   const [contributions, setContributions] = useState([]);
   const [strength, setStrength] = useState(null);
@@ -269,8 +272,8 @@ const StokvelDetailPage = ({ user }) => {
         >
           <div className="text-center mb-4">
             <p className="text-white/80 text-sm mb-1">Total Pool</p>
-            <p className="text-5xl font-bold tracking-tighter">R{stokvel.total_pool.toFixed(2)}</p>
-            <p className="text-white/70 text-sm mt-1">Target: R{stokvel.target_amount.toFixed(2)}</p>
+            <p className="text-5xl font-bold tracking-tighter" data-testid="stokvel-pool">{format(stokvel.total_pool)}</p>
+            <p className="text-white/70 text-sm mt-1">Target: {format(stokvel.target_amount)}</p>
           </div>
 
           <div className="mb-3">
@@ -290,8 +293,12 @@ const StokvelDetailPage = ({ user }) => {
 
           <div className="grid grid-cols-2 gap-3 mt-4">
             <button
-              onClick={() => setShowContributeModal(true)}
+              onClick={() => {
+                if (!premiumUnlocked) { toast.error('Unlock premium to contribute'); return; }
+                setShowContributeModal(true);
+              }}
               className="bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white font-medium py-3 rounded-full transition-all active:scale-95 flex items-center justify-center gap-2"
+              data-testid="contribute-button"
             >
               <Plus size={18} />
               Contribute
@@ -351,6 +358,8 @@ const StokvelDetailPage = ({ user }) => {
         )}
 
         {/* Quick Access Links for Score, Rewards */}
+        {!premiumUnlocked && <PremiumPaywall featureName="Stokvel financial actions" compact />}
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -418,13 +427,16 @@ const StokvelDetailPage = ({ user }) => {
                 <p className="text-[10px] text-text-muted uppercase">Tier</p>
               </div>
               <div className="bg-background-subtle rounded-xl p-3 text-center">
-                <p className="text-base font-bold text-secondary">${smartEligibility.max_access_amount?.toFixed(0)}</p>
+                <p className="text-base font-bold text-secondary">{format(smartEligibility.max_access_amount || 0)}</p>
                 <p className="text-[10px] text-text-muted uppercase">Max ({smartEligibility.access_percentage}%)</p>
               </div>
             </div>
 
             <button
-              onClick={() => setShowSmartAccess(true)}
+              onClick={() => {
+                if (!premiumUnlocked) { toast.error('Unlock premium for Smart Access'); return; }
+                setShowSmartAccess(true);
+              }}
               disabled={!smartEligibility.eligible || smartEligibility.max_access_amount <= 0}
               className="w-full py-3 bg-gradient-to-r from-secondary to-yellow-500 text-white font-semibold rounded-full disabled:opacity-50 disabled:bg-gray-200 disabled:bg-none disabled:text-text-muted flex items-center justify-center gap-2"
               data-testid="open-smart-access"
@@ -466,7 +478,10 @@ const StokvelDetailPage = ({ user }) => {
           </p>
 
           <button
-            onClick={() => setShowWithdrawModal(true)}
+            onClick={() => {
+              if (!premiumUnlocked) { toast.error('Unlock premium to propose a withdrawal'); return; }
+              setShowWithdrawModal(true);
+            }}
             className="w-full py-2.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary font-medium rounded-full flex items-center justify-center gap-2 mb-4"
             data-testid="propose-withdrawal"
           >
@@ -485,7 +500,7 @@ const StokvelDetailPage = ({ user }) => {
                 return (
                   <div key={w.id} className="border border-gray-100 rounded-xl p-3" data-testid={`withdrawal-${w.id}`}>
                     <div className="flex items-start justify-between mb-1">
-                      <p className="font-semibold text-text-primary text-sm">${w.amount.toFixed(2)}</p>
+                      <p className="font-semibold text-text-primary text-sm">{format(w.amount)}</p>
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-${statusColor}-100 text-${statusColor}-700`}>
                         {w.status}
                       </span>
@@ -542,7 +557,7 @@ const StokvelDetailPage = ({ user }) => {
                 <div className="flex-1">
                   <p className="font-semibold text-text-primary">{member.username}</p>
                   <p className="text-sm text-text-secondary">
-                    Contributed: R{member.total_contributed.toFixed(2)}
+                    Contributed: {format(member.total_contributed)}
                   </p>
                 </div>
                 {member.user_id === stokvel.created_by && (
@@ -661,7 +676,7 @@ const StokvelDetailPage = ({ user }) => {
                     <p className="text-xs text-text-muted mt-1">{contribution.note}</p>
                   )}
                 </div>
-                <p className="text-lg font-bold text-secondary">+R{contribution.amount.toFixed(2)}</p>
+                <p className="text-lg font-bold text-secondary">+{format(contribution.amount)}</p>
               </div>
             ))}
             {contributions.length === 0 && (
@@ -794,7 +809,7 @@ const StokvelDetailPage = ({ user }) => {
               <div className="flex justify-between text-sm">
                 <span className="text-text-secondary">Group pool</span>
                 <span className="font-semibold text-text-primary">
-                  R{stokvel?.total_pool?.toFixed(2) || '0.00'}
+                  {format(stokvel?.total_pool || 0)}
                 </span>
               </div>
               <div className="flex justify-between text-sm mt-1">
@@ -879,7 +894,7 @@ const StokvelDetailPage = ({ user }) => {
             </div>
 
             <div className="bg-secondary/10 rounded-xl p-3 mb-4 text-xs text-text-secondary">
-              You can access up to <strong className="text-secondary">${smartEligibility.max_access_amount?.toFixed(2)}</strong> ({smartEligibility.access_percentage}% of contributions). Future rewards reduced by 30% until replenished.
+              You can access up to <strong className="text-secondary">{format(smartEligibility.max_access_amount || 0)}</strong> ({smartEligibility.access_percentage}% of contributions). Future rewards reduced by 30% until replenished.
             </div>
 
             <label className="block text-sm font-medium text-text-primary mb-2">Amount ($)</label>
@@ -949,7 +964,7 @@ const StokvelDetailPage = ({ user }) => {
                 placeholder="500.00"
                 data-testid="withdraw-amount"
               />
-              <p className="text-[10px] text-text-muted mt-1">Pool balance: R{stokvel?.total_pool?.toFixed(2)}</p>
+              <p className="text-[10px] text-text-muted mt-1">Pool balance: {format(stokvel?.total_pool || 0)}</p>
             </div>
 
             <label className="block text-sm font-medium text-text-primary mb-2">Purpose</label>

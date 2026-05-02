@@ -109,6 +109,8 @@ class User(BaseModel):
     photos: List[Dict[str, Any]] = []
     videos: List[Dict[str, Any]] = []
     articles: List[Dict[str, Any]] = []
+    currency: Optional[str] = "USD"
+    premium_unlocked: Optional[bool] = False
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
@@ -118,6 +120,29 @@ class UpdateProfileRequest(BaseModel):
     country: Optional[str] = None
     profession: Optional[str] = None
     interests: Optional[List[str]] = None
+    currency: Optional[str] = None
+
+# ============== CURRENCY & PREMIUM ==============
+
+SUPPORTED_CURRENCIES = {
+    # code: (symbol, label, USD→cur rate as of prototype)
+    "USD": {"symbol": "$",  "label": "US Dollar",        "rate": 1.0},
+    "EUR": {"symbol": "€",  "label": "Euro",             "rate": 0.93},
+    "GBP": {"symbol": "£",  "label": "British Pound",    "rate": 0.80},
+    "ZAR": {"symbol": "R",  "label": "South African Rand","rate": 18.20},
+    "NGN": {"symbol": "₦",  "label": "Nigerian Naira",   "rate": 1480.0},
+    "KES": {"symbol": "KSh","label": "Kenyan Shilling",  "rate": 129.0},
+    "GHS": {"symbol": "GH₵","label": "Ghanaian Cedi",    "rate": 14.50},
+    "JPY": {"symbol": "¥",  "label": "Japanese Yen",     "rate": 155.0},
+    "AUD": {"symbol": "A$", "label": "Australian Dollar","rate": 1.52},
+    "CAD": {"symbol": "C$", "label": "Canadian Dollar",  "rate": 1.36},
+}
+
+PREMIUM_FEE_USD = 10.0
+
+class PremiumPaymentRequest(BaseModel):
+    currency: str  # must be in SUPPORTED_CURRENCIES
+    payment_method: Optional[str] = "mock"  # "mock" for prototype
 
 # ============== CONNECTIONS / HUBS / MEDIA ==============
 
@@ -530,6 +555,10 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
         update_data["profession"] = request.profession
     if request.interests is not None:
         update_data["interests"] = request.interests
+    if request.currency is not None:
+        if request.currency not in SUPPORTED_CURRENCIES:
+            raise HTTPException(status_code=400, detail="Unsupported currency")
+        update_data["currency"] = request.currency
     
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
@@ -543,6 +572,68 @@ async def get_user(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+# ============== CURRENCY & PREMIUM ENDPOINTS ==============
+
+@api_router.get("/currencies")
+async def list_currencies():
+    return {"currencies": [
+        {"code": code, **details}
+        for code, details in SUPPORTED_CURRENCIES.items()
+    ], "premium_fee_usd": PREMIUM_FEE_USD}
+
+@api_router.post("/users/me/premium")
+async def unlock_premium(payload: PremiumPaymentRequest, current_user: dict = Depends(get_current_user)):
+    """Mock payment: user pays $10 (converted to chosen currency) to unlock financial features.
+    In production, replace with Stripe/Paystack/Razorpay integration."""
+    if payload.currency not in SUPPORTED_CURRENCIES:
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    if current_user.get("premium_unlocked"):
+        return {
+            "already_premium": True,
+            "premium_unlocked": True,
+            "currency": current_user.get("currency", "USD"),
+        }
+    meta = SUPPORTED_CURRENCIES[payload.currency]
+    local_amount = round(PREMIUM_FEE_USD * meta["rate"], 2)
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "premium_unlocked": True,
+            "currency": payload.currency,
+            "premium_paid_at": datetime.now(timezone.utc).isoformat(),
+            "premium_paid_amount_local": local_amount,
+            "premium_paid_currency": payload.currency,
+        }}
+    )
+    # Record as a transaction (mocked payment)
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "type": "premium_unlock",
+        "amount_usd": PREMIUM_FEE_USD,
+        "amount_local": local_amount,
+        "currency": payload.currency,
+        "description": f"Premium financial-features unlock ({meta['symbol']}{local_amount} {payload.currency}) — MOCK PAYMENT",
+        "status": "completed",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {
+        "premium_unlocked": True,
+        "currency": payload.currency,
+        "paid_usd": PREMIUM_FEE_USD,
+        "paid_local": local_amount,
+        "symbol": meta["symbol"],
+        "mocked": True,
+    }
+
+def require_premium(current_user: dict):
+    """Guard to call inside any financial endpoint that should be premium-gated."""
+    if not current_user.get("premium_unlocked"):
+        raise HTTPException(
+            status_code=402,  # Payment Required
+            detail="Premium subscription required. Unlock at /api/users/me/premium"
+        )
 
 # ============== REGIONAL HUBS ==============
 
@@ -969,6 +1060,7 @@ async def get_wallet(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/wallet/deposit")
 async def deposit_funds(request: DepositRequest, current_user: dict = Depends(get_current_user)):
+    require_premium(current_user)
     if request.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     
@@ -1176,6 +1268,7 @@ async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_u
 
 @api_router.post("/stokvels/{stokvel_id}/contribute")
 async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, current_user: dict = Depends(get_current_user)):
+    require_premium(current_user)
     stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
     if not stokvel:
         raise HTTPException(status_code=404, detail="Stokvel not found")
@@ -1646,6 +1739,7 @@ async def get_my_rewards(stokvel_id: str, current_user: dict = Depends(get_curre
 # Smart Access API
 @api_router.post("/stokvels/{stokvel_id}/smart-access")
 async def request_smart_access(stokvel_id: str, request: RequestSmartAccess, current_user: dict = Depends(get_current_user)):
+    require_premium(current_user)
     """Request early access to pooled funds"""
     stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
     if not stokvel:
@@ -1823,6 +1917,7 @@ async def set_signatories(stokvel_id: str, payload: SetSignatoriesRequest, curre
 @api_router.post("/stokvels/{stokvel_id}/withdrawals")
 async def create_withdrawal(stokvel_id: str, payload: WithdrawalRequest, current_user: dict = Depends(get_current_user)):
     """Member proposes a withdrawal from the group pool."""
+    require_premium(current_user)
     stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
     if not stokvel:
         raise HTTPException(status_code=404, detail="Stokvel not found")
@@ -2126,6 +2221,7 @@ async def follow_product(product_id: str, request: FollowProductRequest):
 
 @api_router.post("/products/{product_id}/support")
 async def support_product(product_id: str, request: ProductSupportRequest, current_user: dict = Depends(get_current_user)):
+    require_premium(current_user)
     """Contribute support to a product"""
     product = await db.products.find_one({"id": product_id})
     if not product:

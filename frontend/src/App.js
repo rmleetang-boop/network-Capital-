@@ -28,6 +28,7 @@ import AudienceInsightsPage from './pages/AudienceInsightsPage';
 import RegionalHubsPage from './pages/RegionalHubsPage';
 import ConnectionsPage from './pages/ConnectionsPage';
 import Layout from './components/Layout';
+import { CurrencyProvider } from './context/CurrencyContext';
 import './App.css';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -140,7 +141,8 @@ function App() {
     <>
       <Toaster position="top-center" />
       <BrowserRouter>
-        <Layout user={user} onLogout={handleLogout}>
+        <CurrencyProvider user={user} setUser={setUser}>
+          <Layout user={user} onLogout={handleLogout}>
           <Routes>
             <Route path="/" element={<FeedPage user={user} />} />
             <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} />} />
@@ -169,6 +171,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
+        </CurrencyProvider>
       </BrowserRouter>
     </>
   );

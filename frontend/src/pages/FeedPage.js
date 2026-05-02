@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X } from 'lucide-react';
+import ShareMenu from '../components/ShareMenu';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -12,6 +13,7 @@ const FeedPage = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [newPost, setNewPost] = useState({ content: '', image: '', video: '' });
+  const [sharingPost, setSharingPost] = useState(null);
   const [posting, setPosting] = useState(false);
   const navigate = useNavigate();
 
@@ -84,18 +86,19 @@ const FeedPage = ({ user }) => {
     }
   };
 
-  const handleShare = async (postId) => {
+  const handleShare = (postId) => {
+    const post = posts.find((p) => p.id === postId);
+    if (post) setSharingPost(post);
+  };
+
+  const confirmShare = async () => {
+    if (!sharingPost) return;
     try {
-      const response = await axiosInstance.post(`/posts/${postId}/share`);
-      setPosts(posts.map(p => 
-        p.id === postId 
-          ? { ...p, shares: response.data.shares }
-          : p
-      ));
+      const response = await axiosInstance.post(`/posts/${sharingPost.id}/share`);
+      setPosts((prev) => prev.map(p => p.id === sharingPost.id ? { ...p, shares: response.data.shares } : p));
       toast.success('Post shared! +8 points');
-    } catch (error) {
-      toast.error('Failed to share post');
-    }
+    } catch {}
+    setSharingPost(null);
   };
 
   const handleImageUpload = (e) => {
@@ -264,6 +267,14 @@ const FeedPage = ({ user }) => {
             </button>
           </motion.div>
         </div>
+      )}
+
+      {sharingPost && (
+        <ShareMenu
+          post={sharingPost}
+          onShared={confirmShare}
+          onClose={() => setSharingPost(null)}
+        />
       )}
     </div>
   );

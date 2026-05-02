@@ -20,10 +20,12 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import { useCurrency } from '../context/CurrencyContext';
 
 const ProductDetailPage = ({ user }) => {
   const { productId } = useParams();
   const navigate = useNavigate();
+  const { format, premiumUnlocked } = useCurrency();
   const [product, setProduct] = useState(null);
   const [creator, setCreator] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -225,7 +227,7 @@ const ProductDetailPage = ({ user }) => {
           className="bg-secondary/10 border border-secondary/30 rounded-xl p-4"
         >
           <p className="text-white text-sm">
-            <strong className="text-secondary">Support Range:</strong> ${product.min_support} - ${product.max_support} per contribution
+            <strong className="text-secondary">Support Range:</strong> {format(product.min_support)} - {format(product.max_support)} per contribution
           </p>
           <p className="text-white/60 text-xs mt-1">
             Support is community backing, not an investment. No returns or profit-sharing offered.
@@ -244,7 +246,10 @@ const ProductDetailPage = ({ user }) => {
             </button>
             {user && (
               <button
-                onClick={() => setShowSupportModal(true)}
+                onClick={() => {
+                  if (!premiumUnlocked) { toast.error('Unlock premium to back products'); return; }
+                  setShowSupportModal(true);
+                }}
                 className="flex-1 py-4 bg-gradient-to-r from-secondary to-yellow-500 text-primary font-semibold rounded-xl transition-all flex items-center justify-center gap-2"
                 data-testid="support-product"
               >
@@ -341,10 +346,10 @@ const ProductDetailPage = ({ user }) => {
           >
             <h2 className="text-xl font-bold text-white mb-4">Support This Product</h2>
             <p className="text-white/60 text-sm mb-2">
-              Your wallet balance: <span className="text-secondary font-bold">${user?.wallet_balance?.toFixed(2) || '0.00'}</span>
+              Your wallet balance: <span className="text-secondary font-bold">{format(user?.wallet_balance || 0)}</span>
             </p>
             <p className="text-white/50 text-xs mb-6">
-              Support range: ${product.min_support} - ${product.max_support}
+              Support range: {format(product.min_support)} - {format(product.max_support)}
             </p>
 
             <div className="space-y-4">

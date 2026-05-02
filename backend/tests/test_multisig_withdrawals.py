@@ -41,6 +41,13 @@ def _register_user(password="Test1234!"):
     if u2:
         user = u2
     assert user.get("id"), f"no user id; user={user}"
+    # Unlock premium so financial endpoints (deposit/contribute/withdraw/etc) work
+    rp = requests.post(
+        f"{API}/users/me/premium",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"currency": "USD"},
+    )
+    assert rp.status_code == 200, f"premium unlock: {rp.status_code} {rp.text}"
     return token, user
 
 

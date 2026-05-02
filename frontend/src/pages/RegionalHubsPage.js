@@ -4,6 +4,7 @@ import { MapPin, Users, Search, Heart, Briefcase, PiggyBank, Check, Send, X } fr
 import { useNavigate } from 'react-router-dom';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 
 const TYPE_META = {
   social: { label: 'Social', icon: Heart, color: 'bg-pink-500/20 text-pink-300 border-pink-500/40' },

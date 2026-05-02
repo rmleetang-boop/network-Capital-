@@ -17,8 +17,11 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { axiosInstance } from '../App';
+import { useCurrency } from '../context/CurrencyContext';
+import CurrencySwitcher from '../components/CurrencySwitcher';
 
 const NetWorthPage = ({ user }) => {
+  const { format } = useCurrency();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -57,10 +60,11 @@ const NetWorthPage = ({ user }) => {
           <div className="w-10 h-10 bg-secondary rounded-xl flex items-center justify-center">
             <TrendingUp className="text-primary" size={20} />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-heading font-bold text-white">Net Worth</h1>
             <p className="text-xs text-white/60">Your financial overview</p>
           </div>
+          <CurrencySwitcher compact testId="networth-currency-switcher" />
         </div>
       </div>
 
@@ -73,26 +77,25 @@ const NetWorthPage = ({ user }) => {
         >
           <p className="text-white/70 text-sm mb-2">Total Net Worth</p>
           <div className="flex items-end gap-2 mb-4">
-            <span className="text-5xl font-bold text-white">
-              ${netWorth.total?.toLocaleString() || '0'}
+            <span className="text-5xl font-bold text-white" data-testid="networth-total">
+              {format(netWorth.total || 0)}
             </span>
-            <span className="text-secondary text-sm mb-2">.00</span>
           </div>
           
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-white/10 rounded-xl p-3 text-center">
               <Wallet className="text-green-400 mx-auto mb-1" size={20} />
-              <p className="text-lg font-bold text-white">${netWorth.wallet_balance?.toFixed(2) || '0'}</p>
+              <p className="text-lg font-bold text-white">{format(netWorth.wallet_balance || 0)}</p>
               <p className="text-white/50 text-xs">Wallet</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3 text-center">
               <Users className="text-blue-400 mx-auto mb-1" size={20} />
-              <p className="text-lg font-bold text-white">${netWorth.stokvel_participation?.toFixed(2) || '0'}</p>
+              <p className="text-lg font-bold text-white">{format(netWorth.stokvel_participation || 0)}</p>
               <p className="text-white/50 text-xs">In Stokvels</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3 text-center">
               <Package className="text-purple-400 mx-auto mb-1" size={20} />
-              <p className="text-lg font-bold text-white">${netWorth.products_supported?.toFixed(2) || '0'}</p>
+              <p className="text-lg font-bold text-white">{format(netWorth.products_supported || 0)}</p>
               <p className="text-white/50 text-xs">Supporting</p>
             </div>
           </div>

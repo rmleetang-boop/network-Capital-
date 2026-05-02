@@ -80,4 +80,4 @@ agenthub/agents/youtube/db
 android-sdk/
 
 # Note: .env files are NOT ignored for deployment
-# Environment files with deployment-safe values are committed
+# Environment files with deployment-safe values are committedfrontend/node_modules/.cache/default-development/21.pack

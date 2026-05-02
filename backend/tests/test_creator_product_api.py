@@ -59,6 +59,8 @@ def creator_ctx(session):
     assert body["user"]["is_creator"] is True
     assert body["user"]["user_type"] == "creator"
     assert body["next_step"] == 3
+    # Unlock premium for financial endpoints
+    session.post(f"{API}/users/me/premium", json={"currency": "USD"}, headers=headers)
     return {"email": email, "token": token, "user_id": uid, "headers": headers, "username": creator_username}
 
 
@@ -84,6 +86,8 @@ def member_ctx(session):
     assert r2.status_code == 200
     assert r2.json()["user"]["is_creator"] is False
     assert r2.json()["next_step"] == 0
+    # Unlock premium for financial endpoints
+    session.post(f"{API}/users/me/premium", json={"currency": "USD"}, headers=h)
     return {"email": email, "token": tok, "user_id": uid, "headers": h}
 
 
