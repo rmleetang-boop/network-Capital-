@@ -28,6 +28,8 @@ import AudienceInsightsPage from './pages/AudienceInsightsPage';
 import RegionalHubsPage from './pages/RegionalHubsPage';
 import ConnectionsPage from './pages/ConnectionsPage';
 import ActivityTrackerPage from './pages/ActivityTrackerPage';
+import ExplorePage from './pages/ExplorePage';
+import HashtagPage from './pages/HashtagPage';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
@@ -170,6 +172,8 @@ function App() {
             <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
             <Route path="/connections" element={<ConnectionsPage user={user} />} />
             <Route path="/activity" element={<ActivityTrackerPage user={user} />} />
+            <Route path="/explore" element={<ExplorePage user={user} />} />
+            <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />

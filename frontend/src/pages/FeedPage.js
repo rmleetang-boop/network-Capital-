@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
 import MockAdButton from '../components/MockAdButton';
+import StoriesRibbon from '../components/StoriesRibbon';
+import StoryViewer from '../components/StoryViewer';
+import HashtagText from '../components/HashtagText';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -16,6 +19,7 @@ const FeedPage = ({ user }) => {
   const [newPost, setNewPost] = useState({ content: '', image: '', video: '' });
   const [sharingPost, setSharingPost] = useState(null);
   const [posting, setPosting] = useState(false);
+  const [storyGroup, setStoryGroup] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,7 +49,7 @@ const FeedPage = ({ user }) => {
       setPosts([response.data, ...posts]);
       setNewPost({ content: '', image: '', video: '' });
       setShowCreatePost(false);
-      toast.success('Post created! +10 points');
+      toast.success('Post created! +20 points');
     } catch (error) {
       toast.error('Failed to create post');
     } finally {
@@ -53,19 +57,16 @@ const FeedPage = ({ user }) => {
     }
   };
 
-  const handleLike = async (postId, isLiked) => {
+  const handleLike = async (postId) => {
     try {
       const response = await axiosInstance.post(`/posts/${postId}/like`);
-      setPosts(posts.map(p => 
-        p.id === postId 
-          ? { ...p, likes: response.data.liked 
-              ? [...p.likes, user.id] 
+      setPosts(posts.map(p =>
+        p.id === postId
+          ? { ...p, likes: response.data.liked
+              ? [...p.likes, user.id]
               : p.likes.filter(id => id !== user.id) }
           : p
       ));
-      if (response.data.liked) {
-        toast.success('+2 points for engagement!');
-      }
     } catch (error) {
       toast.error('Failed to like post');
     }
@@ -76,12 +77,12 @@ const FeedPage = ({ user }) => {
 
     try {
       const response = await axiosInstance.post(`/posts/${postId}/comment`, { content });
-      setPosts(posts.map(p => 
-        p.id === postId 
+      setPosts(posts.map(p =>
+        p.id === postId
           ? { ...p, comments: [...p.comments, response.data] }
           : p
       ));
-      toast.success('Comment added! +5 points');
+      toast.success('Comment added!');
     } catch (error) {
       toast.error('Failed to add comment');
     }
@@ -97,7 +98,7 @@ const FeedPage = ({ user }) => {
     try {
       const response = await axiosInstance.post(`/posts/${sharingPost.id}/share`);
       setPosts((prev) => prev.map(p => p.id === sharingPost.id ? { ...p, shares: response.data.shares } : p));
-      toast.success('Post shared! +8 points');
+      toast.success('Post shared! +10 points');
     } catch {}
     setSharingPost(null);
   };
@@ -136,27 +137,41 @@ const FeedPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT">
-      <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
-        <div className="flex items-center justify-between">
+      {/* Top bar */}
+      <div className="sticky top-0 z-10 bg-gradient-to-r from-[#0a1628] via-primary to-[#0a1628] border-b border-white/10">
+        <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img 
-              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
-              alt="Network Capital" 
-              className="h-10 w-auto"
+            <img
+              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png"
+              alt="Network Capital"
+              className="h-9 w-auto"
             />
             <div>
-              <p className="text-xs text-text-muted">Network Score</p>
-              <p className="text-lg font-bold text-secondary">{user.network_score}</p>
+              <p className="text-[10px] text-white/60 uppercase tracking-wider">Score</p>
+              <p className="text-base font-bold text-secondary leading-none">{user.network_score}</p>
             </div>
           </div>
-          <button
-            onClick={() => setShowCreatePost(true)}
-            className="bg-primary hover:bg-primary-hover text-white px-6 py-2 rounded-full font-medium shadow-md hover:shadow-lg active:scale-95 transition-all"
-            data-testid="create-post-button"
-          >
-            Post
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/explore')}
+              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+              data-testid="feed-explore-shortcut"
+              aria-label="Explore"
+            >
+              <Compass size={18} />
+            </button>
+            <button
+              onClick={() => setShowCreatePost(true)}
+              className="bg-secondary hover:brightness-110 text-primary px-4 py-2 rounded-full font-bold text-sm shadow-md active:scale-95 transition-all"
+              data-testid="create-post-button"
+            >
+              Post
+            </button>
+          </div>
         </div>
+
+        {/* Stories ribbon sits inside the dark header */}
+        <StoriesRibbon currentUser={user} onOpenViewer={(g) => setStoryGroup(g)} />
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
@@ -203,7 +218,7 @@ const FeedPage = ({ user }) => {
             <textarea
               value={newPost.content}
               onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
-              placeholder="What's on your mind?"
+              placeholder="What's on your mind? Use #hashtags to join the conversation"
               rows={5}
               className="w-full p-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none mb-4"
               data-testid="post-content-input"
@@ -265,7 +280,7 @@ const FeedPage = ({ user }) => {
               className="w-full mt-4 bg-primary hover:bg-primary-hover text-white font-medium py-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="submit-post-button"
             >
-              {posting ? 'Posting...' : 'Post (+10 points)'}
+              {posting ? 'Posting...' : 'Post (+20 points)'}
             </button>
           </motion.div>
         </div>
@@ -278,6 +293,15 @@ const FeedPage = ({ user }) => {
           onClose={() => setSharingPost(null)}
         />
       )}
+
+      {storyGroup && (
+        <StoryViewer
+          group={storyGroup}
+          onClose={() => setStoryGroup(null)}
+          onNextGroup={() => setStoryGroup(null)}
+          onPrevGroup={() => setStoryGroup(null)}
+        />
+      )}
     </div>
   );
 };
@@ -285,7 +309,10 @@ const FeedPage = ({ user }) => {
 const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, index }) => {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [showHeart, setShowHeart] = useState(false);
+  const lastTapRef = useRef(0);
   const isLiked = post.likes.includes(currentUserId);
+  const isAuto = !!post.is_auto_narrated;
 
   const handleCommentSubmit = () => {
     if (commentText.trim()) {
@@ -294,72 +321,130 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
     }
   };
 
+  const handleMediaTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      // double-tap
+      if (!isLiked) onLike(post.id);
+      setShowHeart(true);
+      setTimeout(() => setShowHeart(false), 700);
+    }
+    lastTapRef.current = now;
+  };
+
+  const hasMedia = !!(post.image || post.video);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05 }}
-      className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow"
+      transition={{ delay: Math.min(index, 6) * 0.04 }}
+      className={`rounded-2xl overflow-hidden transition-shadow ${
+        isAuto
+          ? 'bg-gradient-to-br from-secondary/10 via-white to-secondary/5 border-2 border-transparent shadow-md'
+          : 'bg-white border border-gray-100 shadow-sm hover:shadow-md'
+      }`}
+      style={isAuto ? { backgroundClip: 'padding-box', borderImage: 'linear-gradient(135deg, #f5d76e, #c79a2a) 1' } : undefined}
       data-testid={`post-card-${index}`}
     >
-      <div className="flex items-start gap-3 mb-3">
-        <Avatar className="w-12 h-12 cursor-pointer" onClick={() => onUserClick(post.user_id)}>
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+        <Avatar className="w-10 h-10 cursor-pointer ring-2 ring-white" onClick={() => onUserClick(post.user_id)}>
           <AvatarImage src={post.user_photo} />
           <AvatarFallback>{post.username[0].toUpperCase()}</AvatarFallback>
         </Avatar>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-text-primary cursor-pointer hover:text-primary transition-colors" onClick={() => onUserClick(post.user_id)}>
+            <h3 className="font-semibold text-text-primary text-sm truncate cursor-pointer hover:text-primary transition-colors" onClick={() => onUserClick(post.user_id)}>
               {post.username}
             </h3>
             <NetworkScore score={post.user_score} size="small" animate={false} />
+            {isAuto && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gradient-to-r from-secondary to-yellow-500 text-primary shadow-sm"
+                data-testid={`auto-badge-${index}`}
+              >
+                <Sparkles size={10} /> Auto
+              </span>
+            )}
           </div>
-          <p className="text-xs text-text-muted">{new Date(post.created_at).toLocaleDateString()}</p>
+          <p className="text-[11px] text-text-muted">{new Date(post.created_at).toLocaleDateString()}</p>
         </div>
       </div>
 
-      <p className="text-text-primary mb-3 whitespace-pre-wrap">{post.content}</p>
-
-      {post.image && (
-        <img src={post.image} alt="Post" className="w-full rounded-xl mb-3 max-h-96 object-cover" />
+      {/* Content text */}
+      {post.content && (
+        <div className="px-4 pb-3">
+          <HashtagText text={post.content} className="text-text-primary text-sm whitespace-pre-wrap" />
+        </div>
       )}
 
-      {post.video && (
-        <video src={post.video} controls className="w-full rounded-xl mb-3 max-h-96 bg-black" />
+      {/* Full-bleed media with double-tap to like */}
+      {hasMedia && (
+        <div
+          className="relative bg-black select-none"
+          onClick={handleMediaTap}
+          onDoubleClick={handleMediaTap}
+          data-testid={`post-media-${index}`}
+        >
+          {post.image && (
+            <img src={post.image} alt="Post" className="w-full max-h-[560px] object-contain bg-black" draggable={false} />
+          )}
+          {post.video && (
+            <video src={post.video} controls className="w-full max-h-[560px] bg-black" />
+          )}
+          <AnimatePresence>
+            {showHeart && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.4 }}
+                animate={{ opacity: 1, scale: 1.2 }}
+                exit={{ opacity: 0, scale: 1.6 }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0 flex items-center justify-center pointer-events-none"
+              >
+                <Heart size={110} className="text-white drop-shadow-2xl" fill="currentColor" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       )}
 
-      <div className="flex items-center gap-6 text-text-secondary border-t border-gray-100 pt-3">
+      {/* Action bar */}
+      <div className="flex items-center gap-6 text-text-secondary px-4 py-3">
         <button
-          onClick={() => onLike(post.id, isLiked)}
-          className={`flex items-center gap-2 hover:text-red-500 transition-colors ${isLiked ? 'text-red-500' : ''}`}
+          onClick={() => onLike(post.id)}
+          className={`flex items-center gap-1.5 transition-colors ${isLiked ? 'text-red-500' : 'hover:text-red-500'}`}
           data-testid={`like-button-${index}`}
         >
-          <Heart size={20} fill={isLiked ? 'currentColor' : 'none'} />
+          <motion.span whileTap={{ scale: 1.4 }} transition={{ duration: 0.2 }}>
+            <Heart size={22} fill={isLiked ? 'currentColor' : 'none'} />
+          </motion.span>
           <span className="text-sm font-medium">{post.likes.length}</span>
         </button>
 
         <button
           onClick={() => setShowComments(!showComments)}
-          className="flex items-center gap-2 hover:text-primary transition-colors"
+          className="flex items-center gap-1.5 hover:text-primary transition-colors"
           data-testid={`comment-button-${index}`}
         >
-          <MessageCircle size={20} />
+          <MessageCircle size={22} />
           <span className="text-sm font-medium">{post.comments.length}</span>
         </button>
 
         <button
           onClick={() => onShare(post.id)}
-          className="flex items-center gap-2 hover:text-secondary transition-colors"
+          className="flex items-center gap-1.5 hover:text-secondary transition-colors"
           data-testid={`share-button-${index}`}
         >
-          <Share2 size={20} />
+          <Share2 size={22} />
           <span className="text-sm font-medium">{post.shares}</span>
         </button>
       </div>
 
+      {/* Comments */}
       {showComments && (
-        <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
-          {post.comments.map((comment, idx) => (
+        <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+          {post.comments.map((comment) => (
             <div key={comment.id} className="flex gap-2">
               <Avatar className="w-8 h-8">
                 <AvatarImage src={comment.user_photo} />
@@ -367,7 +452,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
               </Avatar>
               <div className="flex-1 bg-gray-50 rounded-xl p-3">
                 <p className="text-sm font-semibold text-text-primary">{comment.username}</p>
-                <p className="text-sm text-text-secondary">{comment.content}</p>
+                <HashtagText text={comment.content} className="text-sm text-text-secondary" />
               </div>
             </div>
           ))}

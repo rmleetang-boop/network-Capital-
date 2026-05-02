@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, User, Briefcase, Package, MapPin } from 'lucide-react';
+import { Home, User, Briefcase, Compass, MapPin } from 'lucide-react';
 
 const Layout = ({ children, user, onLogout }) => {
   const navigate = useNavigate();
@@ -8,9 +8,9 @@ const Layout = ({ children, user, onLogout }) => {
 
   const primaryNav = [
     { icon: Home, label: 'Feed', path: '/' },
+    { icon: Compass, label: 'Explore', path: '/explore' },
     { icon: MapPin, label: 'Hubs', path: '/hubs' },
     { icon: Briefcase, label: 'Stokvel+', path: '/stokvels' },
-    { icon: Package, label: 'Products', path: '/products' },
     { icon: User, label: 'Profile', path: '/profile' },
   ];
 
