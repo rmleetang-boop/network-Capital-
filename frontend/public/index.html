@@ -28,6 +28,24 @@
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
         <div id="root"></div>
+        <script>
+            // Support-approved removal of the Made-with-Emergent badge.
+            (function () {
+                function removeBadge() {
+                    var el = document.getElementById('emergent-badge');
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                }
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', removeBadge);
+                } else {
+                    removeBadge();
+                }
+                // also retry shortly in case the badge is injected after DOMContentLoaded
+                setTimeout(removeBadge, 0);
+                setTimeout(removeBadge, 500);
+                setTimeout(removeBadge, 2000);
+            })();
+        </script>
         <!--
       This HTML file is a template.
       If you open it directly in the browser, you will see an empty page.

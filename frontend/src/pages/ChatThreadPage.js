@@ -197,7 +197,7 @@ const ChatThreadPage = ({ user }) => {
       </div>
 
       {/* Messages */}
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto max-w-2xl w-full mx-auto p-3 pb-44">
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto max-w-2xl w-full mx-auto p-3 pb-32">
         {messages.length === 0 && (
           <p className="text-center text-text-muted text-sm py-10">
             Say hi to {other?.username || 'them'} — all communication must follow our compliance rules (no investing / returns / guaranteed language).
@@ -247,8 +247,8 @@ const ChatThreadPage = ({ user }) => {
         })}
       </div>
 
-      {/* Composer — sits above the Emergent platform badge (40px tall at bottom-right) */}
-      <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 px-3 py-2 z-40 shadow-lg" data-testid="dm-composer">
+      {/* Composer */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-3 py-2 z-40 shadow-lg" data-testid="dm-composer">
         <div className="max-w-2xl mx-auto">
           {/* Attachments preview */}
           <AnimatePresence>
