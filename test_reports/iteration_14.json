@@ -1,0 +1,46 @@
+{
+  "summary": "Verified the Community Resource Ecosystem refactor: new public LandingPage, public endpoints /api/activity/live + /api/leaderboard/public, refactored DashboardPage with Daily Activity Tracker hero, and POPIA/transparency compliance. 8/9 backend tests pass; landing page renders all required sections/testids; dashboard renders all required testids; POPIA nudge appears on /auth signup tab; final-cta/hero-cta navigate to /auth; /messages still hides BottomNav.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/leaderboard/public?limit=3", "issue": "Seed-padding logic does not respect `limit` strictly. When real leaders count < 5 AND limit < 5, endpoint returns limit+1 rows (got 4 for limit=3). Cause: in public_leaderboard, the seed loop appends before the `>= limit` break check. Fix: change the loop body to `if len(out) >= limit: break` BEFORE appending. Non-blocking for the UI (UI requests limit=10 on landing, limit=5 on dashboard and got exactly 5/10 real seeds respectively)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DashboardPage mini leaderboard", "issue": "Individual leader rows inside data-testid='dashboard-leaderboard' lack `data-testid^='leader-'` attributes (found 0 rows by that selector, although 5 rows ARE visually rendered). Review spec for landing specifies leader-<rank> selectors and that convention was not extended to the dashboard mini-leaderboard. Cosmetic / testability issue only.", "selector": "[data-testid='dashboard-leaderboard'] [data-testid^='leader-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_public_landing.py",
+    "/app/test_reports/pytest/public_landing_results.xml"
+  ],
+  "action_items": [
+    "(LOW) Fix /api/leaderboard/public seed-padding to strictly respect `limit` (move `>= limit` check before append). Not blocking since all UI callers use limit >=5.",
+    "(LOW) Add data-testid='leader-{rank}' to leader rows inside DashboardPage's dashboard-leaderboard for consistency with the landing-page leaderboard."
+  ],
+  "critical_code_review_comments": [
+    "LandingPage.js is ~365 lines — acceptable but trending towards the 700-line soft limit; consider extracting HeroSection, NetworkScoreSection, etc. when it grows.",
+    "server.py is 3918 lines — already far past the 700-line guideline; should be split into routers (auth, activity, leaderboard, score, premium, stokvel, etc.) to improve maintainability.",
+    "Public endpoints /activity/live and /leaderboard/public correctly exclude MongoDB `_id` and do not require auth — good.",
+    "LiveActivityFeed polls every 10s using setInterval + axiosInstance; OK. Consider pausing when tab is hidden (document.visibilityState) to reduce backend load.",
+    "On /dashboard /score/summary + /dashboard + /leaderboard/public are fetched in parallel via Promise.all — good. Error path only shows a toast; no retry UI."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_public_landing.py (NEW — 9 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "89% (8/9 pytest cases pass; 1 minor limit-handling failure on /leaderboard/public)",
+    "frontend": "~97% (all landing/dashboard testids present and visible; POPIA nudge correct on signup tab; navigation to /auth and /activity works; /messages hides BottomNav; compliance copy only appears in transparency/disclaimer contexts)"
+  },
+  "test_credentials": "Created dynamic test user via API (POST /api/auth/progressive-signup + /api/auth/complete-profile) email test_landing_<rand>@example.com / Test123!; token injected into localStorage for /dashboard testing.",
+  "seed_data_creation": "One test user created per run via progressive-signup flow. No cleanup fixture added (these TEST_ users are harmless and match the 'landing_' prefix).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public endpoints /api/activity/live and /api/leaderboard/public work without auth. Landing page at / renders for un-auth users (LandingPage), while OnboardingPage is at /onboarding. /dashboard requires Bearer token; auth-popia-nudge only renders on Sign Up tab, NOT Login tab. Terms checkbox on signup is a custom div that intercepts clicks — prefer API-driven signup for authed-flow tests. Landing compliance: 'returns' appears exactly 3 times in page text, all inside transparency/clarity blocks. Dashboard compliance: 'returns' appears once inside trust-nudge disclaimer.",
+  "rca_of_the_issue": {
+    "leaderboard_limit_bug": "In /api/leaderboard/public, the pad-with-seeded loop (server.py ~line 1306) appends a seeded leader to `out` and THEN checks `if len(out) >= limit: break`. When real leaders count < limit < 5, the first pad iteration always appends before breaking, causing the response to exceed `limit` by 1. Fix: move the break check to before the append, or use `if len(out) >= limit: break` at the top of the loop body."
+  }
+}

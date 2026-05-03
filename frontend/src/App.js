@@ -4,6 +4,7 @@ import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
 import AuthPage from './pages/AuthPage';
 import OnboardingPage from './pages/OnboardingPage';
+import LandingPage from './pages/LandingPage';
 import HelpCenterPage from './pages/HelpCenterPage';
 import LegalDocumentsPage from './pages/LegalDocumentsPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
@@ -115,8 +116,8 @@ function App() {
   }
 
   if (!user) {
-    // Show onboarding for first-time visitors (but not on legal/admin page)
-    if (showOnboarding && !window.location.pathname.startsWith('/legal') && !window.location.pathname.startsWith('/admin')) {
+    // Show landing page for first-time visitors (but not on legal/admin/auth pages)
+    if (showOnboarding && !window.location.pathname.startsWith('/legal') && !window.location.pathname.startsWith('/admin') && !window.location.pathname.startsWith('/auth')) {
       return (
         <>
           <Toaster position="top-center" />
@@ -124,7 +125,8 @@ function App() {
             <Routes>
               <Route path="/legal" element={<LegalDocumentsPage />} />
               <Route path="/admin" element={<AdminDashboardPage />} />
-              <Route path="*" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
+              <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
+              <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             </Routes>
           </BrowserRouter>
         </>
@@ -140,7 +142,8 @@ function App() {
             <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
-            <Route path="*" element={<Navigate to="/auth" replace />} />
+            <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </>

@@ -1185,6 +1185,137 @@ async def claim_premium_via_score(current_user: dict = Depends(get_current_user)
     return {"premium_unlocked": True, "claimed_via": "top_score"}
 
 
+
+# ============== PUBLIC LANDING DATA (no auth) ==============
+
+# Seed lines used when there is no real activity yet — keeps the landing feed
+# from ever appearing empty and reinforces social proof.
+_SEED_ACTIVITY = [
+    {"type": "joined", "username": "thandi_m", "city": "Cape Town", "minutes_ago": 3, "text": "joined the Circle"},
+    {"type": "score", "username": "kabelo_b", "city": "Johannesburg", "minutes_ago": 7, "text": "earned +500 by engaging with a community product", "points": 500},
+    {"type": "benefit", "username": "amaka_n", "city": "Lagos", "minutes_ago": 12, "text": "unlocked a Group Benefit (Stokvel Tier 2)"},
+    {"type": "joined", "username": "kwame_o", "city": "Accra", "minutes_ago": 18, "text": "joined the Circle"},
+    {"type": "score", "username": "lerato_s", "city": "Pretoria", "minutes_ago": 22, "text": "hit a 7-day participation streak (+10)", "points": 10},
+    {"type": "benefit", "username": "nia_k", "city": "Nairobi", "minutes_ago": 31, "text": "claimed a Shared Value reward via the group pool"},
+    {"type": "score", "username": "sipho_d", "city": "Durban", "minutes_ago": 44, "text": "shared a community update (+10)", "points": 10},
+    {"type": "joined", "username": "fatou_a", "city": "Dakar", "minutes_ago": 58, "text": "joined the Circle"},
+    {"type": "score", "username": "tendai_z", "city": "Harare", "minutes_ago": 73, "text": "posted a contribution update (+20)", "points": 20},
+    {"type": "benefit", "username": "ade_o", "city": "Lagos", "minutes_ago": 88, "text": "qualified for Product Access (premium tier)"},
+]
+
+
+@api_router.get("/activity/live")
+async def public_live_activity(limit: int = 30):
+    """Public endpoint — recent score events + new members + unlocks for the
+    landing-page Live Activity Feed. Falls back to seeded items if the platform
+    is empty so the feed never reads as dead."""
+    items = []
+    # Recent score events (last 6 hours)
+    since = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+    score_rows = await db.score_events.find(
+        {"created_at": {"$gte": since}, "points": {"$gt": 0}},
+        {"_id": 0, "user_id": 1, "points": 1, "action": 1, "created_at": 1, "message": 1},
+    ).sort("created_at", -1).to_list(limit)
+    user_ids = list({r["user_id"] for r in score_rows})
+    user_map = {}
+    if user_ids:
+        for u in await db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "username": 1, "city": 1}).to_list(len(user_ids)):
+            user_map[u["id"]] = u
+    for r in score_rows:
+        u = user_map.get(r["user_id"], {})
+        if not u:
+            continue
+        items.append({
+            "type": "score",
+            "username": u.get("username", "member"),
+            "city": (u.get("city") or "").replace("_", " ").title(),
+            "text": r.get("message") or f"earned +{r['points']} ({r.get('action','engagement')})",
+            "points": r["points"],
+            "created_at": r["created_at"],
+        })
+    # Recent new members (last 24h)
+    since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    new_members = await db.users.find(
+        {"created_at": {"$gte": since_24h}},
+        {"_id": 0, "username": 1, "city": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(10)
+    for u in new_members:
+        items.append({
+            "type": "joined",
+            "username": u.get("username", "member"),
+            "city": (u.get("city") or "").replace("_", " ").title(),
+            "text": "joined the Circle",
+            "created_at": u.get("created_at"),
+        })
+    # Recent premium unlocks (treat as benefit unlocked)
+    benefit_rows = await db.transactions.find(
+        {"type": "premium_unlock", "created_at": {"$gte": since_24h}},
+        {"_id": 0, "user_id": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(10)
+    benefit_user_ids = list({r["user_id"] for r in benefit_rows if r.get("user_id") not in user_map})
+    if benefit_user_ids:
+        for u in await db.users.find({"id": {"$in": benefit_user_ids}}, {"_id": 0, "id": 1, "username": 1, "city": 1}).to_list(len(benefit_user_ids)):
+            user_map[u["id"]] = u
+    for r in benefit_rows:
+        u = user_map.get(r["user_id"], {})
+        if not u:
+            continue
+        items.append({
+            "type": "benefit",
+            "username": u.get("username", "member"),
+            "city": (u.get("city") or "").replace("_", " ").title(),
+            "text": "unlocked Premium Group Benefits",
+            "created_at": r.get("created_at"),
+        })
+
+    # Sort by created_at desc and trim
+    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    items = items[:limit]
+
+    # Seed fallback so the feed never reads as empty
+    if len(items) < 6:
+        for s in _SEED_ACTIVITY:
+            items.append({**s, "seeded": True})
+        items = items[:limit]
+
+    return {"items": items, "total": len(items)}
+
+
+@api_router.get("/leaderboard/public")
+async def public_leaderboard(limit: int = 10):
+    """Public top-N members by network_score for the landing page."""
+    rows = await db.users.find(
+        {"network_score": {"$gt": 0}},
+        {"_id": 0, "id": 1, "username": 1, "city": 1, "photo": 1, "network_score": 1},
+    ).sort("network_score", -1).limit(limit).to_list(limit)
+    out = [{
+        "rank": i + 1,
+        "username": r.get("username"),
+        "city": (r.get("city") or "").replace("_", " ").title(),
+        "photo": r.get("photo", ""),
+        "network_score": int(r.get("network_score", 0)),
+    } for i, r in enumerate(rows)]
+    # Pad with seeded leaders if fewer than 5 real participants
+    seeds = [
+        {"username": "thandi_m", "city": "Cape Town", "photo": "", "network_score": 9420},
+        {"username": "kabelo_b", "city": "Johannesburg", "photo": "", "network_score": 8910},
+        {"username": "amaka_n", "city": "Lagos", "photo": "", "network_score": 8320},
+        {"username": "lerato_s", "city": "Pretoria", "photo": "", "network_score": 7780},
+        {"username": "kwame_o", "city": "Accra", "photo": "", "network_score": 7210},
+    ]
+    if len(out) < 5:
+        existing_names = {r["username"] for r in out}
+        for s in seeds:
+            if s["username"] in existing_names:
+                continue
+            out.append({"rank": len(out) + 1, **s, "seeded": True})
+            if len(out) >= limit:
+                break
+    return {"leaders": out, "total": len(out)}
+
+
+
+
 import re
 
 async def _auto_post(user_id: str, content: str):

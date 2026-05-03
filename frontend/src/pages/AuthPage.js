@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, User, FileText, HelpCircle, Check, ExternalLink, ArrowLeft, ArrowRight, Users, Sparkles } from 'lucide-react';
+import { Mail, Lock, User, FileText, HelpCircle, Check, ExternalLink, ArrowLeft, ArrowRight, Users, Sparkles, ShieldCheck } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -203,6 +203,15 @@ const AuthPage = ({ onLogin }) => {
                       </button>
                     </span>
                   </label>
+                </div>
+
+                {/* POPIA / data-protection trust nudge */}
+                <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-secondary/10 border border-secondary/20" data-testid="auth-popia-nudge">
+                  <ShieldCheck size={14} className="text-secondary flex-shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-white/70 leading-relaxed">
+                    Your data is protected under <strong className="text-white">POPIA</strong> and equivalent regional laws.
+                    We coordinate participation, not financial products — and never sell your information.
+                  </p>
                 </div>
 
                 <button
