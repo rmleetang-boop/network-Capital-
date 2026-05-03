@@ -1306,11 +1306,11 @@ async def public_leaderboard(limit: int = 10):
     if len(out) < 5:
         existing_names = {r["username"] for r in out}
         for s in seeds:
+            if len(out) >= limit:
+                break
             if s["username"] in existing_names:
                 continue
             out.append({"rank": len(out) + 1, **s, "seeded": True})
-            if len(out) >= limit:
-                break
     return {"leaders": out, "total": len(out)}
 
 

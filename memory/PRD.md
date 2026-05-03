@@ -15,6 +15,31 @@ Mobile-first social network ("Network Capital") with:
 
 ## Implemented Features (cumulative)
 
+### Iteration 14 — Community Resource Ecosystem Refactor
+
+**New Public Layer (LandingPage)** at `/` for un-authenticated visitors:
+- Hero: "Build Value Through Community Participation" + clarity statement (no financial services / no promised returns) + POPIA/Transparent/Community-first trust pill + 3 trust badges (POPIA Aligned, Open by Design, Your Data Yours)
+- "What You Get" section (3 cards tagged "Collective Participation", "Shared Value", "Product Access")
+- 3-step Member Journey (Join the Circle → Build Your Network Score → Unlock Group Benefits)
+- Network Score explainer (10,000 cap, "what earns" + "what unlocks")
+- Community Leaderboard (top 10) + Live Activity Feed (10s polling)
+- Transparency Section (NOT a financial product / NO promised returns / a coordination layer)
+- Footer with POPIA & Data Protection commitment
+
+**New public backend endpoints (no auth)**:
+- `GET /api/activity/live?limit=N` — recent score events + new members + premium unlocks; seeded fallback so the feed never reads empty
+- `GET /api/leaderboard/public?limit=N` — top members; pads with seeded leaders (≤5) so the board feels populated; respects `limit` strictly
+
+**Dashboard refactor** — Daily Activity Tracker is the focal hero:
+- Big monthly Network Score card (pts / 10,000), today/7-day/streak chips, gradient progress bar
+- Quick action grid (post / share / refer / watch & engage / message / like-comment)
+- Right-rail: LiveActivityFeed + mini leaderboard (`leader-<rank>` rows) + POPIA/transparency trust nudge
+
+**AuthPage**: added `auth-popia-nudge` POPIA + data-protection trust pill on the signup tab.
+
+**OnboardingPage**: still reachable at `/onboarding` but no longer the default for first-time visitors.
+
+### Iteration 13 — DM Composer Final Fixes
 ### Iteration 11 — Direct Messaging (DMs) v1
 
 - **Endpoints**: `POST /api/dm/compliance-check`, `POST /api/dm/send`, `GET /api/dm/threads`, `GET /api/dm/threads/:other_user_id`. Collections: `dm_messages`, `dm_threads`.

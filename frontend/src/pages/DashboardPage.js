@@ -180,7 +180,7 @@ const DashboardPage = ({ user }) => {
             </div>
             <ul className="divide-y divide-gray-100">
               {leaders.slice(0, 5).map((l) => (
-                <li key={`${l.username}-${l.rank}`} className="flex items-center gap-3 px-4 py-2.5">
+                <li key={`${l.username}-${l.rank}`} className="flex items-center gap-3 px-4 py-2.5" data-testid={`leader-${l.rank}`}>
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${l.rank <= 3 ? 'bg-secondary text-primary' : 'bg-background-subtle text-text-secondary'}`}>{l.rank}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-text-primary truncate">@{l.username}</p>
