@@ -61,7 +61,7 @@ const LandingPage = ({ onContinue }) => {
             </h1>
 
             <p className="text-base sm:text-lg text-white/75 max-w-2xl mx-auto mb-8 leading-relaxed" data-testid="hero-subheading">
-              A platform where communities coordinate access to opportunities, tools and shared benefits — through participation, not capital.
+              A <strong className="text-white">Community Resource Ecosystem</strong>. We coordinate social capital and economic participation — so groups can access opportunities together that no one could unlock alone.
             </p>
 
             <button
@@ -73,7 +73,11 @@ const LandingPage = ({ onContinue }) => {
             </button>
 
             <p className="text-[12px] text-white/50 mt-4 max-w-md mx-auto" data-testid="hero-clarity">
-              Not a financial service. No promised returns. Just structured participation.
+              Not a financial service. No promised returns. Real coordination of shared access.
+            </p>
+
+            <p className="text-[11px] text-white/40 mt-6" data-testid="cross-platform-note">
+              Web today · <strong className="text-white/60">iOS + Android apps coming soon</strong>
             </p>
           </motion.div>
         </div>
@@ -83,9 +87,9 @@ const LandingPage = ({ onContinue }) => {
       <section className="max-w-5xl mx-auto px-6 pb-20" data-testid="benefits-section">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[
-            { icon: Users, title: 'Coordinate as a group', body: 'Join a circle and unlock access to opportunities, tools and group benefits no individual could secure alone.' },
-            { icon: TrendingUp, title: 'Earn through engagement', body: 'Every contribution, share and referral builds your Network Score — a transparent measure of your community impact.' },
-            { icon: Sparkles, title: 'Unlock real benefits', body: 'Higher participation tiers grant access to community products, premium features and shared rewards.' },
+            { icon: Users, title: 'Coordinate as a group', body: 'Join a circle and access suppliers, events, tools, and benefits that take a community to unlock — not a balance sheet.' },
+            { icon: TrendingUp, title: 'Earn reputation, not returns', body: 'Your Network Score measures contribution — consistency, sharing, referrals, milestones. It is a social-capital signal, not a payout.' },
+            { icon: Sparkles, title: 'Unlock real shared access', body: 'Higher tiers unlock group products, event privileges, and Stokvel eligibility — access you hold because you showed up, not because you paid more.' },
           ].map((c, i) => {
             const I = c.icon;
             return (

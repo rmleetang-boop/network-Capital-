@@ -128,7 +128,7 @@ const Terms = () => (
 const Privacy = () => (
   <>
     <H1>Privacy Policy</H1>
-    <P>We only collect what's needed to coordinate your participation. We never sell your data.</P>
+    <P><strong>Honest disclosure.</strong> We <em>do</em> collect activity data — we couldn't calculate your Network Score or personalise your ecosystem benefits without it. What we <em>don't</em> do is sell it, trade it, or use it to build advertising profiles.</P>
     <H2>Data we collect</H2>
     <UL>
       <li>Account: email, username, password (hashed), full name, bio.</li>

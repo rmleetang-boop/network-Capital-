@@ -114,7 +114,13 @@ function App() {
 
   if (loading || bootSplash) {
     return (
-      <PremiumLoadingScreen minDuration={loading ? 1800 : 1500} onDone={() => setBootSplash(false)} />
+      <PremiumLoadingScreen
+        minDuration={bootSplash ? 2600 : 1600}
+        onDone={() => {
+          try { sessionStorage.setItem('nc_splash_shown', '1'); } catch {}
+          setBootSplash(false);
+        }}
+      />
     );
   }
 
@@ -202,3 +208,4 @@ function App() {
 }
 
 export default App;
+

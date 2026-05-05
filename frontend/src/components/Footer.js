@@ -27,8 +27,9 @@ const Footer = () => (
         <ul className="text-sm space-y-1.5">
           <li>• We are <strong className="text-white">not</strong> a financial services provider.</li>
           <li>• We do <strong className="text-white">not</strong> promise returns.</li>
-          <li>• We coordinate participation, access, and shared benefits.</li>
+          <li>• We coordinate <strong className="text-white">social capital</strong> and group access.</li>
         </ul>
+        <p className="text-[11px] text-white/50 mt-3"><strong className="text-white/70">Available:</strong> Web today · iOS + Android coming soon.</p>
       </div>
 
       {/* Links */}
