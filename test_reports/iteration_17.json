@@ -1,0 +1,48 @@
+{
+  "summary": "Iter 17 — full backend + frontend verification of Activities, Premium splash, Legal, Help, brand palette. Backend 19/19 pytest passes (create/list/get/join/leave/delete + auth + filter + sort + idempotent join + max-full + score events). Found 1 CRITICAL frontend crash on /activities (Radix Select rejects empty-string value) — fixed by testing agent (3 lines). After fix all 12 activity-form testids render, modal opens, country→city cascades, submit creates activity → toast '+50 pts' → activities-grid + activity-card-0 with full data (title/desc/city/country/date/time/cost/creator/participants). Premium splash visible on first load (deep navy bg + glowing logo + network lines), disappears in ~0.9-1.5s. /legal page has all 4 tab testids (terms/privacy/compliance/popia) and Terms tab contains all required phrases ($20, $5, R1,000,000, Activities, Premium, $10). /help has 9 categories, 29 FAQs, search filters 29→4 for 'stokvel', help-contact present. Profile data-testid='quick-activities' navigates to /activities. Brand palette computed: primary=rgb(0,32,96) navy, secondary=rgb(232,168,23) gold — exact match.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ActivitiesPage.js",
+        "issue": "CRITICAL — `<SelectItem value=\"\">All categories</SelectItem>` (line 139) crashes the entire /activities page with Radix UI error: 'A <Select.Item /> must have a value prop that is not an empty string.' Page renders 'Uncaught runtime errors' overlay and is fully unusable. Fixed by testing agent: changed empty value to 'all' and updated default state + filter logic to skip 'all' when calling API.",
+        "selector": "[data-testid=\"activity-category\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter17_activities.py",
+    "/app/test_reports/pytest/iter17_results.xml"
+  ],
+  "action_items": [
+    "Already fixed by testing agent: Radix empty-string SelectItem in ActivitiesPage.js — used value=\"all\" sentinel + skip filter when category==='all'. Main agent should review and accept (3 single-line edits). Ideally apply the same pattern (sentinel value, never empty string) to any other SelectItem in the codebase to prevent regressions.",
+    "Optional: ensure splash min-duration is >=1500ms as spec'd; observed teardown ~0.9s on warm load (still acceptable, just below ask)."
+  ],
+  "critical_code_review_comments": [
+    "ActivitiesPage.js line 139 used <SelectItem value=\"\">All categories</SelectItem> — Radix has explicitly disallowed empty strings since v1.x because it conflicts with placeholder semantics. This is a recurring class of bug; consider an eslint rule or codemod to flag SelectItem value=\"\".",
+    "server.py activities block (lines 1542-1663) is clean: proper Pydantic, idempotent join, max-participants check, creator-only delete, score events fired with try/except. Good. Minor: ActivityCreateRequest has no min/max length on title/description and no future-date check on `date` — backend accepts any string format, no parsing.",
+    "server.py is now 4294 lines — split into routers is overdue (called out in iter 16, still not done).",
+    "ActivitiesPage.js handleCountry resets city but the parent `category` filter state should arguably also reset on country change to avoid stale empty results — minor UX nit.",
+    "PremiumLoadingScreen min duration appears under spec'd 1.5s (observed ~0.9s on warm load). If splash is meant for brand impression, enforce a hard minimum via setTimeout."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/ActivitiesPage.js (3 edits: useState default 'all', filter logic skips 'all', SelectItem value='all')",
+    "/app/backend/tests/test_iter17_activities.py (NEW — 19 pytest cases, all pass)"
+  ],
+  "success_rate": {
+    "backend": "100% (19/19) — create, validation 400 for unknown country/currency/category, unauth 401, list sort-by-date, country/city/category filters, get-by-id 200/404, join+idempotent+max-full, leave, delete creator-only 200/403/401",
+    "frontend": "100% after the 1 fix — splash visible navy+glow+network lines; /activities page, intro, 3 filter selects, create-cta, all 12 modal testids, country→city cascade, submit→toast→grid→card-0 with full data, Profile quick-activities navigates correctly; /legal 4 tabs + all required phrases in Terms; /help 9 cats, 29 FAQs, search 29→4, contact present; primary=#002060 navy, secondary=#E8A817 gold confirmed via computed style"
+  },
+  "test_credentials": "Dynamic via /api/auth/progressive-signup (token returned under key 'token') + /api/auth/complete-profile, password Test123!. Frontend stores JWT in localStorage under key 'token' (NOT 'nc_token'); also set localStorage.hasSeenOnboarding='true' to skip onboarding redirect.",
+  "seed_data_creation": "~5 fresh users + ~3 activities prefixed TEST_iter17. No cleanup fixture (matches prior iterations).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth: localStorage key for token is 'token' (App.js line 57/74/106). Hit /api/auth/progressive-signup → use body.token, then complete-profile, then localStorage.setItem('token', t). To bypass onboarding redirects, also setItem('hasSeenOnboarding','true'). Activities endpoints: POST /api/activities, GET /api/activities[?country=&city=&category=], GET/{id}, POST/{id}/join (idempotent → returns {already_joined:true}), POST/{id}/leave, DELETE/{id} (creator only). Sort: date asc, then created_at desc. Score events 'activity_created' (+50) and 'activity_joined' (+25, ONCE per user). Categories: dinner, concert, travel, holiday, experience. Currencies: USD, EUR, GBP, ZAR, NGN, KES, GHS, CAD, AUD, JPY. Frontend brand palette is now Deep Navy #002060 + Gold #E8A817 (computed-style verified). PremiumLoadingScreen testid='premium-loading-screen' shows for ~0.9-1.5s on app boot — wait_for_selector for downstream elements with timeout 5000.",
+  "rca_of_the_issue": "Critical bug: ActivitiesPage.js line 139 had `<SelectItem value=\"\">All categories</SelectItem>`. Radix UI Select disallows empty-string item values because they conflict with the placeholder/clear semantics, throwing 'A <Select.Item /> must have a value prop that is not an empty string' at React render time. This crashed the entire /activities page (CRA error overlay), making the new feature fully unusable. Reproduction: navigate to /activities while authenticated → red 'Uncaught runtime errors' overlay, no page testids render. Mitigation applied: replaced empty-string value with 'all' sentinel, set initial state to 'all', and updated fetchActivities() to skip the category filter when category==='all'. Verified: page now renders cleanly, all 12 modal testids appear, create flow end-to-end produces a valid activity card with toast '+50 pts'."
+}

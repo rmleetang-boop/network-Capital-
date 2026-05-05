@@ -1,453 +1,149 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ArrowLeft, 
-  Search, 
-  ChevronDown, 
-  ChevronUp,
-  BookOpen,
-  TrendingUp,
-  Users,
-  Gift,
-  Unlock,
-  Shield,
-  Wallet,
-  User,
-  AlertCircle,
-  HelpCircle
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { ArrowLeft, Search, HelpCircle, Mail, ChevronDown } from 'lucide-react';
+
+const CATEGORIES = [
+  { key: 'all', label: 'All topics' },
+  { key: 'account', label: 'Account & profile' },
+  { key: 'feed', label: 'Feed, Stories & DMs' },
+  { key: 'stokvels', label: 'Stokvels' },
+  { key: 'activities', label: 'Activities' },
+  { key: 'hubs', label: 'Hubs & location' },
+  { key: 'score', label: 'Network Score' },
+  { key: 'premium', label: 'Premium & payments' },
+  { key: 'privacy', label: 'Privacy & data' },
+];
+
+const FAQS = [
+  // Account
+  { cat: 'account', q: 'How do I sign up?', a: 'Tap "Join the Circle" on the landing page, enter email + password, then complete your profile (name, username, country, province, city). You can skip the bio; you can add a profile photo from the Profile page later.' },
+  { cat: 'account', q: 'How do I change my profile photo?', a: 'Go to Profile → tap the avatar → upload. When you change it, your photo updates automatically on all your past posts, stories, comments, and DMs.' },
+  { cat: 'account', q: 'Can I delete my account?', a: 'Yes — email info@networkcapitalapp.co.za from the address on the account. Banking details are scrubbed within 30 days; payment records are retained per tax obligations.' },
+  { cat: 'account', q: 'How do I reset my password?', a: 'Log in screen → "Forgot password?" — we\'ll email you a reset link.' },
+
+  // Feed, stories, DMs
+  { cat: 'feed', q: 'How do hashtags work?', a: 'Type #word in a post and it becomes tappable. You can browse /explore for trending tags and tap any tag for a grid of recent posts.' },
+  { cat: 'feed', q: 'What are Stories?', a: 'Short-lived posts (24h) that appear at the top of Feed. Create with the "+" in your story ring; tap any story to view.' },
+  { cat: 'feed', q: 'Can anyone DM me?', a: 'Yes — any user can DM any other user. DMs support text, images, voice notes, and shared posts. Compliance-flagged wording (invest/returns/guaranteed/…) prompts the sender with a suggested alternative before sending.' },
+  { cat: 'feed', q: 'Why did my message flag?', a: 'Regulated financial terms trigger a soft warning to keep the Platform compliant. Tap the suggestion to replace the word, or tap Send a second time to send anyway.' },
+
+  // Stokvels
+  { cat: 'stokvels', q: 'What does a Stokvel cost?', a: 'Creating a group is $20 once. Joining a group is $5 per member. Both are one-time platform fees.' },
+  { cat: 'stokvels', q: 'Where does the fee money go?', a: 'Into a quarterly Prize Pool distributed to the top-performing group, measured by group engagement, members\' Network Score growth, and activity. Network Capital adds R1,000,000 every quarter on top of collected fees.' },
+  { cat: 'stokvels', q: 'Who holds group member contributions?', a: 'An independent banking partner. Network Capital does not take or hold any member contributions. Your group has full control.' },
+  { cat: 'stokvels', q: 'What is the group constitution?', a: 'Each group writes its own internal rules: contribution schedule, pay-out order, dispute resolution, etc. Network Capital provides the platform; the group governs itself.' },
+  { cat: 'stokvels', q: 'Why do I need banking details to join?', a: 'So your share of pool distributions can reach you. Banking details are encrypted at rest, never displayed in full, and used only for legitimate group disbursements.' },
+  { cat: 'stokvels', q: 'Can I see a group\'s performance?', a: 'Yes — each group has a Dashboard that shows aggregate engagement, active members, and score growth.' },
+
+  // Activities
+  { cat: 'activities', q: 'What is an Activity?', a: 'A member-organised in-person experience: dinner, concert, travel, holiday, or any curated get-together. Pick country + city to browse what\'s near you.' },
+  { cat: 'activities', q: 'How do I host one?', a: 'Activities → Create. Enter title, description, country/city, venue (optional), date, time, cost, and max guests. You can add a cover image.' },
+  { cat: 'activities', q: 'Is there a fee?', a: 'Network Capital does not charge for hosting an activity. If the host lists a participation cost (e.g. "$50 dinner — 3 courses"), that cost is settled between host and guests outside the Platform.' },
+  { cat: 'activities', q: 'What happens if I join?', a: 'You earn +25 Network Score points. The host can see who has joined.' },
+
+  // Hubs
+  { cat: 'hubs', q: 'What is a Hub?', a: 'A city-based community view. Pick your country first, then your city. See who\'s nearby, connect with them socially, professionally, or financially, and find Activities and Stokvels in that city.' },
+  { cat: 'hubs', q: 'Which countries are supported?', a: 'At launch: South Africa, Nigeria, Kenya, Ghana, Zimbabwe, Tanzania, Uganda, Senegal, Egypt, Morocco, Ethiopia, Rwanda, plus "Other". We add more on request — email info@networkcapitalapp.co.za.' },
+
+  // Network Score
+  { cat: 'score', q: 'What increases my Network Score?', a: 'Post +20, share +10, story +5, daily 3-hour streak +10, refer a new member who joins +200, watch + share a community ad +100, engage with a community product +500, create an Activity +50, join an Activity +25.' },
+  { cat: 'score', q: 'Is there a cap?', a: 'Yes — 10,000 points per calendar month so consistency wins over one-off spikes. Premium doubles all point gains.' },
+  { cat: 'score', q: 'What does a high score unlock?', a: '500+ Stokvel eligibility · 2,000+ Creator product backing · 5,000+ Hub leaderboard placement · 10,000 free Premium claim and 2× multiplier.' },
+
+  // Premium
+  { cat: 'premium', q: 'How much is Premium?', a: '$10 one-time (or equivalent in your selected currency). Paid via Stripe checkout. Unlocks Wallet actions, Stokvel multi-sig, Creator product backing, 2× score, and +500 welcome bonus.' },
+  { cat: 'premium', q: 'Which currencies work on Stripe?', a: 'USD, EUR, GBP, CAD, AUD, JPY. For NGN, GHS, KES, ZAR we fall back to Paystack (wire-up pending — currently a test/mock path).' },
+  { cat: 'premium', q: 'Can I get a refund?', a: 'Premium is non-refundable once features unlock. If you were charged but Premium didn\'t activate, email support@networkcapitalapp.co.za with your session id.' },
+
+  // Privacy
+  { cat: 'privacy', q: 'Is my data sold?', a: 'No. Ever. See the Privacy Policy on /legal.' },
+  { cat: 'privacy', q: 'Where are banking details stored?', a: 'In our database encrypted at rest. They are only ever transmitted to our independent banking partner for legitimate disbursements. The API never returns a full account number — only last-4 with masked dots.' },
+  { cat: 'privacy', q: 'Is the app POPIA-aligned?', a: 'Yes. See /legal → POPIA & Data Protection for the full compliance posture.' },
+];
 
 const HelpCenterPage = () => {
   const navigate = useNavigate();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedCategory, setExpandedCategory] = useState(null);
-  const [expandedQuestion, setExpandedQuestion] = useState(null);
+  const [q, setQ] = useState('');
+  const [cat, setCat] = useState('all');
+  const [open, setOpen] = useState(null);
 
-  const faqCategories = [
-    {
-      id: 'getting-started',
-      title: 'Getting Started',
-      icon: BookOpen,
-      color: 'text-blue-500',
-      bgColor: 'bg-blue-500/10',
-      questions: [
-        {
-          q: 'What is Network Capital?',
-          a: 'Network Capital is a community-driven platform where your social engagement and group participation build your Network Score. This score unlocks activity-based incentives and opportunities. We are NOT a bank, investment platform, or credit provider.',
-        },
-        {
-          q: 'How do I create an account?',
-          a: 'Tap "Sign Up" on the login screen, enter your username, email, and password, then create your account. You\'ll have immediate access to the Feed, Wallet, and Stokvel+ features.',
-        },
-        {
-          q: 'Is Network Capital free to use?',
-          a: 'Creating an account is free. Platform fees apply for specific actions: $10 to create a Stokvel+ group, $2 to join an existing group. These fees support platform operations and are non-refundable.',
-        },
-        {
-          q: 'What can I do on the platform?',
-          a: 'You can: Post and engage with the community, build your Network Score, create or join Stokvel+ savings groups, earn activity-based incentives, track your wallet balance, and compete on leaderboards.',
-        },
-      ],
-    },
-    {
-      id: 'network-score',
-      title: 'Network Score',
-      icon: TrendingUp,
-      color: 'text-primary',
-      bgColor: 'bg-primary/10',
-      questions: [
-        {
-          q: 'What is the Network Score?',
-          a: 'Your Network Score (0-100) measures your contribution and engagement on the platform. It\'s calculated from: Contribution Consistency (30 pts), Contribution Amount (20 pts), Platform Engagement (15 pts), Referrals (15 pts), and Group Health (20 pts).',
-        },
-        {
-          q: 'How do I increase my score?',
-          a: 'Contribute regularly to your Stokvel+ groups, engage with posts and comments, refer friends to join, and help your groups succeed. Consistency matters more than large single contributions.',
-        },
-        {
-          q: 'What are the score tiers?',
-          a: 'Basic (41-70): 3% contribution bonus, 1% cashback. Boosted (71-85): 7% bonus, 3% cashback. Premium (86-100): 10% bonus, 5% cashback. Scores below 41 do not qualify for tier benefits.',
-        },
-        {
-          q: 'Can my score decrease?',
-          a: 'Yes. Your score reflects recent activity. If you stop contributing or engaging, your consistency score will decrease over time. Stay active to maintain your tier.',
-        },
-      ],
-    },
-    {
-      id: 'stokvel',
-      title: 'Stokvel+',
-      icon: Users,
-      color: 'text-secondary',
-      bgColor: 'bg-secondary/10',
-      questions: [
-        {
-          q: 'What is a Stokvel+?',
-          a: 'Stokvel+ is a community savings group feature. Members pool contributions together toward a shared goal. It\'s inspired by traditional African savings clubs (stokvels) with added gamification and incentives.',
-        },
-        {
-          q: 'How do I create a Stokvel+?',
-          a: 'Go to Stokvel+ tab, tap "Create New", set your group name, target amount, and payout cycle. A $10 platform fee is deducted from your wallet. You must have sufficient wallet balance.',
-        },
-        {
-          q: 'How do I join a Stokvel+?',
-          a: 'Browse available groups in the Stokvel+ tab and tap "Join" on any group. A $2 joining fee is deducted from your wallet. Some groups may require an invitation.',
-        },
-        {
-          q: 'What happens to my contributions?',
-          a: 'Contributions go into the group\'s shared pool. The pool grows as members contribute. Payouts follow the group\'s cycle. Your contributions are tracked and affect your Network Score.',
-        },
-        {
-          q: 'Can I withdraw my contributions anytime?',
-          a: 'Standard withdrawals follow the group\'s payout schedule. Smart Access may allow early access for eligible Premium tier members, subject to group rules and available funds.',
-        },
-      ],
-    },
-    {
-      id: 'rewards',
-      title: 'Rewards',
-      icon: Gift,
-      color: 'text-purple-500',
-      bgColor: 'bg-purple-500/10',
-      questions: [
-        {
-          q: 'What are rewards?',
-          a: 'Rewards are activity-based incentives earned through participation. They include contribution bonuses (added to your group pool) and cashback (added to your wallet). Rewards are NOT guaranteed income or investment returns.',
-        },
-        {
-          q: 'How are rewards calculated?',
-          a: 'Rewards are a percentage of your contributions based on your tier: Basic (3% bonus, 1% cashback), Boosted (7% bonus, 3% cashback), Premium (10% bonus, 5% cashback).',
-        },
-        {
-          q: 'Are rewards guaranteed?',
-          a: 'NO. Rewards are incentives based on your activity and are subject to platform performance and terms. They should not be considered guaranteed income, profits, or investment returns.',
-        },
-        {
-          q: 'Where do I see my rewards?',
-          a: 'View your rewards in the Rewards page, accessible from any Stokvel+ group detail page. You\'ll see total rewards, breakdown by type, and history.',
-        },
-      ],
-    },
-    {
-      id: 'smart-access',
-      title: 'Smart Access',
-      icon: Unlock,
-      color: 'text-green-500',
-      bgColor: 'bg-green-500/10',
-      questions: [
-        {
-          q: 'What is Smart Access?',
-          a: 'Smart Access allows eligible members to access a portion of their pooled funds before the standard payout cycle. It\'s early access to YOUR contributions, not a loan or credit.',
-        },
-        {
-          q: 'Who qualifies for Smart Access?',
-          a: 'Eligibility requires: Premium tier (score 86+), minimum 30 days of consistent contributions, and no recent defaults. Eligibility is checked automatically.',
-        },
-        {
-          q: 'Is Smart Access a loan?',
-          a: 'NO. Smart Access is early access to pooled funds you\'ve contributed. There is no interest, no debt, and no credit involved. Network Capital is NOT a credit provider.',
-        },
-        {
-          q: 'How much can I access?',
-          a: 'Smart Access limits depend on your contribution history and group rules. Typically up to 50% of your contributed amount, subject to available pool funds.',
-        },
-      ],
-    },
-    {
-      id: 'safety-trust',
-      title: 'Safety & Trust',
-      icon: Shield,
-      color: 'text-red-500',
-      bgColor: 'bg-red-500/10',
-      questions: [
-        {
-          q: 'Is Network Capital a bank?',
-          a: 'NO. Network Capital is NOT a bank, financial institution, or registered credit provider. We do not hold banking licenses. Wallet balances are for platform use only.',
-        },
-        {
-          q: 'Is this an investment platform?',
-          a: 'NO. Network Capital is NOT an investment platform. We do not offer investment products, securities, or financial instruments. Rewards are activity incentives, not investment returns.',
-        },
-        {
-          q: 'Are there guaranteed returns?',
-          a: 'NO. We do not guarantee any returns, profits, or income. All benefits depend on your participation, group performance, and platform terms. Results vary.',
-        },
-        {
-          q: 'What are the risks?',
-          a: 'Risks include: Group performance may vary, rewards are not guaranteed, platform terms may change, and wallet balances are subject to platform operations. Only contribute what you can afford.',
-        },
-        {
-          q: 'How is my data protected?',
-          a: 'We use encryption for data transmission and secure storage practices. Your password is hashed. We do not share personal data with third parties for marketing.',
-        },
-      ],
-    },
-    {
-      id: 'wallet',
-      title: 'Wallet & Transactions',
-      icon: Wallet,
-      color: 'text-cyan-500',
-      bgColor: 'bg-cyan-500/10',
-      questions: [
-        {
-          q: 'How do I add funds to my wallet?',
-          a: 'Go to Wallet tab and tap "Deposit". Enter the amount and confirm. Funds will be available immediately for platform use.',
-        },
-        {
-          q: 'What are wallet fees?',
-          a: 'Platform fees: $10 to create a Stokvel+, $2 to join a Stokvel+. These are deducted from your wallet balance automatically.',
-        },
-        {
-          q: 'Can I withdraw from my wallet?',
-          a: 'Wallet withdrawals follow platform terms. Stokvel+ contributions follow group payout cycles. Contact support for specific withdrawal inquiries.',
-        },
-        {
-          q: 'Is my wallet balance insured?',
-          a: 'Wallet balances are NOT insured or guaranteed. Network Capital is not a bank. Only deposit funds you intend to use on the platform.',
-        },
-      ],
-    },
-    {
-      id: 'account',
-      title: 'Account & Profile',
-      icon: User,
-      color: 'text-indigo-500',
-      bgColor: 'bg-indigo-500/10',
-      questions: [
-        {
-          q: 'How do I edit my profile?',
-          a: 'Go to Profile tab, tap the edit button (pencil icon), update your username, bio, or photo, then tap save.',
-        },
-        {
-          q: 'How do I find my User ID?',
-          a: 'Your User ID is displayed on your Profile page. Tap "Copy" to copy it. Share this ID when someone wants to invite you to their Stokvel+.',
-        },
-        {
-          q: 'How do I refer friends?',
-          a: 'Tap "Invite Friends" on your Profile page. Share your referral link. You earn +200 points when friends sign up and become active.',
-        },
-        {
-          q: 'How do I logout?',
-          a: 'Go to Profile tab and tap "Logout" at the bottom of the page.',
-        },
-      ],
-    },
-    {
-      id: 'troubleshooting',
-      title: 'Troubleshooting',
-      icon: AlertCircle,
-      color: 'text-orange-500',
-      bgColor: 'bg-orange-500/10',
-      questions: [
-        {
-          q: 'I can\'t login to my account',
-          a: 'Ensure your email and password are correct. Passwords are case-sensitive. If you forgot your password, contact support for assistance.',
-        },
-        {
-          q: 'My contribution didn\'t go through',
-          a: 'Check your wallet balance - you need sufficient funds. Verify the Stokvel+ group is still active. Try again or contact support if the issue persists.',
-        },
-        {
-          q: 'My score isn\'t updating',
-          a: 'Score updates may take a few moments. Refresh the page. If your score seems incorrect, check your recent activity and contribution history.',
-        },
-        {
-          q: 'I have another issue',
-          a: 'For issues not covered here, contact our support team through the app. Provide details about the problem, your username, and any error messages.',
-        },
-      ],
-    },
-  ];
-
-  const filteredCategories = faqCategories.map(category => ({
-    ...category,
-    questions: category.questions.filter(
-      q => 
-        q.q.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        q.a.toLowerCase().includes(searchQuery.toLowerCase())
-    ),
-  })).filter(category => searchQuery === '' || category.questions.length > 0);
-
-  const toggleCategory = (categoryId) => {
-    setExpandedCategory(expandedCategory === categoryId ? null : categoryId);
-    setExpandedQuestion(null);
-  };
-
-  const toggleQuestion = (questionKey) => {
-    setExpandedQuestion(expandedQuestion === questionKey ? null : questionKey);
-  };
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return FAQS.filter((f) => (cat === 'all' || f.cat === cat) && (!term || f.q.toLowerCase().includes(term) || f.a.toLowerCase().includes(term)));
+  }, [q, cat]);
 
   return (
-    <div className="min-h-screen bg-background-DEFAULT pb-20">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-primary">
-        <div className="px-4 py-4">
-          <div className="flex items-center gap-3 mb-4">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors"
-              data-testid="help-back-button"
-            >
-              <ArrowLeft className="text-white" size={20} />
-            </button>
-            <div>
-              <h1 className="text-xl font-heading font-bold text-white">Help Center</h1>
-              <p className="text-xs text-white/70">Find answers to your questions</p>
-            </div>
-          </div>
-
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={20} />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search for help..."
-              className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border-0 focus:ring-2 focus:ring-secondary outline-none"
-              data-testid="help-search-input"
-            />
-          </div>
+    <div className="min-h-screen bg-background-subtle" data-testid="help-page">
+      <div className="sticky top-0 z-10 bg-primary text-white border-b border-white/10 px-4 py-3">
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 text-white/80 hover:text-white"><ArrowLeft size={18} /></button>
+          <HelpCircle size={20} className="text-secondary" />
+          <h1 className="text-lg font-heading font-bold">Help Centre</h1>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto p-4 space-y-3">
-        {/* Important Notice */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-primary/5 border border-primary/20 rounded-2xl p-4"
-        >
-          <div className="flex items-start gap-3">
-            <HelpCircle className="text-primary flex-shrink-0 mt-0.5" size={20} />
-            <div>
-              <p className="text-sm font-medium text-text-primary mb-1">Important Information</p>
-              <p className="text-xs text-text-secondary">
-                Network Capital is a community platform, not a bank or investment service. 
-                All rewards are activity-based incentives, not guaranteed income.
-              </p>
-            </div>
+      <div className="max-w-4xl mx-auto p-4 space-y-4">
+        <div className="bg-white rounded-2xl border border-accent-navyTint p-4 shadow-sm">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search help topics…"
+              className="w-full pl-9 pr-3 py-2.5 rounded-full bg-background-subtle border border-accent-navyTint outline-none focus:border-secondary text-sm"
+              data-testid="help-search"
+            />
           </div>
-        </motion.div>
-
-        {/* FAQ Categories */}
-        {filteredCategories.map((category, idx) => {
-          const Icon = category.icon;
-          const isExpanded = expandedCategory === category.id;
-
-          return (
-            <motion.div
-              key={category.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: idx * 0.05 }}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
-            >
-              {/* Category Header */}
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {CATEGORIES.map((c) => (
               <button
-                onClick={() => toggleCategory(category.id)}
-                className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors"
-                data-testid={`category-${category.id}`}
+                key={c.key}
+                onClick={() => setCat(c.key)}
+                className={`text-[11px] font-semibold px-3 py-1.5 rounded-full transition-colors ${c.key === cat ? 'bg-primary text-white' : 'bg-background-subtle text-text-primary hover:bg-secondary-soft'}`}
+                data-testid={`help-cat-${c.key}`}
               >
-                <div className={`w-10 h-10 ${category.bgColor} rounded-xl flex items-center justify-center`}>
-                  <Icon className={category.color} size={20} />
-                </div>
-                <div className="flex-1 text-left">
-                  <p className="font-semibold text-text-primary">{category.title}</p>
-                  <p className="text-xs text-text-muted">{category.questions.length} questions</p>
-                </div>
-                {isExpanded ? (
-                  <ChevronUp className="text-text-muted" size={20} />
-                ) : (
-                  <ChevronDown className="text-text-muted" size={20} />
-                )}
+                {c.label}
               </button>
-
-              {/* Questions */}
-              <AnimatePresence>
-                {isExpanded && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="border-t border-gray-100"
-                  >
-                    {category.questions.map((item, qIdx) => {
-                      const questionKey = `${category.id}-${qIdx}`;
-                      const isQExpanded = expandedQuestion === questionKey;
-
-                      return (
-                        <div key={qIdx} className="border-b border-gray-50 last:border-0">
-                          <button
-                            onClick={() => toggleQuestion(questionKey)}
-                            className="w-full flex items-start gap-3 p-4 hover:bg-gray-50 transition-colors text-left"
-                            data-testid={`question-${questionKey}`}
-                          >
-                            <div className="flex-1">
-                              <p className="text-sm font-medium text-text-primary">{item.q}</p>
-                            </div>
-                            {isQExpanded ? (
-                              <ChevronUp className="text-text-muted flex-shrink-0 mt-0.5" size={16} />
-                            ) : (
-                              <ChevronDown className="text-text-muted flex-shrink-0 mt-0.5" size={16} />
-                            )}
-                          </button>
-                          
-                          <AnimatePresence>
-                            {isQExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.15 }}
-                                className="px-4 pb-4"
-                              >
-                                <p className="text-sm text-text-secondary leading-relaxed bg-background-subtle rounded-xl p-3">
-                                  {item.a}
-                                </p>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      );
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          );
-        })}
-
-        {/* No Results */}
-        {searchQuery && filteredCategories.length === 0 && (
-          <div className="text-center py-12">
-            <Search className="mx-auto mb-4 text-text-muted" size={48} />
-            <p className="text-text-secondary mb-2">No results found</p>
-            <p className="text-sm text-text-muted">Try a different search term</p>
+            ))}
           </div>
-        )}
+        </div>
 
-        {/* Contact Support */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="bg-gradient-to-br from-primary to-secondary rounded-2xl p-6 text-center mt-6"
-        >
-          <HelpCircle className="mx-auto mb-3 text-white" size={32} />
-          <h3 className="text-lg font-heading font-bold text-white mb-2">Still need help?</h3>
-          <p className="text-white/80 text-sm mb-4">
-            Can't find what you're looking for? Our support team is here to help.
-          </p>
-          <button 
-            className="bg-white text-primary font-medium px-6 py-2 rounded-full hover:bg-white/90 transition-all"
-            data-testid="contact-support-button"
-          >
-            Contact Support
-          </button>
-        </motion.div>
+        <div className="space-y-2">
+          {filtered.map((f, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-2xl border border-accent-navyTint overflow-hidden shadow-sm"
+              data-testid={`help-qa-${i}`}
+            >
+              <button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-secondary-soft transition-colors">
+                <span className="mt-0.5 text-secondary font-bold">Q.</span>
+                <span className="flex-1 font-semibold text-text-primary text-sm">{f.q}</span>
+                <ChevronDown size={16} className={`text-text-muted transition-transform ${open === i ? 'rotate-180' : ''}`} />
+              </button>
+              {open === i && (
+                <div className="px-4 pb-4 border-t border-accent-navyTint bg-background-subtle">
+                  <p className="text-sm text-text-primary leading-relaxed mt-2">{f.a}</p>
+                </div>
+              )}
+            </motion.div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="bg-white rounded-2xl border border-accent-navyTint p-10 text-center">
+              <p className="text-sm text-text-secondary">No articles match. Try a different search or email us.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-primary text-white rounded-2xl p-5 shadow-md" data-testid="help-contact">
+          <div className="flex items-center gap-2 mb-2"><Mail size={16} className="text-secondary" /><h3 className="font-heading font-bold">Still stuck?</h3></div>
+          <p className="text-sm text-white/80 mb-3">We reply within 24 hours on business days.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <a href="mailto:support@networkcapitalapp.co.za" className="bg-secondary text-primary px-4 py-2.5 rounded-full text-sm font-bold text-center">support@networkcapitalapp.co.za</a>
+            <a href="mailto:info@networkcapitalapp.co.za" className="bg-white/10 border border-white/20 text-white px-4 py-2.5 rounded-full text-sm font-bold text-center">info@networkcapitalapp.co.za</a>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1539,6 +1539,130 @@ async def trending_hashtags(limit: int = 12):
     return {"tags": [{"tag": r["_id"], "count": r["count"]} for r in rows]}
 
 
+
+# ============== ACTIVITIES (curated community experiences) ==============
+
+class ActivityCreateRequest(BaseModel):
+    title: str
+    description: str
+    country: str
+    city: str
+    venue: Optional[str] = ""
+    date: str  # YYYY-MM-DD
+    time: str  # HH:MM
+    cost_amount: float = 0
+    cost_currency: str = "USD"
+    cost_note: Optional[str] = ""
+    max_participants: Optional[int] = None
+    cover_image: Optional[str] = None
+    category: Optional[str] = "experience"
+
+ACTIVITY_CATEGORIES = ["dinner", "concert", "travel", "holiday", "experience"]
+
+
+@api_router.post("/activities")
+async def create_activity(payload: ActivityCreateRequest, current_user: dict = Depends(get_current_user)):
+    if payload.country not in AFRICAN_REGIONS:
+        raise HTTPException(status_code=400, detail="Unknown country")
+    if payload.cost_currency not in SUPPORTED_CURRENCIES:
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    if payload.category and payload.category not in ACTIVITY_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Unknown category")
+
+    activity = {
+        "id": str(uuid.uuid4()),
+        "creator_id": current_user["id"],
+        "creator_username": current_user["username"],
+        "creator_photo": current_user.get("photo", ""),
+        "title": payload.title.strip(),
+        "description": payload.description.strip(),
+        "country": payload.country,
+        "country_label": AFRICAN_REGIONS[payload.country]["label"],
+        "city": payload.city,
+        "city_label": _humanize(payload.city),
+        "venue": (payload.venue or "").strip(),
+        "date": payload.date,
+        "time": payload.time,
+        "cost_amount": float(payload.cost_amount or 0),
+        "cost_currency": payload.cost_currency,
+        "cost_note": payload.cost_note or "",
+        "max_participants": payload.max_participants,
+        "cover_image": payload.cover_image or None,
+        "category": payload.category or "experience",
+        "participants": [],
+        "status": "active",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.activities.insert_one(activity)
+    activity.pop("_id", None)
+    try:
+        await award_points(current_user["id"], "activity_created", 50, source_id=activity["id"], message="Created an Activity")
+    except Exception:
+        pass
+    return activity
+
+
+@api_router.get("/activities")
+async def list_activities(country: Optional[str] = None, city: Optional[str] = None, category: Optional[str] = None, limit: int = 60):
+    q: Dict[str, Any] = {"status": "active"}
+    if country:
+        q["country"] = country
+    if city:
+        q["city"] = city
+    if category:
+        q["category"] = category
+    rows = await db.activities.find(q, {"_id": 0}).sort([("date", 1), ("created_at", -1)]).to_list(limit)
+    return {"activities": rows, "total": len(rows)}
+
+
+@api_router.get("/activities/{activity_id}")
+async def get_activity(activity_id: str):
+    a = await db.activities.find_one({"id": activity_id}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    return a
+
+
+@api_router.post("/activities/{activity_id}/join")
+async def join_activity(activity_id: str, current_user: dict = Depends(get_current_user)):
+    a = await db.activities.find_one({"id": activity_id}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    if any(p.get("user_id") == current_user["id"] for p in a.get("participants", [])):
+        return {"already_joined": True}
+    if a.get("max_participants") and len(a.get("participants", [])) >= a["max_participants"]:
+        raise HTTPException(status_code=400, detail="Activity is full")
+    entry = {
+        "user_id": current_user["id"],
+        "username": current_user["username"],
+        "photo": current_user.get("photo", ""),
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.activities.update_one({"id": activity_id}, {"$push": {"participants": entry}})
+    try:
+        await award_points(current_user["id"], "activity_joined", 25, source_id=activity_id, message="Joined an Activity")
+    except Exception:
+        pass
+    return {"joined": True}
+
+
+@api_router.post("/activities/{activity_id}/leave")
+async def leave_activity(activity_id: str, current_user: dict = Depends(get_current_user)):
+    await db.activities.update_one({"id": activity_id}, {"$pull": {"participants": {"user_id": current_user["id"]}}})
+    return {"left": True}
+
+
+@api_router.delete("/activities/{activity_id}")
+async def delete_activity(activity_id: str, current_user: dict = Depends(get_current_user)):
+    a = await db.activities.find_one({"id": activity_id}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    if a["creator_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can delete this Activity")
+    await db.activities.delete_one({"id": activity_id})
+    return {"deleted": True}
+
+
 # ============== EXPLORE ==============
 
 @api_router.get("/explore")

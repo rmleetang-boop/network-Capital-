@@ -1,321 +1,222 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { ArrowLeft, FileText, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import BrandAttribution from '../components/BrandAttribution';
+import { motion } from 'framer-motion';
+import { ArrowLeft, FileText, ShieldCheck, Lock, Info } from 'lucide-react';
+
+const SECTIONS = [
+  { key: 'terms', label: 'Terms of Service', icon: FileText },
+  { key: 'privacy', label: 'Privacy Policy', icon: ShieldCheck },
+  { key: 'compliance', label: 'Compliance & Transparency', icon: Info },
+  { key: 'popia', label: 'POPIA & Data Protection', icon: Lock },
+];
+
+const EFFECTIVE = '2026-02-01';
 
 const LegalDocumentsPage = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'terms';
-  const [activeTab, setActiveTab] = useState(initialTab);
-
-  const termsContent = {
-    title: "Terms & Conditions",
-    operator: "Operated by: Mici (Pty) Ltd, South Africa",
-    effectiveDate: "Effective Date: January 2025",
-    sections: [
-      {
-        title: "1. Introduction",
-        content: `Welcome to Network Capital, operated by Mici (Pty) Ltd ("we", "our", "the Platform").
-
-By using our Platform, you agree to these Terms & Conditions. If you do not agree, do not use the Platform.`
-      },
-      {
-        title: "2. Services Provided",
-        content: `Network Capital allows users to:
-• Join group savings (stokvels)
-• Contribute to pooled funds
-• Earn rewards based on participation and network performance
-• Access Smart Rewards and early allocations
-
-Important: Network Capital does NOT provide loans or financial advice.
-
-Funds are held with regulated financial partners in South Africa and internationally.`
-      },
-      {
-        title: "3. Eligibility",
-        content: `• Users must be 18 years or older, or the legal age in their jurisdiction.
-• Users must provide accurate identification for KYC/AML compliance.`
-      },
-      {
-        title: "4. User Accounts",
-        content: `• Users are responsible for safeguarding their credentials.
-• All activity through your account is your responsibility.
-• Unauthorized activity must be reported immediately.`
-      },
-      {
-        title: "5. Contributions & Wallets",
-        content: `• Contributions are voluntary and tracked in digital wallets.
-• Group pools are managed according to multi-signature approval rules.
-• Early access to funds is conditional on:
-  - Network Score
-  - Group performance
-  - Pool liquidity`
-      },
-      {
-        title: "6. Rewards",
-        content: `• Rewards are based on participation, consistency, and network strength.
-• Rewards are not interest or financial returns.
-• Rewards may be adjusted due to compliance, fraud prevention, or system errors.`
-      },
-      {
-        title: "7. Payment Processing",
-        content: `• Payments are processed via third-party providers (e.g., Flutterwave, DusuPay).
-• Mici (Pty) Ltd is not liable for delays or errors caused by banks or processors.
-• All funds are held in regulated accounts.`
-      },
-      {
-        title: "8. Compliance",
-        content: `Users must comply with:
-• South African laws (FIC Act, POPIA)
-• Anti-Money Laundering (AML)
-• Counter-Terrorism Financing (CTF)
-• Relevant local and international financial regulations
-
-Accounts may be suspended for suspicious or illegal activity.`
-      },
-      {
-        title: "9. Data & Privacy",
-        content: `• User data is collected and processed according to our Privacy Policy.
-• By using the Platform, you consent to the collection, storage, and processing of your data.`
-      },
-      {
-        title: "10. Disclaimers",
-        content: `• The Platform is provided "as-is".
-• Network Capital does not guarantee profits, returns, or rewards.
-• Users assume all risks when participating in group savings.`
-      },
-      {
-        title: "11. Limitation of Liability",
-        content: `Mici (Pty) Ltd is not liable for:
-• Losses from technical failures
-• Unauthorized access to accounts
-• Delays in payments by financial institutions`
-      },
-      {
-        title: "12. Termination",
-        content: `• Mici (Pty) Ltd may suspend or terminate accounts at its discretion.
-• Users may close accounts after withdrawing funds.`
-      },
-      {
-        title: "13. Governing Law",
-        content: `• Terms are governed by South African law.
-• Disputes will be resolved through South African courts or arbitration agreements.`
-      },
-      {
-        title: "14. Changes to Terms",
-        content: `• Mici (Pty) Ltd may update Terms periodically.
-• Users will be notified via email or in-app notification.`
-      }
-    ]
-  };
-
-  const privacyContent = {
-    title: "Privacy Policy",
-    operator: "Operated by: Mici (Pty) Ltd, South Africa",
-    effectiveDate: "Effective Date: January 2025",
-    sections: [
-      {
-        title: "1. Introduction",
-        content: `Mici (Pty) Ltd values your privacy. This policy explains how we collect, use, and protect personal data globally.`
-      },
-      {
-        title: "2. Data We Collect",
-        content: `• Personal info: Name, email, phone, date of birth, ID documents (for KYC/AML)
-• Financial info: Bank accounts, wallet balances, transaction history
-• Usage data: Device info, app usage, engagement with groups & rewards`
-      },
-      {
-        title: "3. How We Use Data",
-        content: `• Provide Platform services
-• Verify identity (KYC/AML compliance)
-• Detect and prevent fraud or illegal activity
-• Improve app functionality & user experience
-• Communicate updates, notifications, marketing (with consent)`
-      },
-      {
-        title: "4. Data Sharing",
-        content: `Shared only with:
-• Financial partners (banks, payment processors)
-• Regulatory authorities as required
-• Service providers for operations
-
-No sale of personal data to third parties.`
-      },
-      {
-        title: "5. International Transfers",
-        content: `Data may be transferred across borders.
-
-Transfers comply with:
-• GDPR (for EU users)
-• POPIA (South Africa)
-• Other applicable laws`
-      },
-      {
-        title: "6. Data Retention",
-        content: `Retained only as needed for:
-• Legal compliance
-• Operational needs
-• Fraud prevention
-
-Users may request deletion, subject to legal obligations.`
-      },
-      {
-        title: "7. User Rights",
-        content: `• Access, correct, or request deletion of personal data
-• Opt-out of marketing
-• Export data in a machine-readable format`
-      },
-      {
-        title: "8. Security",
-        content: `Data is protected via:
-• Encryption in transit & at rest
-• Access controls
-• Regular audits`
-      },
-      {
-        title: "9. Children",
-        content: `• Platform is not for users under 18
-• No knowingly collected data from minors`
-      },
-      {
-        title: "10. Changes to Policy",
-        content: `Updates communicated via email or in-app notification.`
-      },
-      {
-        title: "11. Contact",
-        content: `Privacy inquiries: privacy@networkcapital.com`
-      }
-    ]
-  };
-
-  const currentContent = activeTab === 'terms' ? termsContent : privacyContent;
+  const [params] = useSearchParams();
+  const [active, setActive] = useState(params.get('tab') || 'terms');
 
   return (
-    <div className="min-h-screen bg-background-DEFAULT pb-20">
-      {/* Header */}
-      <div className="sticky top-0 z-10 bg-primary">
-        <div className="px-4 py-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 hover:bg-white/10 rounded-full transition-colors"
-              data-testid="legal-back-button"
-            >
-              <ArrowLeft className="text-white" size={20} />
-            </button>
-            <div>
-              <h1 className="text-xl font-heading font-bold text-white">Legal Documents</h1>
-              <p className="text-xs text-white/70">Mici (Pty) Ltd, South Africa</p>
-            </div>
+    <div className="min-h-screen bg-background-subtle text-text-primary" data-testid="legal-page">
+      <div className="sticky top-0 z-10 bg-primary text-white border-b border-white/10 px-4 py-3">
+        <div className="max-w-4xl mx-auto flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 text-white/80 hover:text-white"><ArrowLeft size={18} /></button>
+          <h1 className="text-lg font-heading font-bold">Legal &amp; Trust</h1>
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto p-4 grid grid-cols-1 md:grid-cols-[240px_1fr] gap-5">
+        <nav className="space-y-1 md:sticky md:top-20 h-max">
+          {SECTIONS.map((s) => {
+            const I = s.icon;
+            const on = s.key === active;
+            return (
+              <button
+                key={s.key}
+                onClick={() => setActive(s.key)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm transition-colors ${on ? 'bg-primary text-white font-semibold' : 'bg-white text-text-primary hover:bg-secondary-soft'}`}
+                data-testid={`legal-tab-${s.key}`}
+              >
+                <I size={16} className={on ? 'text-secondary' : 'text-primary'} /> {s.label}
+              </button>
+            );
+          })}
+          <div className="mt-4 p-3 rounded-xl border border-accent-navyTint bg-white text-[11px] text-text-secondary leading-relaxed">
+            Effective {EFFECTIVE}. Questions? Email <a href="mailto:info@networkcapitalapp.co.za" className="text-accent-link font-medium">info@networkcapitalapp.co.za</a>.
           </div>
-        </div>
+        </nav>
 
-        {/* Tabs */}
-        <div className="flex border-t border-white/20">
-          <button
-            onClick={() => setActiveTab('terms')}
-            className={`flex-1 py-3 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'terms'
-                ? 'bg-white text-primary'
-                : 'text-white/80 hover:bg-white/10'
-            }`}
-            data-testid="terms-tab"
-          >
-            <FileText size={16} />
-            Terms & Conditions
-          </button>
-          <button
-            onClick={() => setActiveTab('privacy')}
-            className={`flex-1 py-3 text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'privacy'
-                ? 'bg-white text-primary'
-                : 'text-white/80 hover:bg-white/10'
-            }`}
-            data-testid="privacy-tab"
-          >
-            <Shield size={16} />
-            Privacy Policy
-          </button>
-        </div>
-      </div>
-
-      <div className="max-w-2xl mx-auto p-4">
-        {/* Document Header */}
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-4"
+        <motion.article
+          key={active}
+          initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl border border-accent-navyTint p-6 sm:p-8 shadow-sm"
         >
-          <h2 className="text-2xl font-heading font-bold text-text-primary mb-2">
-            {currentContent.title}
-          </h2>
-          <p className="text-sm text-text-secondary">{currentContent.operator}</p>
-          <p className="text-sm text-text-muted">{currentContent.effectiveDate}</p>
-        </motion.div>
-
-        {/* Document Sections */}
-        <div className="space-y-3">
-          {currentContent.sections.map((section, idx) => (
-            <DocumentSection key={idx} section={section} index={idx} />
-          ))}
-        </div>
-
-        {/* Footer */}
-        <div className="mt-6 p-4 bg-primary/5 rounded-2xl border border-primary/20 text-center">
-          <p className="text-sm text-text-secondary">
-            By using Network Capital, you agree to these {activeTab === 'terms' ? 'Terms & Conditions' : 'Privacy Policy'}.
-          </p>
-          <p className="text-xs text-text-muted mt-2">
-            © 2025 Mici (Pty) Ltd. All rights reserved.
-          </p>
-        </div>
-      </div>
-      <div className="pb-6 pt-2">
-        <BrandAttribution tone="light" position="static" />
+          {active === 'terms' && <Terms />}
+          {active === 'privacy' && <Privacy />}
+          {active === 'compliance' && <Compliance />}
+          {active === 'popia' && <POPIA />}
+        </motion.article>
       </div>
     </div>
   );
 };
 
-const DocumentSection = ({ section, index }) => {
-  const [expanded, setExpanded] = useState(index < 3); // First 3 sections expanded by default
+const H1 = ({ children }) => <h2 className="text-2xl font-heading font-bold text-primary mb-3">{children}</h2>;
+const H2 = ({ children }) => <h3 className="text-base font-heading font-bold text-primary mt-6 mb-2">{children}</h3>;
+const P = ({ children }) => <p className="text-sm text-text-primary leading-relaxed mb-2">{children}</p>;
+const UL = ({ children }) => <ul className="text-sm text-text-primary space-y-1.5 mb-3 list-disc pl-5">{children}</ul>;
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03 }}
-      className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
-    >
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors text-left"
-        data-testid={`section-${index}`}
-      >
-        <h3 className="font-semibold text-text-primary">{section.title}</h3>
-        {expanded ? (
-          <ChevronUp className="text-text-muted flex-shrink-0" size={20} />
-        ) : (
-          <ChevronDown className="text-text-muted flex-shrink-0" size={20} />
-        )}
-      </button>
-      
-      {expanded && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          className="px-4 pb-4"
-        >
-          <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-line bg-background-subtle rounded-lg p-4">
-            {section.content}
-          </div>
-        </motion.div>
-      )}
-    </motion.div>
-  );
-};
+const Terms = () => (
+  <>
+    <H1>Terms of Service</H1>
+    <P>By creating an account or using the Network Capital mobile/web app (the "Platform"), you agree to these Terms. The Platform is operated by <strong>Mici Business Pty Ltd</strong>.</P>
+    <H2>1. What Network Capital is</H2>
+    <P>Network Capital is a <strong>community coordination platform</strong>. It is <strong>not a financial services provider, not a bank, not a credit provider, and not an investment scheme</strong>. We do not promise, guarantee, or pay any returns.</P>
+    <H2>2. The features you can access</H2>
+    <UL>
+      <li><strong>Social Feed</strong> — posts, stories, likes, comments, shares, hashtags, explore.</li>
+      <li><strong>Network Score</strong> — points earned through engagement, referrals, and consistency (monthly cap 10,000).</li>
+      <li><strong>Stokvel groups</strong> — $20 once to create, $5 per member to join. Fees pool quarterly to the top-performing group; Network Capital adds an additional R1,000,000 to that quarterly pool. Contributions are held by an independent partner; Network Capital never touches member contributions.</li>
+      <li><strong>Regional Hubs</strong> — country + city-based community discovery and connections (social, financial, professional).</li>
+      <li><strong>Activities</strong> — member-organised in-person experiences (dinners, concerts, travel, holidays) with optional costs disclosed by the organiser.</li>
+      <li><strong>Direct Messages</strong> — any two users can chat; multimedia supported with automated compliance word-checks.</li>
+      <li><strong>Creator / Product layer</strong> — creators publish products and the community backs them through participation.</li>
+      <li><strong>Wallet &amp; Premium</strong> — optional $10 one-time Premium unlock via Stripe (USD/EUR/GBP/CAD/AUD/JPY). 2× Network Score multiplier plus feature unlocks.</li>
+    </UL>
+    <H2>3. Your account and conduct</H2>
+    <UL>
+      <li>You must be 18+ to use financial or group features.</li>
+      <li>Provide accurate registration details, including location (country / province / city).</li>
+      <li>Keep your credentials confidential. You are responsible for activity on your account.</li>
+      <li>No fraud, harassment, spam, hate speech, or content that violates local law.</li>
+      <li>Regulated financial words ("invest", "returns", "profit", "guaranteed") are auto-flagged in posts and DMs. Repeated violations may lead to suspension.</li>
+    </UL>
+    <H2>4. Fees and payments</H2>
+    <UL>
+      <li>Creating a Stokvel group: <strong>$20 once</strong>. Joining: <strong>$5 per member</strong>.</li>
+      <li>Premium unlock: <strong>$10 one-time</strong>, via Stripe. Test environment uses Stripe's test cards.</li>
+      <li>All prices server-defined; the client cannot change them.</li>
+      <li>Fees are not refundable once the corresponding feature is unlocked, save where South African law requires.</li>
+    </UL>
+    <H2>5. The quarterly prize pool (Stokvels)</H2>
+    <UL>
+      <li>Collected group fees pool and distribute every quarter to the top-performing group.</li>
+      <li>Network Capital adds R1,000,000 on top of the fee pool every quarter.</li>
+      <li>Performance is scored on group engagement, members' Network Score growth, and activity. The scoring formula is documented and available on request.</li>
+      <li>The pool is not an investment. Eligibility and distribution rules are entirely transparent and may be updated with notice.</li>
+    </UL>
+    <H2>6. Member contributions &amp; control of funds</H2>
+    <UL>
+      <li><strong>Network Capital does not take or hold member contributions.</strong></li>
+      <li>Contributions are held by an <strong>independent partner</strong>.</li>
+      <li>Your group maintains <strong>full control</strong> and writes its own constitution.</li>
+    </UL>
+    <H2>7. Banking details</H2>
+    <P>Banking details are collected <strong>only</strong> inside the Stokvel feature, and are used <strong>solely for distribution of pool money</strong> back to members. See the Privacy Policy and POPIA section for storage and access details.</P>
+    <H2>8. Content ownership &amp; moderation</H2>
+    <P>You own what you post. You grant Network Capital a non-exclusive licence to host and display your content on the Platform. We may remove content that breaches these Terms or applicable law.</P>
+    <H2>9. Disclaimers</H2>
+    <P>The Platform is provided "as is". To the maximum extent permitted by law, Network Capital and Mici Business Pty Ltd disclaim all warranties and are not liable for indirect or consequential loss. Nothing on the Platform is financial, tax, legal or investment advice.</P>
+    <H2>10. Termination</H2>
+    <P>You may close your account at any time from Profile → Settings. We may suspend or close accounts that breach these Terms.</P>
+    <H2>11. Contact</H2>
+    <P>Support: <a className="text-accent-link" href="mailto:support@networkcapitalapp.co.za">support@networkcapitalapp.co.za</a> · General: <a className="text-accent-link" href="mailto:info@networkcapitalapp.co.za">info@networkcapitalapp.co.za</a></P>
+  </>
+);
+
+const Privacy = () => (
+  <>
+    <H1>Privacy Policy</H1>
+    <P>We only collect what's needed to coordinate your participation. We never sell your data.</P>
+    <H2>Data we collect</H2>
+    <UL>
+      <li>Account: email, username, password (hashed), full name, bio.</li>
+      <li>Location: country, province, city — used for Hub filtering, Activities nearby, and leaderboards.</li>
+      <li>Engagement: posts, stories, messages, likes, comments, Network Score events, referrals.</li>
+      <li>Banking (Stokvel only): bank name, account number, SWIFT, branch number — held encrypted.</li>
+      <li>Payment metadata: Stripe session id, amount, currency, status. We never see full card numbers.</li>
+      <li>Device data: IP, user agent, limited crash telemetry.</li>
+    </UL>
+    <H2>How we use it</H2>
+    <UL>
+      <li>Operate the Platform, match members into Hubs, and surface relevant Activities.</li>
+      <li>Score participation via the Network Score algorithm.</li>
+      <li>Prevent abuse, fraud, and violations of community rules.</li>
+      <li>Send essential account notifications; marketing email only with your opt-in.</li>
+    </UL>
+    <H2>Who we share it with</H2>
+    <UL>
+      <li><strong>Independent banking partner</strong> — only the banking details you submit for Stokvel disbursements.</li>
+      <li><strong>Stripe (or Paystack for local cards)</strong> — payment processing only.</li>
+      <li>Law enforcement where legally required.</li>
+    </UL>
+    <H2>Your rights</H2>
+    <P>You may request a copy of your data or its deletion by emailing <a className="text-accent-link" href="mailto:info@networkcapitalapp.co.za">info@networkcapitalapp.co.za</a>. We respond within 30 days.</P>
+    <H2>Retention</H2>
+    <P>Account data is kept while your account is active. Banking details are removed within 30 days of account closure. Payment records are retained per tax &amp; regulatory obligations.</P>
+    <H2>International transfers</H2>
+    <P>Some sub-processors (e.g. Stripe) are based outside South Africa. Transfers use approved safeguards under POPIA §72 (adequate protection).</P>
+  </>
+);
+
+const Compliance = () => (
+  <>
+    <H1>Compliance &amp; Transparency</H1>
+    <P>Network Capital is deliberately built <strong>not to be a financial service</strong>. Here's what that means in practice.</P>
+    <H2>What we DO</H2>
+    <UL>
+      <li>Coordinate participation, access, and shared benefits.</li>
+      <li>Host community groups (Stokvels) and score engagement transparently.</li>
+      <li>Provide a social layer, Direct Messages, Hubs, and Activities.</li>
+      <li>Publish every scoring rule, every fee, every prize pool calculation.</li>
+    </UL>
+    <H2>What we DO NOT</H2>
+    <UL>
+      <li>Offer investment products, securities, savings accounts, or credit.</li>
+      <li>Promise returns, interest, profit-sharing, or guaranteed income.</li>
+      <li>Hold member contributions — those are with an independent banking partner.</li>
+      <li>Give financial, tax, or legal advice.</li>
+    </UL>
+    <H2>Moderation language rules</H2>
+    <P>Posts, comments, and DMs are auto-scanned for regulated finance words (invest, returns, profit, guaranteed, interest, etc.). The sender is shown a soft warning with a compliant alternative. Repeated violations may trigger a review.</P>
+    <H2>Transparent reporting</H2>
+    <P>The Stokvel quarterly prize pool distribution is published openly. The Network Score formula (points in, points out) is listed on Legal → Terms §2 and on the Dashboard.</P>
+  </>
+);
+
+const POPIA = () => (
+  <>
+    <H1>POPIA &amp; Data Protection</H1>
+    <P>Network Capital complies with the <strong>Protection of Personal Information Act 4 of 2013 (POPIA)</strong> and equivalent regional laws (Nigeria NDPR, Kenya DPA 2019, Ghana DPA, etc.) for members based outside South Africa.</P>
+    <H2>Lawful basis for processing</H2>
+    <UL>
+      <li>Contract — delivering the Platform you signed up for.</li>
+      <li>Consent — marketing, analytics beyond essentials.</li>
+      <li>Legal obligation — fraud prevention, anti-money-laundering screening of fees.</li>
+    </UL>
+    <H2>Technical and organisational safeguards</H2>
+    <UL>
+      <li>Passwords hashed with bcrypt.</li>
+      <li>Banking details encrypted at rest; full account numbers never returned via the API (only last-4 + masked dots).</li>
+      <li>HTTPS in transit everywhere.</li>
+      <li>Internal access is least-privilege and audited.</li>
+    </UL>
+    <H2>Your rights under POPIA</H2>
+    <UL>
+      <li>Access a copy of your data.</li>
+      <li>Correction of inaccurate data.</li>
+      <li>Objection to processing / direct marketing.</li>
+      <li>Deletion once the processing basis has ended.</li>
+      <li>Complaint to the <em>Information Regulator (South Africa)</em>.</li>
+    </UL>
+    <H2>Information Officer</H2>
+    <P>
+      <strong>Mici Business Pty Ltd</strong><br />
+      Information Officer — <a className="text-accent-link" href="mailto:info@networkcapitalapp.co.za">info@networkcapitalapp.co.za</a><br />
+      Support — <a className="text-accent-link" href="mailto:support@networkcapitalapp.co.za">support@networkcapitalapp.co.za</a>
+    </P>
+  </>
+);
 
 export default LegalDocumentsPage;

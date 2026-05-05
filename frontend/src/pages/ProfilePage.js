@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -509,6 +509,7 @@ const ProfilePage = ({ user, setUser }) => {
                 {[
                   { icon: Inbox, label: 'Connections', path: '/connections' },
                   { icon: MessageCircle, label: 'Messages', path: '/messages' },
+                  { icon: Sparkles, label: 'Activities', path: '/activities' },
                   { icon: Wallet, label: 'Wallet', path: '/wallet' },
                   { icon: Package, label: 'Products', path: '/products' },
                   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },

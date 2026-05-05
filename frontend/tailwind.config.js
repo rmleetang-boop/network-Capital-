@@ -5,39 +5,42 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Brand palette v2 — Deep Navy / Brand Gold, per NC_BrandPalette_v2.pdf (60/30/10 rule).
         primary: {
-          DEFAULT: "#1E3A8A",
+          DEFAULT: "#002060",   // Deep Navy — brand name, headlines, headers, nav, trust
           foreground: "#FFFFFF",
-          hover: "#1E40AF",
-          light: "#3B82F6"
+          hover: "#003080",     // Primary Blue — backgrounds, cards, depth
+          light: "#EDF2F9"      // Navy Tint — section dividers
         },
         secondary: {
-          DEFAULT: "#F59E0B",
-          foreground: "#FFFFFF",
-          hover: "#D97706"
+          DEFAULT: "#E8A817",   // Brand Gold — tagline, CTAs, active states, earnings
+          foreground: "#002060",
+          hover: "#F0B800",     // Bright Gold — hover, confetti, notifications
+          soft: "#FFF8EB"       // Gold Tint — highlight banners
         },
         background: {
           DEFAULT: "#FFFFFF",
-          dark: "#0F172A",
-          card: "#1E293B",
-          subtle: "#F1F5F9"
+          dark: "#0A1628",      // Near Black — dark mode base
+          card: "#003080",      // Primary Blue for dark-mode cards
+          subtle: "#F8F9FC"     // Off White — card backgrounds
         },
         text: {
-          primary: "#0F172A",
-          secondary: "#64748B",
-          muted: "#94A3B8",
-          light: "#E2E8F0"
+          primary: "#002060",   // Deep Navy for headings on light bg
+          secondary: "#6B7C93", // Body Gray
+          muted: "#9AA6B5",
+          light: "#EDF2F9"
         },
         accent: {
-          gold: "#FFD700",
-          silver: "#C0C0C0",
-          bronze: "#CD7F32",
-          green: "#10B981",
-          blue: "#3B82F6",
-          purple: "#8B5CF6",
-          pink: "#EC4899"
+          gold: "#E8A817",
+          goldBright: "#F0B800",
+          goldSoft: "#FFF8EB",
+          navyTint: "#EDF2F9",
+          success: "#1B8A5A",
+          warning: "#D08C00",
+          error: "#D13438",
+          link: "#005040"       // Mid Blue — links, avatars, secondary buttons
         },
-        border: "#E2E8F0"
+        border: "#C4CDD9"
       },
       fontFamily: {
         sans: ['Inter', 'sans-serif'],

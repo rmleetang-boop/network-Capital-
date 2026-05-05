@@ -39,6 +39,8 @@ import HashtagPage from './pages/HashtagPage';
 import PremiumSuccessPage from './pages/PremiumSuccessPage';
 import MessagesPage from './pages/MessagesPage';
 import ChatThreadPage from './pages/ChatThreadPage';
+import ActivitiesPage from './pages/ActivitiesPage';
+import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
@@ -63,6 +65,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [bootSplash, setBootSplash] = useState(true);
 
   // Heartbeat: ping every 60s while authenticated for time-on-app score
   useHeartbeat(!!user);
@@ -109,14 +112,9 @@ function App() {
     setUser(null);
   };
 
-  if (loading) {
+  if (loading || bootSplash) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-background-DEFAULT">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
-          <p className="mt-4 text-text-secondary">Loading...</p>
-        </div>
-      </div>
+      <PremiumLoadingScreen minDuration={loading ? 1800 : 1500} onDone={() => setBootSplash(false)} />
     );
   }
 
@@ -184,6 +182,7 @@ function App() {
             <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
             <Route path="/connections" element={<ConnectionsPage user={user} />} />
             <Route path="/activity" element={<ActivityTrackerPage user={user} />} />
+            <Route path="/activities" element={<ActivitiesPage user={user} />} />
             <Route path="/explore" element={<ExplorePage user={user} />} />
             <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
             <Route path="/premium/success" element={<PremiumSuccessPage />} />
