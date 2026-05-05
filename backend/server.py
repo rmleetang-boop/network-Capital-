@@ -353,6 +353,22 @@ class CompleteProfileRequest(BaseModel):
     bio: Optional[str] = ""
     intent: str  # "member" or "creator"
     terms_accepted: bool
+    # Location (optional at signup but encouraged)
+    country: Optional[str] = None
+    province: Optional[str] = None
+    city: Optional[str] = None
+    # Banking — required for Stokvel participation
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    swift_code: Optional[str] = None
+    branch_number: Optional[str] = None
+
+
+class BankingDetailsRequest(BaseModel):
+    bank_name: str
+    account_number: str
+    swift_code: str
+    branch_number: str
 
 class UserScore(BaseModel):
     user_id: str
@@ -1602,28 +1618,168 @@ async def hub_pulse(city: Optional[str] = None, current_user: dict = Depends(get
 
 # ============== REGIONAL HUBS ==============
 
+# African countries with curated province + city lists. Used for signup,
+# Hub filtering, and profile location.
+AFRICAN_REGIONS = {
+    "south_africa": {
+        "label": "South Africa",
+        "provinces": {
+            "gauteng": {"label": "Gauteng", "cities": ["johannesburg", "pretoria", "midrand", "soweto", "centurion"]},
+            "western_cape": {"label": "Western Cape", "cities": ["cape_town", "stellenbosch", "paarl", "george"]},
+            "kwazulu_natal": {"label": "KwaZulu-Natal", "cities": ["durban", "pietermaritzburg", "richards_bay"]},
+            "eastern_cape": {"label": "Eastern Cape", "cities": ["port_elizabeth", "east_london", "mthatha"]},
+            "free_state": {"label": "Free State", "cities": ["bloemfontein", "welkom", "bethlehem"]},
+            "limpopo": {"label": "Limpopo", "cities": ["polokwane", "tzaneen", "thohoyandou"]},
+            "mpumalanga": {"label": "Mpumalanga", "cities": ["nelspruit", "witbank", "secunda"]},
+            "north_west": {"label": "North West", "cities": ["mahikeng", "rustenburg", "potchefstroom"]},
+            "northern_cape": {"label": "Northern Cape", "cities": ["kimberley", "upington", "kuruman"]},
+        },
+    },
+    "nigeria": {
+        "label": "Nigeria",
+        "provinces": {
+            "lagos": {"label": "Lagos State", "cities": ["lagos", "ikeja", "ikorodu", "lekki"]},
+            "fct": {"label": "Federal Capital Territory", "cities": ["abuja", "gwagwalada", "kuje"]},
+            "rivers": {"label": "Rivers", "cities": ["port_harcourt", "obio_akpor"]},
+            "oyo": {"label": "Oyo", "cities": ["ibadan", "ogbomosho"]},
+            "kano": {"label": "Kano", "cities": ["kano", "wudil"]},
+            "kaduna": {"label": "Kaduna", "cities": ["kaduna", "zaria"]},
+        },
+    },
+    "kenya": {
+        "label": "Kenya",
+        "provinces": {
+            "nairobi": {"label": "Nairobi County", "cities": ["nairobi", "westlands", "embakasi"]},
+            "mombasa": {"label": "Mombasa County", "cities": ["mombasa", "nyali"]},
+            "kisumu": {"label": "Kisumu County", "cities": ["kisumu", "ahero"]},
+            "nakuru": {"label": "Nakuru County", "cities": ["nakuru", "naivasha"]},
+            "kiambu": {"label": "Kiambu County", "cities": ["thika", "ruiru", "kiambu"]},
+        },
+    },
+    "ghana": {
+        "label": "Ghana",
+        "provinces": {
+            "greater_accra": {"label": "Greater Accra", "cities": ["accra", "tema", "madina"]},
+            "ashanti": {"label": "Ashanti", "cities": ["kumasi", "obuasi"]},
+            "western": {"label": "Western", "cities": ["takoradi", "sekondi"]},
+            "northern": {"label": "Northern", "cities": ["tamale", "yendi"]},
+        },
+    },
+    "zimbabwe": {
+        "label": "Zimbabwe",
+        "provinces": {
+            "harare": {"label": "Harare Province", "cities": ["harare", "chitungwiza"]},
+            "bulawayo": {"label": "Bulawayo", "cities": ["bulawayo"]},
+            "manicaland": {"label": "Manicaland", "cities": ["mutare", "rusape"]},
+            "midlands": {"label": "Midlands", "cities": ["gweru", "kwekwe"]},
+        },
+    },
+    "tanzania": {
+        "label": "Tanzania",
+        "provinces": {
+            "dar_es_salaam": {"label": "Dar es Salaam", "cities": ["dar_es_salaam", "kinondoni"]},
+            "mwanza": {"label": "Mwanza", "cities": ["mwanza"]},
+            "arusha": {"label": "Arusha", "cities": ["arusha"]},
+            "dodoma": {"label": "Dodoma", "cities": ["dodoma"]},
+        },
+    },
+    "uganda": {
+        "label": "Uganda",
+        "provinces": {
+            "central": {"label": "Central", "cities": ["kampala", "wakiso", "entebbe"]},
+            "eastern": {"label": "Eastern", "cities": ["jinja", "mbale"]},
+            "western": {"label": "Western", "cities": ["mbarara", "fort_portal"]},
+            "northern": {"label": "Northern", "cities": ["gulu", "lira"]},
+        },
+    },
+    "senegal": {
+        "label": "Senegal",
+        "provinces": {
+            "dakar": {"label": "Dakar Region", "cities": ["dakar", "pikine", "guediawaye"]},
+            "thies": {"label": "Thiès Region", "cities": ["thies", "mbour"]},
+            "saint_louis": {"label": "Saint-Louis", "cities": ["saint_louis"]},
+        },
+    },
+    "egypt": {
+        "label": "Egypt",
+        "provinces": {
+            "cairo": {"label": "Cairo Governorate", "cities": ["cairo", "helwan", "new_cairo"]},
+            "alexandria": {"label": "Alexandria Governorate", "cities": ["alexandria"]},
+            "giza": {"label": "Giza Governorate", "cities": ["giza", "6th_october"]},
+        },
+    },
+    "morocco": {
+        "label": "Morocco",
+        "provinces": {
+            "casablanca_settat": {"label": "Casablanca-Settat", "cities": ["casablanca", "mohammedia"]},
+            "rabat_sale_kenitra": {"label": "Rabat-Salé-Kénitra", "cities": ["rabat", "sale", "kenitra"]},
+            "marrakech_safi": {"label": "Marrakech-Safi", "cities": ["marrakech", "safi"]},
+        },
+    },
+    "ethiopia": {
+        "label": "Ethiopia",
+        "provinces": {
+            "addis_ababa": {"label": "Addis Ababa", "cities": ["addis_ababa"]},
+            "oromia": {"label": "Oromia", "cities": ["adama", "jimma"]},
+            "amhara": {"label": "Amhara", "cities": ["bahir_dar", "gondar"]},
+        },
+    },
+    "rwanda": {
+        "label": "Rwanda",
+        "provinces": {
+            "kigali": {"label": "Kigali", "cities": ["kigali", "nyarugenge", "gasabo"]},
+            "northern": {"label": "Northern", "cities": ["musanze"]},
+            "southern": {"label": "Southern", "cities": ["huye", "muhanga"]},
+        },
+    },
+    "other": {"label": "Other African Country", "provinces": {"other": {"label": "Other", "cities": ["other"]}}},
+}
+
+
+def _humanize(slug: str) -> str:
+    return slug.replace("_", " ").replace("6th october", "6th October").title()
+
+
+@api_router.get("/hubs/regions")
+async def list_regions():
+    """Country → Province → City catalogue (Africa)."""
+    out = []
+    for country_slug, country in AFRICAN_REGIONS.items():
+        provinces = []
+        for prov_slug, prov in country["provinces"].items():
+            provinces.append({
+                "value": prov_slug,
+                "label": prov["label"],
+                "cities": [{"value": c, "label": _humanize(c)} for c in prov["cities"]],
+            })
+        out.append({"value": country_slug, "label": country["label"], "provinces": provinces})
+    return {"countries": out}
+
+
 @api_router.get("/hubs/cities")
 async def list_cities():
-    """Curated SA city list + auto-discovered cities from existing users."""
-    curated = [
-        {"value": "johannesburg", "label": "Johannesburg"},
-        {"value": "cape_town", "label": "Cape Town"},
-        {"value": "durban", "label": "Durban"},
-        {"value": "pretoria", "label": "Pretoria"},
-        {"value": "port_elizabeth", "label": "Port Elizabeth"},
-        {"value": "bloemfontein", "label": "Bloemfontein"},
-        {"value": "east_london", "label": "East London"},
-        {"value": "polokwane", "label": "Polokwane"},
-        {"value": "nelspruit", "label": "Nelspruit"},
-        {"value": "kimberley", "label": "Kimberley"},
-        {"value": "other", "label": "Other"},
-    ]
+    """Curated city list across all African regions + auto-discovered cities."""
+    curated = []
+    seen = set()
+    for country_slug, country in AFRICAN_REGIONS.items():
+        for prov_slug, prov in country["provinces"].items():
+            for city in prov["cities"]:
+                if city in seen:
+                    continue
+                seen.add(city)
+                curated.append({
+                    "value": city,
+                    "label": _humanize(city),
+                    "country": country_slug,
+                    "country_label": country["label"],
+                    "province": prov_slug,
+                })
     # Stats per city (count of users)
     pipeline = [
         {"$match": {"city": {"$exists": True, "$ne": None}}},
         {"$group": {"_id": "$city", "count": {"$sum": 1}}},
     ]
-    counts_raw = await db.users.aggregate(pipeline).to_list(100)
+    counts_raw = await db.users.aggregate(pipeline).to_list(500)
     counts = {c["_id"]: c["count"] for c in counts_raw if c["_id"]}
     for c in curated:
         c["user_count"] = counts.get(c["value"], 0)
@@ -3799,7 +3955,15 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
     existing = await db.users.find_one({"username": request.username, "id": {"$ne": current_user["id"]}})
     if existing:
         raise HTTPException(status_code=400, detail="Username already taken")
-    
+
+    # Validate region cascade if provided
+    if request.country and request.country not in AFRICAN_REGIONS:
+        raise HTTPException(status_code=400, detail="Unknown country")
+    if request.country and request.province:
+        provs = AFRICAN_REGIONS[request.country]["provinces"]
+        if request.province not in provs:
+            raise HTTPException(status_code=400, detail="Unknown province for country")
+
     update_data = {
         "full_name": request.full_name,
         "username": request.username,
@@ -3807,22 +3971,68 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
         "user_type": request.intent,
         "is_creator": request.intent == "creator",
         "profile_completed": True,
-        "onboarding_step": 3 if request.intent == "creator" else 0,  # Creator goes to product creation
+        "onboarding_step": 3 if request.intent == "creator" else 0,
         "terms_accepted": request.terms_accepted,
-        "terms_accepted_at": datetime.now(timezone.utc).isoformat() if request.terms_accepted else None
+        "terms_accepted_at": datetime.now(timezone.utc).isoformat() if request.terms_accepted else None,
     }
-    
+    if request.country:
+        update_data["country"] = request.country
+    if request.province:
+        update_data["province"] = request.province
+    if request.city:
+        update_data["city"] = request.city
+    if request.bank_name and request.account_number and request.swift_code and request.branch_number:
+        update_data["banking"] = {
+            "bank_name": request.bank_name.strip(),
+            "account_number": request.account_number.strip(),
+            "swift_code": request.swift_code.strip().upper(),
+            "branch_number": request.branch_number.strip(),
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     await db.users.update_one(
         {"id": current_user["id"]},
         {"$set": update_data}
     )
-    
+
     updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
-    
+
     return {
         "user": updated_user,
         "next_step": 3 if request.intent == "creator" else 0,
         "message": "Profile completed" if request.intent != "creator" else "Profile completed. Create your first product."
+    }
+
+
+@api_router.post("/users/me/banking")
+async def update_banking(payload: BankingDetailsRequest, current_user: dict = Depends(get_current_user)):
+    """Save / update banking details. Required for Stokvel participation."""
+    banking = {
+        "bank_name": payload.bank_name.strip(),
+        "account_number": payload.account_number.strip(),
+        "swift_code": payload.swift_code.strip().upper(),
+        "branch_number": payload.branch_number.strip(),
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"banking": banking}})
+    return {"banking_saved": True, "message": "Banking details saved securely."}
+
+
+@api_router.get("/users/me/banking")
+async def get_banking(current_user: dict = Depends(get_current_user)):
+    """Returns whether banking is on file (and a masked summary). Never returns full account number."""
+    b = current_user.get("banking") or {}
+    if not b:
+        return {"on_file": False}
+    acc = b.get("account_number", "")
+    masked = ("•" * max(0, len(acc) - 4)) + acc[-4:] if acc else ""
+    return {
+        "on_file": True,
+        "bank_name": b.get("bank_name"),
+        "account_last4": acc[-4:] if acc else "",
+        "account_masked": masked,
+        "swift_code": b.get("swift_code"),
+        "branch_number": b.get("branch_number"),
     }
 
 # ============== ADMIN ENDPOINTS ==============

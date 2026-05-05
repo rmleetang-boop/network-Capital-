@@ -17,6 +17,11 @@ import DashboardPage from './pages/DashboardPage';
 import ReferralPage from './pages/ReferralPage';
 import WalletPage from './pages/WalletPage';
 import StokvelListPage from './pages/StokvelListPage';
+import StokvelIntroPage, { hasSeenStokvelIntro } from './pages/StokvelIntroPage';
+
+const StokvelEntryRoute = ({ user }) => (
+  hasSeenStokvelIntro() ? <StokvelListPage user={user} /> : <StokvelIntroPage />
+);
 import CreateStokvelPage from './pages/CreateStokvelPage';
 import StokvelDetailPage from './pages/StokvelDetailPage';
 import ScoreDashboardPage from './pages/ScoreDashboardPage';
@@ -165,7 +170,8 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage user={user} />} />
             <Route path="/referral" element={<ReferralPage user={user} />} />
             <Route path="/wallet" element={<WalletPage user={user} />} />
-            <Route path="/stokvels" element={<StokvelListPage user={user} />} />
+            <Route path="/stokvels" element={<StokvelEntryRoute user={user} />} />
+            <Route path="/stokvels/intro" element={<StokvelIntroPage />} />
             <Route path="/stokvels/create" element={<CreateStokvelPage />} />
             <Route path="/stokvels/:stokvelId" element={<StokvelDetailPage user={user} />} />
             <Route path="/stokvels/:stokvelId/score" element={<ScoreDashboardPage user={user} />} />

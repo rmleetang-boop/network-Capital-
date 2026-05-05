@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 15 — backend & frontend verified for the simplified Landing, Stokvel Intro page, African Country->Province->City cascading regions, and banking-on-signup. 8/8 backend pytest cases pass. 100% of required frontend testids render on /, /stokvels (intro), /stokvels/intro, /auth step 2, /messages, /dashboard. Toast-on-missing-banking not directly executed in browser (re-entering AuthPage step 2 from a partially-completed signup is not preserved across reloads) but the AuthPage source contains the toast string and the form structure is correct (all 7 step-2 testids and POPIA nudge verified live).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_landing_banking.py",
+    "/app/test_reports/pytest/iter15_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~4128 lines — well past the 700-line guideline. The auth/profile, hubs/regions, banking, leaderboard, premium, stokvel, etc. domains should be split into routers. AFRICAN_REGIONS dict (~115 lines) is fine inline but a separate /app/backend/data/regions.py would be cleaner.",
+    "GET /api/users/me/banking masks correctly (account_masked uses bullets + last4, full account_number is omitted). Verified by backend test test_complete_profile_with_banking_persists_uppercased_swift.",
+    "complete-profile validates country and province cascade (returns 400 with explicit messages) — good. Consider also validating city when province is set (currently city is accepted free-form).",
+    "BankingDetailsRequest fields are all required strings but no length/format validation (e.g. SWIFT 8/11 chars, account_number digits-only). For a coordination platform that's acceptable, but a Pydantic regex or @validator would harden it.",
+    "StokvelIntroPage correctly uses localStorage 'nc_stokvel_intro_seen' and StokvelEntryRoute gates first visit. The /stokvels/intro route remains always-on so the 'How it works' link works regardless. Good.",
+    "LandingPage trimmed to ~95 lines, removed network-score-section/leaderboard-section/transparency-section/live-activity-feed as intended. Compliance language preserved on /stokvels/intro (POPIA, 'not a financial services provider', 'do not promise returns', 'we do not take any of the contributions').",
+    "LocationPicker on AuthPage step 2 successfully cascades — country select shows all 13 entries; selecting South Africa populates 9 Gauteng+other provinces; selecting Gauteng populates 5 cities. data-testids signup-location-country / -province / -city present."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter15_landing_banking.py (NEW — 8 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 pytest cases)",
+    "frontend": "~98% — all required testids and copy verified across LandingPage, StokvelIntroPage, StokvelListPage, AuthPage step 2, /messages, /dashboard. Toast 'Please complete your banking details to participate in groups' not directly fired in a browser run, but the toast string is present in AuthPage.js and gating logic is implemented client-side."
+  },
+  "test_credentials": "Dynamic users created via POST /api/auth/progressive-signup + /api/auth/complete-profile with email TEST_iter15_<rand>@example.com / Test123!",
+  "seed_data_creation": "~15 transient TEST_ prefixed users created during this run via the progressive signup API. No cleanup fixture (matches prior iterations).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GET /api/hubs/regions returns {countries:[...]} with 13 entries (12 named African countries + 'other'); GET /api/hubs/cities returns {cities:[...]} with 100+ rows each carrying value/label/country/country_label/province. complete-profile accepts optional country/province/city and optional bank_name/account_number/swift_code/branch_number — when ALL four banking fields are present the backend persists user.banking with swift_code uppercased and a saved_at ISO timestamp. GET /api/users/me/banking returns {on_file:false} or {on_file:true, bank_name, account_last4, account_masked, swift_code, branch_number} — never the full account_number. POST /api/users/me/banking is auth-required and updates the same shape. /stokvels gates the intro using localStorage.nc_stokvel_intro_seen; /stokvels/intro is always-on. AuthPage step 2 has data-testids: signup-location-country / -province / -city, bank-name-input, account-number-input, swift-code-input, branch-number-input, plus the POPIA 'Encrypted & POPIA-protected' badge.",
+  "rca_of_the_issue": "N/A — no critical/minor issues found in this iteration."
+}

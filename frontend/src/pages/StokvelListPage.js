@@ -49,10 +49,17 @@ const StokvelListPage = ({ user }) => {
             alt="Network Capital" 
             className="h-10 w-auto"
           />
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-heading font-bold text-primary">Stokvel+</h1>
-            <p className="text-xs text-text-secondary">Group savings & contributions</p>
+            <p className="text-xs text-text-secondary">Group coordination &amp; participation</p>
           </div>
+          <button
+            onClick={() => navigate('/stokvels/intro')}
+            className="text-xs text-primary hover:underline font-semibold"
+            data-testid="view-stokvel-intro"
+          >
+            How it works
+          </button>
         </div>
       </div>
 
