@@ -15,6 +15,13 @@ Mobile-first social network ("Network Capital") with:
 
 ## Implemented Features (cumulative)
 
+### Iteration 16 — Banking on Stokvel only · Hub Country→City · Solid Dropdown · Photo Propagation
+
+1. **Banking moved to Stokvel feature only** — banking fields removed from AuthPage signup. New `StokvelBankingPrompt` component renders as a banner at the top of `/stokvels` (`StokvelBankingBanner`) when `on_file=false`. Disclosure copy: "Used **only for distribution of pool money** from your group." Stokvel intro section 6 reworded accordingly.
+2. **Hub Country→City** — `RegionalHubsPage` now has `country-selector` BEFORE `city-selector`; cities filtered to selected country only; city select disabled until country chosen. `country` derived from `/api/hubs/cities` response.
+3. **Solid login dropdown** — `LocationPicker` SelectContent now uses `bg-[#0a1628]` with `border-white/15` on dark theme. Country list (13 African countries + Other) fully readable on the AuthPage.
+4. **Profile photo propagation** — `PUT /api/users/me` now `update_many`'s `posts.user_photo`, `stories[*].user_photo`, embedded `comments[*].user_photo`, and `dm_messages.sender_photo` whenever a user changes their profile picture or username. Old content reflects the latest avatar.
+
 ### Iteration 15 — Simplified Landing + Stokvel Intro + Africa-wide Hubs + Banking on Signup
 
 **Simplified Landing** (`LandingPage.js` ~95 lines): single hero (headline + subheading + clarity statement + single CTA), 3 short benefit cards, footer. Removed Member Journey, Network Score explainer, Leaderboard, Live Activity Feed, full Transparency section from the public layer (still available for authed users on /dashboard and /activity).
