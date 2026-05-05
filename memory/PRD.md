@@ -15,6 +15,24 @@ Mobile-first social network ("Network Capital") with:
 
 ## Implemented Features (cumulative)
 
+### Iteration 15 — Simplified Landing + Stokvel Intro + Africa-wide Hubs + Banking on Signup
+
+**Simplified Landing** (`LandingPage.js` ~95 lines): single hero (headline + subheading + clarity statement + single CTA), 3 short benefit cards, footer. Removed Member Journey, Network Score explainer, Leaderboard, Live Activity Feed, full Transparency section from the public layer (still available for authed users on /dashboard and /activity).
+
+**Stokvel intro** (`StokvelIntroPage.js`):
+- Shown the first time a user opens `/stokvels` (gated by `localStorage.nc_stokvel_intro_seen`).
+- 7 numbered sections: (1) Fee Structure $20 once + $5 per member, (2) Quarterly Prize Pool, (3) R1M Extra Capital from Network Capital, (4) Control of Funds — held by independent partner, group keeps full control, (5) Group Autonomy — each group writes its own constitution, (6) Banking Details collected on registration, (7) Compliance disclaimer.
+- Support emails: support@networkcapitalapp.co.za, info@networkcapitalapp.co.za.
+- "How it works" link from `/stokvels` header → `/stokvels/intro` (always reachable).
+
+**Africa-wide regions** (`/api/hubs/regions`): 12 African countries + "Other": South Africa, Nigeria, Kenya, Ghana, Zimbabwe, Tanzania, Uganda, Senegal, Egypt, Morocco, Ethiopia, Rwanda. Each has provinces with curated cities (118 total). Cascading `LocationPicker` (Country → Province → City) reused on signup.
+
+**Banking on signup**:
+- Required at the UI layer; optional server-side (so existing users aren't broken).
+- Fields: bank_name, account_number, swift_code (auto-uppercased), branch_number.
+- `POST /api/users/me/banking` to save/update; `GET /api/users/me/banking` returns masked summary only (never full account_number).
+- POPIA + Encrypted nudge directly above the fields.
+
 ### Iteration 14 — Community Resource Ecosystem Refactor
 
 **New Public Layer (LandingPage)** at `/` for un-authenticated visitors:
