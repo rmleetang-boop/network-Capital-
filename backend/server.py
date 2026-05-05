@@ -679,7 +679,49 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
     
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
-    
+
+    # Propagate photo / username changes to denormalized fields across collections
+    # so existing posts, stories, comments, DMs etc. reflect the new profile pic.
+    propagate_set = {}
+    if "photo" in update_data:
+        propagate_set["user_photo"] = update_data["photo"]
+        propagate_set["sender_photo"] = update_data["photo"]
+        propagate_set["other_photo"] = update_data["photo"]
+    if "username" in update_data:
+        propagate_set["username"] = update_data["username"]
+        propagate_set["sender_username"] = update_data["username"]
+    if propagate_set:
+        uid = current_user["id"]
+        # Posts (top-level)
+        post_set = {k: v for k, v in propagate_set.items() if k in {"user_photo", "username"}}
+        if post_set:
+            await db.posts.update_many({"user_id": uid}, {"$set": post_set})
+            await db.stories.update_many({"user_id": uid}, {"$set": post_set})
+        # Embedded comments inside posts
+        if any(k in propagate_set for k in ("user_photo", "username")):
+            comment_update = {}
+            if "user_photo" in propagate_set:
+                comment_update["comments.$[c].user_photo"] = propagate_set["user_photo"]
+            if "username" in propagate_set:
+                comment_update["comments.$[c].username"] = propagate_set["username"]
+            if comment_update:
+                try:
+                    await db.posts.update_many(
+                        {"comments.user_id": uid},
+                        {"$set": comment_update},
+                        array_filters=[{"c.user_id": uid}],
+                    )
+                except Exception:
+                    pass
+        # DM messages — sender side
+        sender_set = {}
+        if "sender_photo" in propagate_set:
+            sender_set["sender_photo"] = propagate_set["sender_photo"]
+        if "sender_username" in propagate_set:
+            sender_set["sender_username"] = propagate_set["sender_username"]
+        if sender_set:
+            await db.dm_messages.update_many({"sender_id": uid}, {"$set": sender_set})
+
     updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
     return updated_user
 

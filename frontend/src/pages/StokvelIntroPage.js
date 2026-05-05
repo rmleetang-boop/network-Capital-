@@ -95,15 +95,18 @@ const StokvelIntroPage = ({ onAcknowledge }) => {
           </Section>
 
           {/* 6. Banking */}
-          <Section icon={Users} title="6. Banking Details on Registration" testid="intro-banking">
-            <p>To participate, every member is asked to securely provide:</p>
+          <Section icon={Users} title="6. Banking Details (in the Stokvel feature)" testid="intro-banking">
+            <p>
+              When you create or join a Stokvel, you'll be asked to securely provide banking details.
+              They are used <strong className="text-white">strictly for the distribution of pool money</strong> from your group — nothing else.
+            </p>
             <ul className="mt-1.5 space-y-1 text-white/70">
               <li>• Bank name</li>
               <li>• Account number</li>
               <li>• SWIFT code</li>
               <li>• Branch number</li>
             </ul>
-            <p className="mt-2 text-[12.5px] text-white/55">Stored encrypted, used only for legitimate group disbursements, and protected under POPIA.</p>
+            <p className="mt-2 text-[12.5px] text-white/55">Stored encrypted, accessible only for legitimate group disbursements, and protected under POPIA.</p>
           </Section>
 
           {/* 7. Compliance */}

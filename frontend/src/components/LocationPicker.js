@@ -51,6 +51,15 @@ const LocationPicker = ({ value = {}, onChange, theme = 'dark', required = false
   const triggerClass = isDark
     ? 'bg-white/5 border-white/10 text-white'
     : '';
+  // Solid backdrop for the dropdown — Radix portals to <body> so the AuthPage
+  // dark gradient does NOT bleed through; we still apply a solid color so the
+  // popup doesn't read as transparent on tinted browser themes.
+  const contentClass = isDark
+    ? 'bg-[#0a1628] border border-white/15 text-white shadow-2xl'
+    : 'bg-white text-text-primary';
+  const itemClass = isDark
+    ? 'text-white focus:bg-white/10 focus:text-white data-[state=checked]:bg-secondary/20'
+    : '';
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -62,9 +71,9 @@ const LocationPicker = ({ value = {}, onChange, theme = 'dark', required = false
           <SelectTrigger data-testid={`${testIdPrefix}-country`} className={triggerClass}>
             <SelectValue placeholder="Select country" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={contentClass}>
             {countries.map((c) => (
-              <SelectItem key={c.value} value={c.value} data-testid={`${testIdPrefix}-country-${c.value}`}>
+              <SelectItem key={c.value} value={c.value} className={itemClass} data-testid={`${testIdPrefix}-country-${c.value}`}>
                 {c.label}
               </SelectItem>
             ))}
@@ -82,9 +91,9 @@ const LocationPicker = ({ value = {}, onChange, theme = 'dark', required = false
           <SelectTrigger data-testid={`${testIdPrefix}-province`} className={triggerClass}>
             <SelectValue placeholder={selectedCountry ? 'Select province' : '…'} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={contentClass}>
             {(selectedCountry?.provinces || []).map((p) => (
-              <SelectItem key={p.value} value={p.value} data-testid={`${testIdPrefix}-province-${p.value}`}>
+              <SelectItem key={p.value} value={p.value} className={itemClass} data-testid={`${testIdPrefix}-province-${p.value}`}>
                 {p.label}
               </SelectItem>
             ))}
@@ -102,9 +111,9 @@ const LocationPicker = ({ value = {}, onChange, theme = 'dark', required = false
           <SelectTrigger data-testid={`${testIdPrefix}-city`} className={triggerClass}>
             <SelectValue placeholder={selectedProvince ? 'Select city' : '…'} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={contentClass}>
             {(selectedProvince?.cities || []).map((c) => (
-              <SelectItem key={c.value} value={c.value} data-testid={`${testIdPrefix}-city-${c.value}`}>
+              <SelectItem key={c.value} value={c.value} className={itemClass} data-testid={`${testIdPrefix}-city-${c.value}`}>
                 {c.label}
               </SelectItem>
             ))}

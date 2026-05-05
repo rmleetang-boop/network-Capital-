@@ -24,10 +24,6 @@ const AuthPage = ({ onLogin }) => {
     country: '',
     province: '',
     city: '',
-    bank_name: '',
-    account_number: '',
-    swift_code: '',
-    branch_number: '',
   });
 
   const handleChange = (e) => {
@@ -82,12 +78,6 @@ const AuthPage = ({ onLogin }) => {
       toast.error('Please fill in your name and username');
       return;
     }
-    // Banking is required for any participation; nudge if missing.
-    const bankingFilled = formData.bank_name && formData.account_number && formData.swift_code && formData.branch_number;
-    if (!bankingFilled) {
-      toast.error('Please complete your banking details to participate in groups');
-      return;
-    }
     setLoading(true);
     try {
       const res = await axiosInstance.post('/auth/complete-profile', {
@@ -99,10 +89,6 @@ const AuthPage = ({ onLogin }) => {
         country: formData.country || undefined,
         province: formData.province || undefined,
         city: formData.city || undefined,
-        bank_name: formData.bank_name,
-        account_number: formData.account_number,
-        swift_code: formData.swift_code,
-        branch_number: formData.branch_number,
       });
       toast.success(
         formData.intent === 'creator'
@@ -325,25 +311,6 @@ const AuthPage = ({ onLogin }) => {
                     theme="dark"
                     testIdPrefix="signup-location"
                   />
-                </div>
-
-                {/* Banking */}
-                <div className="pt-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-semibold text-white/85">Banking details</p>
-                    <span className="inline-flex items-center gap-1 text-[11px] text-white/55">
-                      <Lock size={11} className="text-secondary" /> Encrypted &amp; POPIA-protected
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-white/55 mb-3 leading-relaxed">
-                    Used only for legitimate group disbursements. Network Capital does not hold or move your funds — see the Stokvel intro for the full breakdown.
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <InputField icon={Building2} name="bank_name" type="text" placeholder="e.g. Standard Bank" label="Bank name" value={formData.bank_name} onChange={handleChange} testId="bank-name-input" />
-                    <InputField icon={Hash} name="account_number" type="text" placeholder="Account number" label="Account number" value={formData.account_number} onChange={handleChange} testId="account-number-input" />
-                    <InputField icon={Briefcase} name="swift_code" type="text" placeholder="SWIFT / BIC" label="SWIFT code" value={formData.swift_code} onChange={handleChange} testId="swift-code-input" />
-                    <InputField icon={Hash} name="branch_number" type="text" placeholder="Branch / sort code" label="Branch number" value={formData.branch_number} onChange={handleChange} testId="branch-number-input" />
-                  </div>
                 </div>
 
                 <button

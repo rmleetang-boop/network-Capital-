@@ -1,0 +1,56 @@
+{
+  "summary": "Iter 16 — verified the four targeted fixes end-to-end. Backend pytest suite (8/8) passes: banking optional on signup, POST/GET /api/users/me/banking auth + masked, and photo propagation to posts.user_photo, stories[*].user_photo (groups feed), and dm_messages.sender_photo all work. Frontend Playwright runs verify: AuthPage step 2 has zero banking testids, country dropdown has solid rgb(10,22,40) background and 13 entries, SA→9 provinces, step 2 submits with only username+name+intent. Stokvels page renders the banking prompt with the 'distribution of pool money' phrase, save → toast 'Banking details saved securely' → banner with masked account •••••6655. /stokvels/intro section 6 has the same phrase. Hubs page, after fixing two import/state bugs, shows country-selector before city-selector with city disabled until a country is picked; selecting SA loads 30 SA-only cities; selecting Johannesburg PUTs /api/users/me with country='south_africa' & city='johannesburg' (verified via GET /api/users/me).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "RegionalHubsPage",
+        "issue": "ReferenceError: country is not defined — `country` and `setCountry` were referenced in handleSetMyCity / handleSetCountry / visibleCities / countryOptions but never declared via useState. Fixed by adding `const [country, setCountry] = useState(user?.country || '')`.",
+        "selector": "[data-testid=\"country-selector\"]",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "StokvelListPage",
+        "issue": "Used <StokvelBankingBanner /> without importing it. The named export exists in /components/StokvelBankingPrompt.js but was not imported into the page, which silently rendered nothing on /stokvels and the banking prompt never appeared. Fixed by adding `import { StokvelBankingBanner } from '../components/StokvelBankingPrompt'`.",
+        "selector": "[data-testid=\"stokvel-banking-prompt\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16_banking_photoprop.py",
+    "/app/test_reports/pytest/iter16_results.xml"
+  ],
+  "action_items": [
+    "Already fixed by testing agent: missing country state in RegionalHubsPage.js and missing StokvelBankingBanner import in StokvelListPage.js. Main agent should add these as a coding-style guard (eslint-no-undef + react/jsx-no-undef) — both bugs would have been caught at lint time.",
+    "Consider running `eslint` in CI; the two bugs above were uncaught references that crashed the page at runtime."
+  ],
+  "critical_code_review_comments": [
+    "RegionalHubsPage.js used setCountry/country/etc. without declaring them — this is a clear miss in iter 16's hubs cascade refactor. Eslint with `react/jsx-no-undef` and `no-undef` would have caught both this and the missing StokvelBankingBanner import.",
+    "StokvelBankingPrompt.js — masked render uses •••• which is good. Field uppercase normalization for SWIFT happens server-side; consider also trimming whitespace client-side.",
+    "server.py PUT /api/users/me propagation logic (lines 685–723) correctly uses update_many for posts/stories/dm_messages and arrayFilters for embedded comments. Good. One minor suggestion: also propagate to notifications.user_photo if those messages embed a snapshot.",
+    "BankingDetailsRequest still has no Pydantic regex for SWIFT (8 or 11 chars) or numeric account_number — same comment from iter 15.",
+    "server.py is now 4170 lines — past the 700-line guideline. Split into routers (auth, banking, posts, stories, dm, hubs, stokvels, admin) is overdue.",
+    "RegionalHubsPage.js now correctly cascades country→city on the hubs filter; visibleCities is filtered via useMemo. Good. Consider showing a small empty-state when a country has no matching cities."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/RegionalHubsPage.js (added missing useState for country)",
+    "/app/frontend/src/pages/StokvelListPage.js (added missing StokvelBankingBanner import)",
+    "/app/backend/tests/test_iter16_banking_photoprop.py (NEW — 8 pytest cases, all pass)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 pytest cases — banking absent/get/post-unauth/post-auth+masked, photo propagation to posts/stories/dm, country regression)",
+    "frontend": "100% after the two fixes — all 13 frontend test bullets verified live: banking testids absent on /auth step 2, country popup solid rgb(10,22,40) with 13 entries + SA→9 provinces, signup w/o banking submits and lands on /, /hubs country-before-city + city disabled until country + 30 SA-only cities + country/city persisted to /api/users/me, /stokvels banking prompt visible with 'distribution of pool money' phrase, save → toast 'Banking details saved securely' + banking-on-file-banner with masked •••••6655, /stokvels/intro section 6 has the same phrase."
+  },
+  "test_credentials": "Dynamic users via /api/auth/progressive-signup (returns key 'token', NOT 'access_token') + /api/auth/complete-profile, password Test123!. Banking POST/GET requires Bearer.",
+  "seed_data_creation": "~10 transient TEST_iter16_* users created during this run. No cleanup fixture (matches prior iterations).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "IMPORTANT — /api/auth/progressive-signup returns the JWT under key 'token', not 'access_token'. Use body.token. RegionalHubsPage requires user?.country to seed the dropdown (fixed in iter 16). StokvelListPage now imports StokvelBankingBanner from '../components/StokvelBankingPrompt' (fixed in iter 16). To test the banking prompt, register a fresh user (no banking) and set localStorage.nc_stokvel_intro_seen='1' before navigating to /stokvels. /api/stories expects {media_type, media_url, caption}. /api/dm/send expects {recipient_id, text, image?, audio?}. /api/stories/feed returns {groups:[{user_id,username,user_photo,stories:[...]}]}. /api/dm/threads/{other_user_id} returns {thread_key, other_user, messages:[...]}. PUT /api/users/me {photo} propagates to posts.user_photo, stories[*].user_photo (inside groups[*].stories), dm_messages.sender_photo via $set update_many — all verified passing in 8/8 pytest cases.",
+  "rca_of_the_issue": "Two regressions introduced in iter 16: (1) RegionalHubsPage refactor added country-selector but forgot to declare `const [country, setCountry] = useState(...)`. Result: ReferenceError on /hubs render → red error overlay + page unusable. (2) StokvelListPage added <StokvelBankingBanner/> without importing it; React with strict mode treats unknown JSX as undefined component → silent render failure / banner never appears. Both fixed by testing agent with minimal one-line changes (one useState declaration, one named import). Reproduction: load /hubs as authed user → page crash before fix; load /stokvels as authed user without banking → no prompt before fix. Mitigation: enable eslint react/jsx-no-undef + no-undef in CI to prevent this class of bug."
+}

@@ -16,6 +16,7 @@ const TYPE_META = {
 const RegionalHubsPage = ({ user }) => {
   const navigate = useNavigate();
   const [cities, setCities] = useState([]);
+  const [country, setCountry] = useState(user?.country || '');
   const [city, setCity] = useState(user?.city || '');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -51,15 +52,39 @@ const RegionalHubsPage = ({ user }) => {
   const handleSetMyCity = async (newCity) => {
     setSavingCity(true);
     try {
-      await axiosInstance.put('/users/me', { city: newCity, country: 'ZA' });
+      const cityMeta = cities.find((c) => c.value === newCity);
+      const payloadCountry = country || cityMeta?.country || 'ZA';
+      await axiosInstance.put('/users/me', { city: newCity, country: payloadCountry });
       setCity(newCity);
-      toast.success(`Set your hub to ${cities.find((c) => c.value === newCity)?.label}`);
+      toast.success(`Set your hub to ${cityMeta?.label}`);
     } catch {
       toast.error('Failed to update');
     } finally {
       setSavingCity(false);
     }
   };
+
+  const handleSetCountry = (newCountry) => {
+    setCountry(newCountry);
+    setCity('');
+    setUsers([]);
+  };
+
+  // Cities filtered by selected country
+  const visibleCities = useMemo(
+    () => (country ? cities.filter((c) => c.country === country) : cities),
+    [cities, country]
+  );
+  // Country list derived from cities response (de-duped)
+  const countryOptions = useMemo(() => {
+    const seen = new Map();
+    cities.forEach((c) => {
+      if (c.country && !seen.has(c.country)) {
+        seen.set(c.country, { value: c.country, label: c.country_label || c.country });
+      }
+    });
+    return Array.from(seen.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [cities]);
 
   const openRequest = (target, type) => {
     setRequestModal({ user: target, type });
@@ -116,16 +141,36 @@ const RegionalHubsPage = ({ user }) => {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <Select value={city} onValueChange={handleSetMyCity} disabled={savingCity}>
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={country} onValueChange={handleSetCountry}>
               <SelectTrigger
-                className="flex-1 bg-white/10 border-white/20 text-white rounded-xl px-3 h-11 focus:border-secondary"
-                data-testid="city-selector"
+                className="bg-white/10 border-white/20 text-white rounded-xl px-3 h-11 focus:border-secondary"
+                data-testid="country-selector"
               >
-                <SelectValue placeholder="Pick a city…" />
+                <SelectValue placeholder="Pick country" />
               </SelectTrigger>
               <SelectContent className="bg-[#0a1628] border-white/20 text-white">
-                {cities.map((c) => (
+                {countryOptions.map((c) => (
+                  <SelectItem
+                    key={c.value}
+                    value={c.value}
+                    className="text-white focus:bg-secondary/20 focus:text-white cursor-pointer"
+                    data-testid={`country-option-${c.value}`}
+                  >
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={city} onValueChange={handleSetMyCity} disabled={savingCity || !country}>
+              <SelectTrigger
+                className="bg-white/10 border-white/20 text-white rounded-xl px-3 h-11 focus:border-secondary"
+                data-testid="city-selector"
+              >
+                <SelectValue placeholder={country ? 'Pick a city…' : 'Pick country first'} />
+              </SelectTrigger>
+              <SelectContent className="bg-[#0a1628] border-white/20 text-white">
+                {visibleCities.map((c) => (
                   <SelectItem
                     key={c.value}
                     value={c.value}
@@ -137,15 +182,15 @@ const RegionalHubsPage = ({ user }) => {
                 ))}
               </SelectContent>
             </Select>
-            <button
-              onClick={() => navigate('/connections')}
-              className="px-4 py-2.5 bg-secondary text-primary font-semibold rounded-xl hover:bg-secondary-hover transition-all flex items-center gap-1.5"
-              data-testid="open-connections"
-            >
-              <Users size={16} />
+          </div>
+          <button
+            onClick={() => navigate('/connections')}
+            className="mt-2 w-full px-4 py-2.5 bg-secondary text-primary font-semibold rounded-xl hover:bg-secondary-hover transition-all flex items-center justify-center gap-1.5"
+            data-testid="open-connections"
+          >
+            <Users size={16} />
               <span className="hidden sm:inline">Inbox</span>
             </button>
-          </div>
 
           <div className="relative mt-3">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
