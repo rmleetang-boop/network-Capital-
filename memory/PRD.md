@@ -15,6 +15,30 @@ Mobile-first social network ("Network Capital") with:
 
 ## Implemented Features (cumulative)
 
+### Iteration 17 — Activities feature + Premium Loading Screen + Brand Palette v2 + Uniform Legal/Help
+
+**Activities** — curated community experiences across Africa.
+- Backend: `POST /api/activities`, `GET /api/activities?country&city&category`, `GET /:id`, `POST /:id/join`, `POST /:id/leave`, `DELETE /:id` (creator only). Categories: dinner / concert / travel / holiday / experience. Activity creation +50 pts, join +25 pts (idempotent).
+- Frontend: `/activities` page with intro card, country→city→category filters, empty-state CTA, full Create modal (title/description/country/city/venue/date/time/cost/currency/cost_note/max/category/cover_image), Activity cards with category gradient + creator avatar + Join toggle.
+
+**Premium Loading Screen** — deep navy + gold splash on app boot (~1.5–1.8s):
+- Centered logo with gold halo, shimmer pass + drop-shadow glow.
+- Animated network nodes/lines, drifting gold particles, gold sweep band, pulsing radial halo.
+- Serif "NETWORK CAPITAL" wordmark + "Connect · Participate · Elevate" tagline.
+- Bottom credit "Powered by Mici Business Pty Ltd" in italic Cormorant Garamond / Playfair Display.
+
+**Brand Palette v2** (`tailwind.config.js`):
+- `primary` Deep Navy `#002060` / hover Primary Blue `#003080` / light Navy Tint `#EDF2F9`.
+- `secondary` Brand Gold `#E8A817` / hover Bright Gold `#F0B800` / soft Gold Tint `#FFF8EB`.
+- `accent.success #1B8A5A`, `accent.error #D13438`, `accent.link #005040`, `accent.navyTint`, `accent.goldSoft`.
+- Computed style verified: `primary` = rgb(0,32,96), `secondary` = rgb(232,168,23).
+
+**Uniform Legal & Help** rewritten to cover ALL features:
+- `/legal` 4 tabs: Terms · Privacy · Compliance · POPIA. Terms documents Stokvel fees ($20 + $5), R1,000,000 quarterly capital, Activities, Premium $10, banking-only-in-Stokvels, control of funds with independent partner.
+- `/help` 8 categories, ~30 FAQs, live search (29→4 on "stokvel"), category chips, expandable Q&As, contact pane with `support@networkcapitalapp.co.za` + `info@networkcapitalapp.co.za`.
+
+**Bugs caught + fixed in iter 17**: Radix `SelectItem value=""` crash on /activities (testing agent applied 3-line sentinel fix; verified in codebase).
+
 ### Iteration 16 — Banking on Stokvel only · Hub Country→City · Solid Dropdown · Photo Propagation
 
 1. **Banking moved to Stokvel feature only** — banking fields removed from AuthPage signup. New `StokvelBankingPrompt` component renders as a banner at the top of `/stokvels` (`StokvelBankingBanner`) when `on_file=false`. Disclosure copy: "Used **only for distribution of pool money** from your group." Stokvel intro section 6 reworded accordingly.
