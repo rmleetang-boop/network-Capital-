@@ -65,7 +65,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [bootSplash, setBootSplash] = useState(true);
+  const [bootSplash, setBootSplash] = useState(() => {
+    try { return sessionStorage.getItem('nc_splash_shown') !== '1'; } catch { return true; }
+  });
 
   // Heartbeat: ping every 60s while authenticated for time-on-app score
   useHeartbeat(!!user);
