@@ -452,22 +452,58 @@ class LeaderboardEntry(BaseModel):
     total_contributions: float
 
 def calculate_rank(score: int) -> str:
-    if score < 500:
-        return "Rising Star"
-    elif score < 2000:
-        return "Influencer"
-    else:
+    """5-tier lifetime ranking — see /legal §Network Score."""
+    if score < 1000:
+        return "Member"
+    elif score < 3000:
+        return "Contributor"
+    elif score < 6000:
+        return "Connector"
+    elif score < 9000:
         return "Builder"
+    else:
+        return "Steward"
 
 async def update_user_score(user_id: str, points: int, notification_msg: str, action: str = "legacy", source_id: Optional[str] = None):
     """Award points using new monthly-cap + premium-2x system. Backwards compatible."""
     await award_points(user_id, action, points, source_id=source_id, message=notification_msg)
 
 
-# ============== NEW NETWORK SCORE SYSTEM ==============
+# ============== NETWORK SCORE — REBALANCED (Iter 18) ==============
+# Lifetime ranking out of 10,000. A *dedicated* user reaches Steward tier in ~12 months.
+# Daily soft-cap prevents farming; the lifetime cap only kicks in at 10,000.
+LIFETIME_SCORE_CAP = 10000
+DAILY_SOFT_CAP = 60          # post/share/comment combined per day
+WEEKLY_RESOURCE_DROP_LIMIT = 1
+PREMIUM_TOP_GRACE_DAYS = 90
 
-MONTHLY_SCORE_CAP = 10000
-PREMIUM_TOP_GRACE_DAYS = 90  # 3 months for premium users at cap
+# Award table — single source of truth used everywhere.
+SCORE_TABLE = {
+    # Daily / passive
+    "daily_checkin": 10,
+    # Sharing
+    "post_create": 15,
+    "post_share": 8,
+    "post_comment": 5,
+    "story_create": 5,
+    "weekly_resource_drop": 30,   # max 1/week
+    # Referrals
+    "referral_joined": 200,
+    "referral_quality_bonus": 500,  # fired once when a referred user hits 1k
+    # Milestones
+    "monthly_streak": 100,
+    "stokvel_first_join": 250,
+    "activity_created": 150,
+    "activity_joined": 25,
+    "profile_completed": 250,
+    # Premium / ads (legacy compatibility)
+    "ad_watch_share": 100,
+    "ad_watch_engage": 500,
+    "creator_engagement": 500,
+    "premium_welcome_bonus": 500,
+    "manual_admin_grant": 0,
+}
+MONTHLY_SCORE_CAP = LIFETIME_SCORE_CAP  # legacy alias kept; behaviour migrated below
 
 def _month_key(dt: Optional[datetime] = None) -> str:
     dt = dt or datetime.now(timezone.utc)
@@ -511,32 +547,78 @@ async def _ensure_month_state(user: dict) -> dict:
     return user
 
 async def award_points(user_id: str, action: str, base_points: int, source_id: Optional[str] = None, message: Optional[str] = None) -> int:
-    """Awards points with: monthly cap (10K), premium 2× multiplier, event log."""
+    """Award points (rebalanced iter 18).
+
+    Rules:
+      • Lifetime cap = LIFETIME_SCORE_CAP (10,000). Once hit, no further points awarded.
+      • Premium = 2× multiplier on base_points (existing scores preserved).
+      • Daily soft-cap on engagement actions (post/share/comment/story) = DAILY_SOFT_CAP.
+      • weekly_resource_drop limited to once per ISO week.
+      • base_points may be 0 — we'll look up SCORE_TABLE[action] when so.
+    """
     user = await db.users.find_one({"id": user_id})
     if not user:
         return 0
 
     user = await _ensure_month_state(user)
 
-    current_monthly = user.get("monthly_score", 0)
-    if current_monthly >= MONTHLY_SCORE_CAP:
+    # Resolve base if caller passed 0 / wants table value
+    if base_points <= 0 and action in SCORE_TABLE:
+        base_points = SCORE_TABLE[action]
+    if base_points <= 0:
         return 0
+
+    lifetime = user.get("network_score", 0)
+    if lifetime >= LIFETIME_SCORE_CAP:
+        return 0
+
+    # Daily soft-cap on noisy engagement actions
+    DAILY_CAPPED = {"post_create", "post_share", "post_comment", "story_create"}
+    if action in DAILY_CAPPED:
+        today_total = 0
+        async for ev in db.score_events.find({
+            "user_id": user_id,
+            "action": {"$in": list(DAILY_CAPPED)},
+            "date_key": _date_key(),
+        }):
+            today_total += int(ev.get("points", 0))
+        remaining = max(0, DAILY_SOFT_CAP - today_total)
+        if remaining <= 0:
+            return 0
+        base_points = min(base_points, remaining)
+
+    # Weekly resource drop — at most once per ISO week
+    if action == "weekly_resource_drop":
+        week_key = datetime.now(timezone.utc).strftime("%G-W%V")
+        existing = await db.score_events.find_one({
+            "user_id": user_id, "action": "weekly_resource_drop", "week_key": week_key,
+        })
+        if existing:
+            return 0
+
+    # Daily check-in — at most once per calendar day
+    if action == "daily_checkin":
+        existing = await db.score_events.find_one({
+            "user_id": user_id, "action": "daily_checkin", "date_key": _date_key(),
+        })
+        if existing:
+            return 0
 
     multiplier = 2 if user.get("premium_unlocked") else 1
     awarded = base_points * multiplier
-    awarded = min(awarded, MONTHLY_SCORE_CAP - current_monthly)
+    awarded = min(awarded, LIFETIME_SCORE_CAP - lifetime)
     if awarded <= 0:
         return 0
 
-    new_monthly = current_monthly + awarded
-    new_lifetime = user.get("network_score", 0) + awarded
+    new_lifetime = lifetime + awarded
+    new_monthly = user.get("monthly_score", 0) + awarded  # tracked for analytics only
 
     update = {
         "monthly_score": new_monthly,
         "network_score": new_lifetime,
         "rank": calculate_rank(new_lifetime),
     }
-    if new_monthly >= MONTHLY_SCORE_CAP and not user.get("cap_reached_at"):
+    if new_lifetime >= LIFETIME_SCORE_CAP and not user.get("cap_reached_at"):
         update["cap_reached_at"] = datetime.now(timezone.utc).isoformat()
 
     await db.users.update_one({"id": user_id}, {"$set": update})
@@ -550,6 +632,7 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
         "multiplier": multiplier,
         "source_id": source_id,
         "month_key": _month_key(),
+        "week_key": datetime.now(timezone.utc).strftime("%G-W%V"),
         "date_key": _date_key(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
@@ -564,6 +647,18 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
             "read": False,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
+
+    # Quality referral bonus: when this user crosses 1,000 lifetime, fire +500 to the referrer once
+    if lifetime < 1000 and new_lifetime >= 1000 and user.get("referrer_id"):
+        ref_id = user["referrer_id"]
+        already = await db.score_events.find_one({
+            "user_id": ref_id,
+            "action": "referral_quality_bonus",
+            "source_id": user_id,
+        })
+        if not already:
+            await award_points(ref_id, "referral_quality_bonus", 500, source_id=user_id, message=f"Quality referral bonus — @{user.get('username')} crossed 1,000")
+
     return awarded
 
 @api_router.post("/auth/signup", response_model=AuthResponse)
@@ -1243,6 +1338,52 @@ async def claim_premium_via_score(current_user: dict = Depends(get_current_user)
     return {"premium_unlocked": True, "claimed_via": "top_score"}
 
 
+@api_router.post("/score/daily-checkin")
+async def daily_checkin(current_user: dict = Depends(get_current_user)):
+    """Daily +10 (max once per calendar day, server-enforced)."""
+    awarded = await award_points(current_user["id"], "daily_checkin", 0, message="Daily check-in")
+    if awarded == 0:
+        return {"awarded": 0, "already_today": True}
+    return {"awarded": awarded, "message": f"+{awarded} for showing up today"}
+
+
+@api_router.post("/score/weekly-resource")
+async def weekly_resource_drop(current_user: dict = Depends(get_current_user)):
+    """Weekly +30 (max once per ISO week)."""
+    awarded = await award_points(current_user["id"], "weekly_resource_drop", 0, message="Weekly Resource Drop")
+    if awarded == 0:
+        return {"awarded": 0, "already_this_week": True}
+    return {"awarded": awarded}
+
+
+@api_router.get("/score/tiers")
+async def score_tiers():
+    """Public — exposes the rebalanced score table + tier thresholds."""
+    return {
+        "lifetime_cap": LIFETIME_SCORE_CAP,
+        "daily_soft_cap": DAILY_SOFT_CAP,
+        "tiers": [
+            {"name": "Member", "min": 0, "max": 999},
+            {"name": "Contributor", "min": 1000, "max": 2999},
+            {"name": "Connector", "min": 3000, "max": 5999},
+            {"name": "Builder", "min": 6000, "max": 8999},
+            {"name": "Steward", "min": 9000, "max": LIFETIME_SCORE_CAP},
+        ],
+        "actions": SCORE_TABLE,
+        "membership_lanes": {
+            "premium_only": ["wallet_ops", "multi_sig_withdrawals", "creator_product_backing", "currency_switcher", "score_2x_multiplier"],
+            "score_only": [
+                {"feature": "stokvel_eligibility", "min_score": 500},
+                {"feature": "priority_activities", "min_score": 2000},
+                {"feature": "verified_badge", "min_score": 3000},
+                {"feature": "creator_marketplace_listing", "min_score": 4000},
+                {"feature": "hub_leaderboard_placement", "min_score": 5000},
+            ],
+            "bridge": "Hit 10,000 lifetime once → claim 3 months free Premium + permanent Steward badge",
+        },
+    }
+
+
 
 # ============== PUBLIC LANDING DATA (no auth) ==============
 
@@ -1429,7 +1570,7 @@ async def create_story(payload: StoryCreate, current_user: dict = Depends(get_cu
     await db.stories.insert_one(story)
     if "_id" in story:
         del story["_id"]
-    await award_points(current_user["id"], "story", 5, source_id=story["id"], message="Posted a story +5")
+    await award_points(current_user["id"], "story_create", 0, source_id=story["id"], message="Posted a story")
     return {"story": story}
 
 @api_router.get("/stories/feed")
@@ -1596,7 +1737,7 @@ async def create_activity(payload: ActivityCreateRequest, current_user: dict = D
     await db.activities.insert_one(activity)
     activity.pop("_id", None)
     try:
-        await award_points(current_user["id"], "activity_created", 50, source_id=activity["id"], message="Created an Activity")
+        await award_points(current_user["id"], "activity_created", 0, source_id=activity["id"], message="Created an Activity")
     except Exception:
         pass
     return activity
@@ -2404,7 +2545,7 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
     }
     
     await db.posts.insert_one(post_data)
-    await award_points(current_user["id"], "post", 20, source_id=post_data["id"], message="Posted new content +20")
+    await award_points(current_user["id"], "post_create", 0, source_id=post_data["id"], message="Posted new content")
     
     return post_data
 
@@ -2492,7 +2633,7 @@ async def share_post(post_id: str, current_user: dict = Depends(get_current_user
         await award_points(post["user_id"], "share_received", 5, source_id=post_id,
                            message=f"{current_user['username']} shared your post +5")
     # Award the sharer per spec: 10 pts per share
-    await award_points(current_user["id"], "share", 10, source_id=post_id, message="You shared a post +10")
+    await award_points(current_user["id"], "post_share", 0, source_id=post_id, message="You shared a post")
 
     return {"shares": shares}
 
@@ -2511,7 +2652,7 @@ async def use_referral(referral_code: str, current_user: dict = Depends(get_curr
         raise HTTPException(status_code=404, detail="Invalid referral code")
     
     await db.users.update_one({"id": current_user["id"]}, {"$set": {"referred_by": referrer["id"]}})
-    await update_user_score(referrer["id"], 200, f"{current_user['username']} joined using your referral +200")
+    await update_user_score(referrer["id"], SCORE_TABLE["referral_joined"], f"{current_user['username']} joined using your referral", action="referral_joined")
     
     return {"message": "Referral applied successfully"}
 
@@ -2773,8 +2914,13 @@ async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_u
         }
     )
     
-    await update_user_score(user["id"], 20, f"Joined Stokvel+: {stokvel['name']} +20")
-    
+    # Award +250 once per user for first Stokvel join (idempotent via score_events)
+    already_first = await db.score_events.find_one({"user_id": user["id"], "action": "stokvel_first_join"})
+    if not already_first:
+        await update_user_score(user["id"], SCORE_TABLE["stokvel_first_join"], f"First Stokvel joined: {stokvel['name']}", action="stokvel_first_join", source_id=stokvel_id)
+    else:
+        await update_user_score(user["id"], 20, f"Joined Stokvel+: {stokvel['name']}", action="stokvel_join")
+
     return {"message": "Member invited successfully", "fee_charged": STOKVEL_MEMBER_FEE}
 
 @api_router.post("/stokvels/{stokvel_id}/contribute")
@@ -4162,6 +4308,10 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
     )
 
     updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
+
+    # +250 once for completing the profile
+    if not current_user.get("profile_completed"):
+        await award_points(current_user["id"], "profile_completed", 0, source_id=current_user["id"], message="Profile completed — welcome bonus")
 
     return {
         "user": updated_user,

@@ -17,7 +17,7 @@ const CATEGORIES = [
 
 const FAQS = [
   // Account
-  { cat: 'account', q: 'How do I sign up?', a: 'Tap "Join the Circle" on the landing page, enter email + password, then complete your profile (name, username, country, province, city). You can skip the bio; you can add a profile photo from the Profile page later.' },
+  { cat: 'account', q: 'How do I sign up?', a: 'Tap "Join the Circle" on the landing page, enter email + password, then complete your profile (name, username, country, province, city). Profile completion gives you +250 Network Score points immediately.' },
   { cat: 'account', q: 'How do I change my profile photo?', a: 'Go to Profile → tap the avatar → upload. When you change it, your photo updates automatically on all your past posts, stories, comments, and DMs.' },
   { cat: 'account', q: 'Can I delete my account?', a: 'Yes — email info@networkcapitalapp.co.za from the address on the account. Banking details are scrubbed within 30 days; payment records are retained per tax obligations.' },
   { cat: 'account', q: 'How do I reset my password?', a: 'Log in screen → "Forgot password?" — we\'ll email you a reset link.' },
@@ -47,9 +47,10 @@ const FAQS = [
   { cat: 'hubs', q: 'Which countries are supported?', a: 'At launch: South Africa, Nigeria, Kenya, Ghana, Zimbabwe, Tanzania, Uganda, Senegal, Egypt, Morocco, Ethiopia, Rwanda, plus "Other". We add more on request — email info@networkcapitalapp.co.za.' },
 
   // Network Score
-  { cat: 'score', q: 'What increases my Network Score?', a: 'Post +20, share +10, story +5, daily 3-hour streak +10, refer a new member who joins +200, watch + share a community ad +100, engage with a community product +500, create an Activity +50, join an Activity +25.' },
-  { cat: 'score', q: 'Is there a cap?', a: 'Yes — 10,000 points per calendar month so consistency wins over one-off spikes. Premium doubles all point gains.' },
-  { cat: 'score', q: 'What does a high score unlock?', a: '500+ Stokvel eligibility · 2,000+ Creator product backing · 5,000+ Hub leaderboard placement · 10,000 free Premium claim and 2× multiplier.' },
+  { cat: 'score', q: 'What increases my Network Score?', a: 'Daily check-in +10 · Post +15 · Share +8 · Comment +5 · Story +5 · Weekly Resource Drop +30 (max 1/week) · Profile completion +250 · First Stokvel join +250 · Host an Activity +150 · Join an Activity +25 · Refer a member +200 (+500 quality bonus when they hit 1,000). Daily soft-cap on engagement = 60 pts to prevent farming. Premium doubles all gains.' },
+  { cat: 'score', q: 'Is there a cap?', a: 'Yes — 10,000 lifetime cap. A dedicated user reaches the top tier (Steward) in roughly 12 months at a steady cadence. Premium members earn 2× per action.' },
+  { cat: 'score', q: 'What does a high score unlock?', a: '500+ Stokvel eligibility · 2,000+ priority on Activities · 3,000+ verified badge · 4,000+ creator marketplace listing · 5,000+ Hub leaderboard placement · 10,000 once → claim 3 months free Premium + permanent Steward badge.' },
+  { cat: 'score', q: 'Score vs Premium — what\'s the difference?', a: 'Money buys tools. Score earns trust. Premium ($10) unlocks features (Wallet ops, multi-sig, creator backing, currency switcher, 2× score multiplier). Score unlocks reputation lanes (Stokvel eligibility, verified badge, leaderboard, listings). They are two separate currencies.' },
 
   // Premium
   { cat: 'premium', q: 'How much is Premium?', a: '$10 one-time (or equivalent in your selected currency). Paid via Stripe checkout. Unlocks Wallet actions, Stokvel multi-sig, Creator product backing, 2× score, and +500 welcome bonus.' },

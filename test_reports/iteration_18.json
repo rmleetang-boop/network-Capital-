@@ -1,0 +1,43 @@
+{
+  "summary": "Iter 18 — Network Score rebalance verified end-to-end. Backend pytest 23/23 PASS: /score/tiers (lifetime_cap=10000, daily_soft_cap=60, 5 ordered tiers, full action table incl. profile_completed=250, weekly_resource_drop=30, daily_checkin=10, post_create=15, post_share=8, post_comment=5, story_create=5, referral_joined=200, referral_quality_bonus=500, monthly_streak=100, stokvel_first_join=250, activity_created=150, activity_joined=25), 5 premium_only lanes, 5 score_only lanes with 500/2000/3000/4000/5000 thresholds; profile_completed +250 idempotent; daily-checkin idempotent (2nd call awarded:0, already_today:true); weekly-resource idempotent (already_this_week:true); post_create=+15, post_share=+8, daily soft-cap clamps 5 posts to exactly 60pts; premium NGN unlock + post → +30 (2× multiplier); lifetime cap clamp at 10000 verified (9990→post→10000, not 10005); calculate_rank parametrized 0=Member,1500=Contributor,4000=Connector,7000=Builder,9500=Steward; activity_created=+150; regression: /currencies, /activity/live, /leaderboard/public, /hubs/regions, /payments/checkout/session (USD via Stripe), /dm/send all 200. Frontend: /landing-page benefit-2 'Earn reputation, not returns' ✓, cross-platform-note 'Web today · iOS + Android apps coming soon' ✓, footer-transparency contains 'social capital' + 'Web today · iOS + Android coming soon' ✓. Splash testid premium-loading-screen renders on hard load and disappears in ~2.6s, sessionStorage 'nc_splash_shown'='1' is set on teardown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "App.js (bootSplash)",
+        "issue": "Splash sessionStorage gate is INCOMPLETE. The flag 'nc_splash_shown' is SET on teardown (line 120) but never READ to seed initial state — useState(true) is unconditional (line 68). Result: splash reappears on every full page load (new tab to /, hard navigation between top-level routes via window.location, deep-link load), contradicting the spec line: 'Open a new tab to / on the same browser session — splash should also NOT reappear (sessionStorage nc_splash_shown=1)'. Verified: visited / (splash 2.6s, flag set to 1), then page.goto('/landing-page') — splash showed again for ~2.2s before content rendered. Fix is one line: useState(() => { try { return sessionStorage.getItem('nc_splash_shown') !== '1'; } catch { return true; } }).",
+        "selector": "[data-testid=\"premium-loading-screen\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter18_score_rebalance.py",
+    "/app/test_reports/pytest/iter18_results.xml"
+  ],
+  "action_items": [
+    "Fix App.js bootSplash useState seeding to honour sessionStorage 'nc_splash_shown' so splash does NOT re-show on subsequent full page loads in same browser session. One-line change at line 68."
+  ],
+  "critical_code_review_comments": [
+    "App.js line 68: bootSplash always starts true regardless of sessionStorage flag — sessionStorage is set but never gates the initial value. This makes the spec contract ('open new tab to / → no splash') unfulfilled.",
+    "server.py award_points correctly clamps lifetime to 10000 and applies daily soft-cap of 60 per the SCORE_TABLE, including premium 2× multiplier. Quality referral bonus fires correctly when crossing 1000.",
+    "server.py line 506: MONTHLY_SCORE_CAP = LIFETIME_SCORE_CAP — legacy alias retained but _ensure_month_state still resets monthly_score per calendar month; harmless since lifetime cap is the real ceiling.",
+    "server.py /score/tiers tier ranges (Member 0-999, Contributor 1000-2999, Connector 3000-5999, Builder 6000-8999, Steward 9000-10000) match calculate_rank thresholds. Spec's parametrized expectations all verified.",
+    "server.py /auth/complete-profile: profile_completed bonus correctly idempotent because get_current_user re-loads on second call (post-update profile_completed=true → branch skipped). Verified by test."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter18_score_rebalance.py (NEW — 23 pytest cases, all pass)"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23) — tiers public + actions + lanes, profile_completed +250 idempotent, daily-checkin idempotent, weekly-resource idempotent, post_create +15, post_share +8, daily soft-cap 60 clamps 5th post, premium 2× post →+30, lifetime cap 9990→10000 clamp, rank mapping all 5 tiers, activity_created +150, regression: currencies/activity-live/leaderboard-public/hubs-regions/Stripe-USD/dm-send",
+    "frontend": "60% — splash visible on hard load with correct testid; sessionStorage flag SET; landing benefit-2 + cross-platform-note + footer-transparency all match spec phrases. Splash sessionStorage GATE not honoured (bug). /auth POPIA nudge and /help score Q&A content not verified — Sign Up tab click did not reveal popia testid in this session and /help redirects unauthenticated users to landing; agent could not authenticate via playwright due to outbound URL restriction. Main agent should verify /auth signup-step1 and /help/score Q&A copy manually, content in HelpCenterPage.js + AuthPage.js per files_of_reference."
+  },
+  "test_credentials": "Dynamic via /api/auth/progressive-signup + /api/auth/complete-profile, password Test123!. localStorage key 'token' for frontend.",
+  "seed_data_creation": "~14 fresh users prefixed TEST_iter18_ (one per test). No cleanup fixture (matches prior iters).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file: /app/backend/tests/test_iter18_score_rebalance.py — 23 cases, all green. Connects directly to mongo (MONGO_URL/DB_NAME) for the lifetime-cap clamp + tier-mapping tests (sets network_score in DB then triggers a post). Frontend gotchas: (1) /help and most /-routes require an authenticated user — without token, App.js falls through to LandingPage. To test /help, set localStorage.token via page.evaluate before navigating. (2) Splash min-duration is 2600ms on boot, so wait at least 3500-4500ms after every page.goto before querying testids. (3) Sign Up tab on /auth: the popia nudge testid 'auth-popia-nudge' lives ONLY on signup step 1 — click the Sign Up tab first and wait ~1s for tab transition. (4) Splash sessionStorage gate is currently BROKEN — splash shows on every full page load even after first display.",
+  "rca_of_the_issue": "Splash gate bug RCA: spec requires splash to display only once per browser session, gated by sessionStorage 'nc_splash_shown'. App.js line 120 SETS the flag on splash teardown, but line 68 declares `const [bootSplash, setBootSplash] = useState(true)` — initial state is always true, never reading sessionStorage. So on any new page load (new tab, hard refresh of any route, or full navigation), the splash mounts for 2.6s before clearing again. Reproduction: open / (splash shows, flag set), then page.goto('/landing-page') in same context → splash shows again ~2.2s. Mitigation (1 line): replace `useState(true)` with `useState(() => { try { return sessionStorage.getItem('nc_splash_shown') !== '1'; } catch { return true; } })`. After fix, also short-circuit setSplashShown timer when initial state is false."
+}
