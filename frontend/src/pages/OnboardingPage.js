@@ -171,10 +171,9 @@ const OnboardingPage = ({ onComplete, onLogin }) => {
             <div className="logo-container">
               <div className="absolute inset-0 bg-gradient-to-br from-secondary/30 to-transparent blur-3xl scale-150 rounded-full" />
               <img 
-                src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+                src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/3x79ttpx_Network%20Capital_Secondary%20Logo.png" 
                 alt="Network Capital" 
-                className="h-20 mx-auto mb-3 relative logo-glow rounded-xl"
-                style={{ background: 'linear-gradient(135deg, rgba(10,22,40,0.9) 0%, rgba(30,58,138,0.9) 100%)', padding: '8px' }}
+                className="h-28 mx-auto mb-3 relative drop-shadow-[0_0_20px_rgba(232,168,23,0.3)]"
               />
             </div>
             <p className="text-white/70 text-sm">Transform your network into net worth</p>

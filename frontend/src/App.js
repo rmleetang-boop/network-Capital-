@@ -46,6 +46,25 @@ import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
 import './App.css';
 
+// Captures referral context from a personalised invite link
+// Format: /join?ref=<username>&joined=<YYYY-MM-DD>&bm=<1-12>
+const JoinHandler = () => {
+  const search = window.location.search;
+  try {
+    const params = new URLSearchParams(search);
+    const ref = params.get('ref');
+    const joined = params.get('joined');
+    const bm = params.get('bm');
+    if (ref) {
+      const payload = { ref, joined: joined || null, bm: bm || null, captured_at: new Date().toISOString() };
+      localStorage.setItem('nc_referrer', JSON.stringify(payload));
+    }
+  } catch {}
+  // Token already? go home, else send them to onboarding/auth
+  const token = localStorage.getItem('token');
+  return <Navigate to={token ? '/' : '/auth'} replace />;
+};
+
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
@@ -137,6 +156,7 @@ function App() {
               <Route path="/legal" element={<LegalDocumentsPage />} />
               <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
+              <Route path="/join" element={<JoinHandler />} />
               <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             </Routes>
           </BrowserRouter>
@@ -153,6 +173,7 @@ function App() {
             <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
+            <Route path="/join" element={<JoinHandler />} />
             <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -189,7 +210,8 @@ function App() {
             <Route path="/net-worth" element={<NetWorthPage user={user} />} />
             <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
             <Route path="/connections" element={<ConnectionsPage user={user} />} />
-            <Route path="/activity" element={<ActivityTrackerPage user={user} />} />
+            <Route path="/activity" element={<Navigate to="/tracker" replace />} />
+            <Route path="/tracker" element={<ActivityTrackerPage user={user} />} />
             <Route path="/activities" element={<ActivitiesPage user={user} />} />
             <Route path="/explore" element={<ExplorePage user={user} />} />
             <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
@@ -200,6 +222,7 @@ function App() {
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
+            <Route path="/join" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

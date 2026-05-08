@@ -13,7 +13,19 @@ const CreateStokvelPage = () => {
     description: '',
     target_amount: '',
     payout_cycle: 'Monthly',
+    purpose: 'savings',
   });
+
+  const PURPOSES = [
+    { v: 'savings', label: 'Savings', emoji: '💰', desc: 'Build wealth together — classic Stokvel.' },
+    { v: 'holiday', label: 'Holiday', emoji: '🌴', desc: 'Pool funds for a group getaway.' },
+    { v: 'event', label: 'Event / Night Out', emoji: '🎉', desc: 'Plan a dinner, party, or celebration.' },
+    { v: 'gift', label: 'Group Gift', emoji: '🎁', desc: 'Buy a meaningful gift, together.' },
+    { v: 'group_trip', label: 'Group Trip', emoji: '✈️', desc: 'Plan a trip with friends — flights, stays, activities.' },
+    { v: 'wedding', label: 'Wedding', emoji: '💍', desc: 'Coordinate contributions for a wedding.' },
+    { v: 'funeral', label: 'Funeral', emoji: '🕯️', desc: 'Family-led pool to honour and support.' },
+    { v: 'other', label: 'Other', emoji: '✨', desc: "Custom purpose — describe it in the description." },
+  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -55,8 +67,8 @@ const CreateStokvelPage = () => {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-2xl font-heading font-bold text-primary">Create Stokvel</h1>
-            <p className="text-sm text-text-secondary">Start a group savings pool</p>
+            <h1 className="text-2xl font-heading font-bold text-primary">Create Stokvel+</h1>
+            <p className="text-sm text-text-secondary">Pool money together for any shared goal</p>
           </div>
         </div>
       </div>
@@ -68,6 +80,34 @@ const CreateStokvelPage = () => {
           onSubmit={handleSubmit}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5"
         >
+          {/* Purpose selector — Stokvel+ is for any shared goal, not just savings */}
+          <div>
+            <label className="block text-sm font-medium text-text-primary mb-2">
+              What's this Stokvel+ for? *
+            </label>
+            <div className="grid grid-cols-2 gap-2" data-testid="stokvel-purpose-grid">
+              {PURPOSES.map((p) => (
+                <button
+                  key={p.v}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, purpose: p.v })}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    formData.purpose === p.v
+                      ? 'bg-secondary/15 border-secondary text-text-primary ring-2 ring-secondary/40'
+                      : 'bg-background-subtle border-gray-200 text-text-primary hover:bg-gray-50'
+                  }`}
+                  data-testid={`stokvel-purpose-${p.v}`}
+                >
+                  <p className="font-semibold text-sm">{p.emoji} {p.label}</p>
+                  <p className="text-[11px] text-text-secondary mt-0.5 leading-tight">{p.desc}</p>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-text-secondary mt-2">
+              Friends pooling for any shared goal — holiday, night out, group gift, classic savings, or anything else.
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">
               Stokvel Name *

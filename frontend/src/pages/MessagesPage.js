@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { MessageCircle, ArrowLeft, Search, Share2 } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const timeAgo = (iso) => {
   if (!iso) return '';
@@ -46,6 +47,17 @@ const MessagesPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT" data-testid="messages-page">
+      <FeatureIntroModal
+        featureKey="messages"
+        icon={<MessageCircle size={20} />}
+        title="Direct Messages"
+        subtitle="Private 1-to-1 chat with anyone in the Network Capital community."
+        bullets={[
+          { icon: <MessageCircle size={14} />, label: 'Text, voice & images', body: 'Send messages, voice notes (3MB), images (3MB), or share a post directly into a chat.' },
+          { icon: <Search size={14} />, label: 'Open messaging', body: 'No pre-approval needed — DM anyone you discover in Hubs or the Feed.' },
+          { icon: <Share2 size={14} />, label: 'Compliance-aware', body: 'Financial-claim words are flagged automatically to keep our community POPIA-aligned.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 bg-gradient-to-r from-[#0a1628] via-primary to-[#0a1628] border-b border-white/10 px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <button onClick={() => navigate('/profile')} className="p-2 text-white/80 hover:text-white" data-testid="messages-back">

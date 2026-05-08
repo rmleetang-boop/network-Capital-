@@ -4,6 +4,7 @@ import { Gift, TrendingUp, DollarSign, Award, Sparkles } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useParams } from 'react-router-dom';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const RewardsPage = () => {
   const { stokvelId } = useParams();
@@ -61,13 +62,23 @@ const RewardsPage = () => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT pb-20">
+      <FeatureIntroModal
+        featureKey="rewards"
+        icon={<Gift size={20} />}
+        title="Stokvel Rewards"
+        subtitle="See the access and benefits unlocked by your group's Network Score tier."
+        bullets={[
+          { icon: <Award size={14} />, label: 'Tier-based access', body: 'Higher group tier = better shared access and more group benefits.' },
+          { icon: <Sparkles size={14} />, label: 'Reputation, not interest', body: 'Rewards are access and recognition — never guaranteed financial returns.' },
+          { icon: <TrendingUp size={14} />, label: 'Boost your tier', body: 'Encourage consistent participation across all members to climb tiers together.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 dark-header px-4 py-4">
         <div className="flex items-center gap-3">
           <img 
-            src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+            src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/q3f2xfwr_Network%20Capital_%20Logo%20Mark.png" 
             alt="Network Capital" 
-            className="h-10 w-auto logo-dark-header rounded-lg"
-            style={{ background: 'linear-gradient(135deg, rgba(10,22,40,0.9) 0%, rgba(30,58,138,0.9) 100%)', padding: '4px' }}
+            className="h-10 w-10 rounded-lg object-cover"
           />
           <div>
             <h1 className="text-xl font-heading font-bold text-white">Rewards</h1>

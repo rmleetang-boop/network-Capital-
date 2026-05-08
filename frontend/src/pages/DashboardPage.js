@@ -57,10 +57,10 @@ const DashboardPage = ({ user }) => {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-wider text-white/60">Your dashboard</p>
-            <h1 className="text-xl font-heading font-bold text-white">Daily Activity Tracker</h1>
+            <h1 className="text-xl font-heading font-bold text-white">Score Tracker</h1>
           </div>
           <button
-            onClick={() => navigate('/activity')}
+            onClick={() => navigate('/tracker')}
             className="text-xs sm:text-sm text-secondary hover:underline inline-flex items-center gap-1"
             data-testid="dashboard-full-tracker"
           >

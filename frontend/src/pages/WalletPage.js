@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useCurrency } from '../context/CurrencyContext';
 import CurrencySwitcher from '../components/CurrencySwitcher';
 import PremiumPaywall from '../components/PremiumPaywall';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const WalletPage = ({ user }) => {
   const { format, premiumUnlocked } = useCurrency();
@@ -67,14 +68,24 @@ const WalletPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT">
+      <FeatureIntroModal
+        featureKey="wallet"
+        icon={<Wallet size={20} />}
+        title="Your Wallet"
+        subtitle="Track funds, premium-tier access, and your contribution history."
+        bullets={[
+          { icon: <Plus size={14} />, label: 'Add funds (Premium)', body: 'Premium members can top up to participate in Stokvels and pooled access.' },
+          { icon: <TrendingUp size={14} />, label: 'Transparent ledger', body: 'Every contribution and shared-access disbursement is itemised below.' },
+          { icon: <DollarSign size={14} />, label: 'Multi-currency', body: 'Switch displayed currency across 10 supported regions in the header.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 dark-header px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
-              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+              src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/q3f2xfwr_Network%20Capital_%20Logo%20Mark.png" 
               alt="Network Capital" 
-              className="h-10 w-auto logo-dark-header rounded-lg"
-              style={{ background: 'linear-gradient(135deg, rgba(10,22,40,0.9) 0%, rgba(30,58,138,0.9) 100%)', padding: '4px' }}
+              className="h-10 w-10 rounded-lg object-cover"
             />
             <div>
               <h1 className="text-xl font-heading font-bold text-white">Wallet</h1>

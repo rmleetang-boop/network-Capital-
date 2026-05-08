@@ -1,12 +1,20 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, ArrowRight, Users, TrendingUp, Sparkles } from 'lucide-react';
+import { ShieldCheck, ArrowRight, Users, TrendingUp, Sparkles, Star } from 'lucide-react';
 import Footer from '../components/Footer';
+import { axiosInstance } from '../App';
 
 const LandingPage = ({ onContinue }) => {
   const navigate = useNavigate();
   const cta = () => { if (onContinue) onContinue(); navigate('/auth'); };
+  const [founder, setFounder] = useState(null);
+
+  useEffect(() => {
+    axiosInstance.get('/founders/status')
+      .then((r) => setFounder(r.data))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0a1628] text-white" data-testid="landing-page">
@@ -15,9 +23,9 @@ const LandingPage = ({ onContinue }) => {
         <div className="max-w-5xl mx-auto px-5 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img
-              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png"
+              src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/q3f2xfwr_Network%20Capital_%20Logo%20Mark.png"
               alt="Network Capital"
-              className="h-8 w-auto"
+              className="h-9 w-9 rounded-lg object-cover"
             />
             <span className="font-heading font-bold tracking-tight text-sm">Network Capital</span>
           </div>
@@ -75,6 +83,18 @@ const LandingPage = ({ onContinue }) => {
             <p className="text-[12px] text-white/50 mt-4 max-w-md mx-auto" data-testid="hero-clarity">
               Not a financial service. No promised returns. Real coordination of shared access.
             </p>
+
+            {founder && founder.active && (
+              <div className="mt-6 inline-flex flex-col items-center gap-1 px-4 py-3 rounded-2xl bg-secondary/10 border border-secondary/30" data-testid="founder-counter">
+                <div className="flex items-center gap-2 text-secondary font-semibold text-sm">
+                  <Star size={14} />
+                  Founding Member · {founder.available} of {founder.limit} spots left
+                </div>
+                <p className="text-[11px] text-white/65">
+                  First {founder.limit} members get a <strong className="text-secondary">2× Network Score</strong> for {founder.duration_days} days.
+                </p>
+              </div>
+            )}
 
             <p className="text-[11px] text-white/40 mt-6" data-testid="cross-platform-note">
               Web today · <strong className="text-white/60">iOS + Android apps coming soon</strong>

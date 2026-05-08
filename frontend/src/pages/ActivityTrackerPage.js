@@ -4,6 +4,7 @@ import { Activity, TrendingUp, Trophy, Zap, Sparkles, Calendar, Flame, Eye, Shar
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const PERIODS = [
   { key: 'daily', label: 'Daily', days: 30 },
@@ -92,27 +93,38 @@ const ActivityTrackerPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] pb-24" data-testid="activity-tracker-page">
+      <FeatureIntroModal
+        featureKey="score-tracker"
+        icon={<Activity size={20} />}
+        title="Your Score Tracker"
+        subtitle="Track how your participation builds your Network Score over time."
+        bullets={[
+          { icon: <Flame size={14} />, label: 'Daily check-ins & streaks', body: 'Log in every day to keep your streak alive — streaks unlock soft-cap boosts.' },
+          { icon: <TrendingUp size={14} />, label: 'Lifetime cap: 10,000 points', body: 'Your score is reputation, capped lifetime. Daily and weekly soft caps protect against gaming.' },
+          { icon: <Sparkles size={14} />, label: 'Premium 2× multiplier', body: 'Premium members earn double on qualifying actions during their active period.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 bg-[#0a1628]/95 backdrop-blur-lg border-b border-white/10 px-4 py-4">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
           <div className="w-10 h-10 bg-secondary rounded-xl flex items-center justify-center">
             <Activity className="text-primary" size={20} />
           </div>
           <div>
-            <h1 className="text-xl font-heading font-bold text-white">Activity Tracker</h1>
-            <p className="text-xs text-white/60">Network Score — monthly cap 10,000</p>
+            <h1 className="text-xl font-heading font-bold text-white">Score Tracker</h1>
+            <p className="text-xs text-white/60">Network Score — lifetime cap 10,000</p>
           </div>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto p-4 space-y-5">
-        {/* Hero - monthly score */}
+        {/* Hero - Network Score (lifetime — matches Profile) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20"
           data-testid="score-hero"
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white/60 text-sm">Monthly score</span>
+            <span className="text-white/60 text-sm">Network Score</span>
             {summary.premium_multiplier_active && (
               <span className="text-xs bg-secondary/20 text-secondary px-2 py-1 rounded-full font-bold flex items-center gap-1">
                 <Sparkles size={12} /> 2× Premium
@@ -120,21 +132,21 @@ const ActivityTrackerPage = ({ user }) => {
             )}
           </div>
           <div className="flex items-end gap-3">
-            <p className="text-5xl font-bold text-white" data-testid="monthly-score">
-              {summary.monthly_score.toLocaleString()}
+            <p className="text-5xl font-bold text-white" data-testid="network-score">
+              {summary.lifetime_score.toLocaleString()}
             </p>
-            <p className="text-white/40 text-lg pb-1">/ {summary.monthly_cap.toLocaleString()}</p>
+            <p className="text-white/40 text-lg pb-1">/ 10,000</p>
           </div>
 
-          {/* Progress bar */}
+          {/* Progress bar — lifetime */}
           <div className="mt-3 h-3 bg-white/10 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-secondary to-yellow-500"
-              style={{ width: `${Math.min(summary.percentage, 100)}%` }}
+              style={{ width: `${Math.min((summary.lifetime_score / 10000) * 100, 100)}%` }}
             />
           </div>
           <p className="text-white/60 text-sm mt-2 font-medium" data-testid="score-percentage">
-            {summary.percentage}% of monthly target
+            {Math.min(Math.round((summary.lifetime_score / 10000) * 100), 100)}% of lifetime cap
           </p>
 
           {/* Premium grace */}

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Sparkles, TrendingUp, Hash, Image as ImageIcon, Video as VideoIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { axiosInstance } from '../App';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const ExplorePage = () => {
   const navigate = useNavigate();
@@ -22,6 +23,17 @@ const ExplorePage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] pb-24" data-testid="explore-page">
+      <FeatureIntroModal
+        featureKey="explore"
+        icon={<Sparkles size={20} />}
+        title="Explore what's trending"
+        subtitle="Discover the most-loved posts and hashtags across the Network Capital community."
+        bullets={[
+          { icon: <TrendingUp size={14} />, label: 'Trending hashtags', body: 'Tap any tag to see every post in that conversation.' },
+          { icon: <Hash size={14} />, label: 'Top posts last 7 days', body: 'Ranked by engagement so you always see the highest-quality content.' },
+          { icon: <ImageIcon size={14} />, label: 'Visual-first grid', body: 'Tap any tile to open the full post in your feed.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 bg-[#0a1628]/95 backdrop-blur-lg border-b border-white/10 px-4 py-4">
         <div className="max-w-3xl mx-auto flex items-center gap-3">
           <div className="w-10 h-10 bg-secondary rounded-xl flex items-center justify-center">

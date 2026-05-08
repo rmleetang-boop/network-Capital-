@@ -5,6 +5,7 @@ import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useNavigate } from 'react-router-dom';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const LeaderboardsPage = ({ user }) => {
   const [activeTab, setActiveTab] = useState('users');
@@ -56,12 +57,23 @@ const LeaderboardsPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT pb-20">
+      <FeatureIntroModal
+        featureKey="leaderboards"
+        icon={<Trophy size={20} />}
+        title="Community Leaderboards"
+        subtitle="See who's leading by participation — across the global community and your local hub."
+        bullets={[
+          { icon: <Trophy size={14} />, label: 'Reputation, not earnings', body: 'Rankings reflect Network Score (contribution, sharing, milestones) — never balances.' },
+          { icon: <Users size={14} />, label: 'Hub + global views', body: 'Switch tabs to see standings in your city versus the whole community.' },
+          { icon: <TrendingUp size={14} />, label: 'Climb fairly', body: 'Soft caps keep the playing field even — consistency beats spamming, every time.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
         <div className="flex items-center gap-3">
           <img 
-            src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png" 
+            src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/q3f2xfwr_Network%20Capital_%20Logo%20Mark.png" 
             alt="Network Capital" 
-            className="h-10 w-auto"
+            className="h-10 w-10 rounded-lg object-cover"
           />
           <div>
             <h1 className="text-xl font-heading font-bold text-primary">Leaderboards</h1>

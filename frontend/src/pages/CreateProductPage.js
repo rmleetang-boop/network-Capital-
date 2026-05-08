@@ -33,8 +33,24 @@ const CreateProductPage = ({ user }) => {
     release_date: '',
     min_support: '10',
     max_support: '1000',
-    images: []
+    images: [],
+    // New: type (product or service), currency (auto from country), availability
+    type: 'product',
+    currency: 'USD',
+    availability: 'available_now',
+    availability_days: '7',
   });
+
+  // Auto-default currency to creator's country on mount
+  useEffect(() => {
+    if (!user?.country) return;
+    const COUNTRY_CURRENCY = {
+      south_africa: 'ZAR', nigeria: 'NGN', kenya: 'KES', ghana: 'GHS',
+    };
+    const defaultCurrency = COUNTRY_CURRENCY[user.country] || 'USD';
+    setFormData((p) => p.currency === 'USD' ? { ...p, currency: defaultCurrency } : p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.country]);
 
   const steps = [
     { id: 1, title: 'Product Info', icon: Package },
@@ -80,7 +96,10 @@ const CreateProductPage = ({ user }) => {
         ...formData,
         estimated_cost: parseFloat(formData.estimated_cost) || 0,
         min_support: parseFloat(formData.min_support) || 10,
-        max_support: parseFloat(formData.max_support) || 1000
+        max_support: parseFloat(formData.max_support) || 1000,
+        availability_days: formData.availability === 'available_in_days'
+          ? Math.max(1, parseInt(formData.availability_days, 10) || 7)
+          : null,
       };
       
       const res = await axiosInstance.post('/products', payload);
@@ -113,14 +132,40 @@ const CreateProductPage = ({ user }) => {
       case 1:
         return (
           <div className="space-y-5">
+            {/* Type: Product or Service */}
             <div>
-              <label className="block text-sm font-medium text-white/80 mb-2">Product Name *</label>
+              <label className="block text-sm font-medium text-white/80 mb-2">Listing type *</label>
+              <div className="grid grid-cols-2 gap-2" data-testid="product-type-toggle">
+                {[
+                  { v: 'product', label: 'Product', desc: 'A physical or digital good' },
+                  { v: 'service', label: 'Service', desc: 'A skill or experience you offer' },
+                ].map((t) => (
+                  <button
+                    key={t.v}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, type: t.v })}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      formData.type === t.v
+                        ? 'bg-secondary/20 border-secondary text-white'
+                        : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                    }`}
+                    data-testid={`product-type-${t.v}`}
+                  >
+                    <p className="font-semibold">{t.label}</p>
+                    <p className="text-[11px] text-white/55 mt-0.5">{t.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">{formData.type === 'service' ? 'Service' : 'Product'} Name *</label>
               <input
                 type="text"
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="What's your product called?"
+                placeholder={formData.type === 'service' ? 'What service are you offering?' : "What's your product called?"}
                 className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
                 data-testid="product-name"
               />
@@ -249,6 +294,60 @@ const CreateProductPage = ({ user }) => {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">Availability *</label>
+              <div className="grid grid-cols-2 gap-2" data-testid="availability-toggle">
+                {[
+                  { v: 'available_now', label: 'Available now', desc: 'Ships / starts immediately' },
+                  { v: 'available_in_days', label: 'Available in N days', desc: 'Ready within a short window' },
+                  { v: 'preorder', label: 'Pre-order', desc: 'Reserve now, fulfilled later' },
+                  { v: 'on_request', label: 'On request', desc: 'Tailored — contact creator' },
+                ].map((a) => (
+                  <button
+                    key={a.v}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, availability: a.v })}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      formData.availability === a.v
+                        ? 'bg-secondary/20 border-secondary text-white'
+                        : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                    }`}
+                    data-testid={`availability-${a.v}`}
+                  >
+                    <p className="font-semibold text-sm">{a.label}</p>
+                    <p className="text-[11px] text-white/55 mt-0.5">{a.desc}</p>
+                  </button>
+                ))}
+              </div>
+              {formData.availability === 'available_in_days' && (
+                <input
+                  type="number"
+                  min="1"
+                  name="availability_days"
+                  value={formData.availability_days}
+                  onChange={handleChange}
+                  placeholder="7"
+                  className="w-full mt-2 px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
+                  data-testid="availability-days-input"
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">Listing currency</label>
+              <select
+                value={formData.currency}
+                onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white focus:border-secondary outline-none appearance-none cursor-pointer"
+                data-testid="product-currency"
+              >
+                {['USD','EUR','GBP','ZAR','NGN','KES','GHS','JPY','CAD','AUD'].map((c) => (
+                  <option key={c} value={c} className="bg-[#0a1628] text-white">{c}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-white/50 mt-1">Auto-set to your country's currency. Editable.</p>
             </div>
 
             <div>

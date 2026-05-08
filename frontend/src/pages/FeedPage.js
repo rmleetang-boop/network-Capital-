@@ -6,6 +6,7 @@ import MockAdButton from '../components/MockAdButton';
 import StoriesRibbon from '../components/StoriesRibbon';
 import StoryViewer from '../components/StoryViewer';
 import HashtagText from '../components/HashtagText';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -137,14 +138,25 @@ const FeedPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT">
+      <FeatureIntroModal
+        featureKey="feed"
+        icon={<Sparkles size={20} />}
+        title="Welcome to your Feed"
+        subtitle="A live stream of your community — posts, stories, milestones and shared wins."
+        bullets={[
+          { icon: <Heart size={14} />, label: 'Double-tap to like', body: 'Tap-tap on any post for a quick heart, just like you\'d expect.' },
+          { icon: <Share2 size={14} />, label: 'Share anywhere', body: 'Repost into the feed, send via DM, or share to your favourite app.' },
+          { icon: <ImageIcon size={14} />, label: 'Stories at the top', body: 'Tap any avatar in the ribbon to view 24-hour Stories from members you follow.' },
+        ]}
+      />
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-gradient-to-r from-[#0a1628] via-primary to-[#0a1628] border-b border-white/10">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
-              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png"
+              src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/q3f2xfwr_Network%20Capital_%20Logo%20Mark.png"
               alt="Network Capital"
-              className="h-9 w-auto"
+              className="h-9 w-9 rounded-lg object-cover"
             />
             <div>
               <p className="text-[10px] text-white/60 uppercase tracking-wider">Score</p>

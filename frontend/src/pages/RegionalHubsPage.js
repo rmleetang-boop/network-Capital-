@@ -6,6 +6,7 @@ import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import HubPulse from '../components/HubPulse';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const TYPE_META = {
   social: { label: 'Social', icon: Heart, color: 'bg-pink-500/20 text-pink-300 border-pink-500/40' },
@@ -27,6 +28,7 @@ const RegionalHubsPage = ({ user }) => {
   const [reqMessage, setReqMessage] = useState('');
   const [reqStokvel, setReqStokvel] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('all'); // all|social|financial|professional
 
   useEffect(() => {
     axiosInstance.get('/hubs/cities').then((r) => setCities(r.data.cities)).catch(() => {});
@@ -116,19 +118,39 @@ const RegionalHubsPage = ({ user }) => {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
+    let list = users;
+    // Category filter — show users where the selected connection type is open (not already accepted),
+    // emphasising members you can still connect with via that lane.
+    if (categoryFilter !== 'all') {
+      list = list.filter((u) => {
+        const status = u.connection_status?.[categoryFilter];
+        return status !== 'accepted';
+      });
+    }
+    if (!q) return list;
+    return list.filter(
       (u) =>
         u.username?.toLowerCase().includes(q) ||
         u.full_name?.toLowerCase().includes(q) ||
         u.profession?.toLowerCase().includes(q)
     );
-  }, [users, search]);
+  }, [users, search, categoryFilter]);
 
   const cityLabel = cities.find((c) => c.value === city)?.label || 'Your hub';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] pb-24" data-testid="regional-hubs-page">
+      <FeatureIntroModal
+        featureKey="hubs"
+        icon={<MapPin size={20} />}
+        title="Regional Hubs"
+        subtitle="Find members in your city — and connect across 13 African countries."
+        bullets={[
+          { icon: <Users size={14} />, label: 'People near you', body: 'Pick a country, then a city to browse members in that hub.' },
+          { icon: <Heart size={14} />, label: 'Three connection lanes', body: 'Send Social, Financial (Stokvel) or Professional connection requests — clearly labelled on every card.' },
+          { icon: <Search size={14} />, label: 'Search & filter', body: 'Use the chip filter (Social / Financial / Professional) or search by name, profession or interests.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 bg-[#0a1628]/95 backdrop-blur-lg border-b border-white/10 px-4 py-4">
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center gap-3 mb-3">
@@ -202,6 +224,28 @@ const RegionalHubsPage = ({ user }) => {
               className="w-full pl-10 pr-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 outline-none focus:border-secondary"
             />
           </div>
+
+          {/* Connection-type filter chips */}
+          <div className="flex flex-wrap gap-2 mt-3" data-testid="hub-category-filters">
+            {[
+              { key: 'all', label: 'All', icon: Users, color: 'bg-white/10 text-white border-white/20' },
+              { key: 'social', label: 'Social', icon: Heart, color: TYPE_META.social.color },
+              { key: 'financial', label: 'Financial', icon: PiggyBank, color: TYPE_META.financial.color },
+              { key: 'professional', label: 'Professional', icon: Briefcase, color: TYPE_META.professional.color },
+            ].map(({ key, label, icon: Icon, color }) => {
+              const active = categoryFilter === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setCategoryFilter(key)}
+                  className={`px-3 py-1.5 rounded-full border text-xs font-semibold inline-flex items-center gap-1.5 transition-all ${active ? `${color} ring-2 ring-secondary/60 brightness-110` : `${color} opacity-60 hover:opacity-100`}`}
+                  data-testid={`hub-filter-${key}`}
+                >
+                  <Icon size={12} /> {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -255,7 +299,7 @@ const RegionalHubsPage = ({ user }) => {
                     )}
                     {u.bio && <p className="text-white/50 text-xs mt-1 line-clamp-1">{u.bio}</p>}
                   </div>
-                  <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  <div className="flex flex-col gap-1.5 flex-shrink-0" data-testid={`connect-bar-${u.id}`}>
                     {['social', 'financial', 'professional'].map((t) => {
                       const Icon = TYPE_META[t].icon;
                       const status = u.connection_status?.[t];
@@ -265,7 +309,7 @@ const RegionalHubsPage = ({ user }) => {
                           key={t}
                           onClick={() => !disabled && openRequest(u, t)}
                           disabled={disabled}
-                          className={`text-[10px] uppercase font-bold tracking-wide px-2 py-1 rounded-full border flex items-center gap-1 transition-all ${
+                          className={`text-[10px] uppercase font-bold tracking-wide px-2.5 py-1.5 rounded-full border flex items-center gap-1.5 transition-all min-w-[110px] justify-start ${
                             status === 'accepted'
                               ? 'bg-green-500/20 text-green-300 border-green-500/40'
                               : status === 'pending'
@@ -273,10 +317,12 @@ const RegionalHubsPage = ({ user }) => {
                               : `${TYPE_META[t].color} hover:opacity-80`
                           }`}
                           data-testid={`connect-${t}-${u.id}`}
-                          title={status || 'Send request'}
+                          title={status || `Send ${TYPE_META[t].label} request`}
                         >
-                          <Icon size={11} />
-                          {status === 'accepted' ? <Check size={11} /> : status === 'pending' ? '…' : TYPE_META[t].label[0]}
+                          <Icon size={12} />
+                          <span>{TYPE_META[t].label}</span>
+                          {status === 'accepted' && <Check size={11} className="ml-auto" />}
+                          {status === 'pending' && <span className="ml-auto opacity-60">…</span>}
                         </button>
                       );
                     })}

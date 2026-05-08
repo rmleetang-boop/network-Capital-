@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { axiosInstance } from '../App';
 import { useCurrency } from '../context/CurrencyContext';
 import CurrencySwitcher from '../components/CurrencySwitcher';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const NetWorthPage = ({ user }) => {
   const { format } = useCurrency();
@@ -54,6 +55,17 @@ const NetWorthPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] pb-24">
+      <FeatureIntroModal
+        featureKey="net-worth"
+        icon={<TrendingUp size={20} />}
+        title="Your Network Value"
+        subtitle="A holistic view of your financial activity and the social capital you've built."
+        bullets={[
+          { icon: <Wallet size={14} />, label: 'Wallet & contributions', body: 'See total funds, contribution history and Stokvel allocations at a glance.' },
+          { icon: <Network size={14} />, label: 'Network value', body: 'Quantifies the social capital from your connections, hubs, and engagement.' },
+          { icon: <Activity size={14} />, label: 'Multi-currency', body: 'Switch the display currency in the header — values convert in real time.' },
+        ]}
+      />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#0a1628]/95 backdrop-blur-lg border-b border-white/10 px-4 py-4">
         <div className="max-w-3xl mx-auto flex items-center gap-3">

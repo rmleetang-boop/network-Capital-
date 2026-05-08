@@ -110,9 +110,9 @@ const PremiumLoadingScreen = ({ minDuration = 1800, onDone }) => {
                 style={{ background: 'radial-gradient(circle, rgba(245,215,110,0.32) 0%, transparent 60%)', filter: 'blur(24px)' }}
               />
               <img
-                src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png"
+                src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/3x79ttpx_Network%20Capital_Secondary%20Logo.png"
                 alt="Network Capital"
-                className="h-28 sm:h-36 w-auto relative"
+                className="h-32 sm:h-36 w-auto relative"
                 style={{ filter: 'drop-shadow(0 0 18px rgba(245,215,110,0.45))' }}
               />
               {/* Shimmer pass over the logo */}
@@ -132,26 +132,12 @@ const PremiumLoadingScreen = ({ minDuration = 1800, onDone }) => {
               </motion.div>
             </div>
 
-            {/* Wordmark */}
-            <motion.h1
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1.2, delay: 0.6 }}
-              className="mt-5 tracking-[0.18em] text-lg sm:text-xl font-heading"
-              style={{
-                color: '#f5d76e',
-                fontWeight: 600,
-                textShadow: '0 0 20px rgba(245,215,110,0.35)',
-                fontFamily: '"Cormorant Garamond", "Playfair Display", Georgia, serif',
-              }}
-            >
-              NETWORK CAPITAL
-            </motion.h1>
+            {/* Wordmark hidden — secondary logo already includes brand + tagline */}
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.6 }}
               transition={{ duration: 1.4, delay: 1.0 }}
-              className="mt-1 text-[11px] tracking-[0.3em] uppercase text-white/50"
+              className="mt-5 text-[11px] tracking-[0.3em] uppercase text-white/50"
             >
               Connect · Participate · Elevate
             </motion.p>

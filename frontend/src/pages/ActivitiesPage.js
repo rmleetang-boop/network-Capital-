@@ -6,6 +6,7 @@ import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const CATEGORY_META = {
   dinner: { label: 'Dinner', icon: Utensils, gradient: 'from-amber-500 to-orange-600' },
@@ -60,6 +61,17 @@ const ActivitiesPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-[#0a1628] text-white pb-24" data-testid="activities-page">
+      <FeatureIntroModal
+        featureKey="activities"
+        icon={<Sparkles size={20} />}
+        title="Curated Activities"
+        subtitle="Member-organised dinners, concerts, travel, and shared experiences across Africa."
+        bullets={[
+          { icon: <Calendar size={14} />, label: 'Discover & join', body: 'Browse activities by country, city, or category and join in two taps.' },
+          { icon: <Plus size={14} />, label: 'Create your own', body: 'Host an activity to bring your circle together — earn +50 points for hosting.' },
+          { icon: <Users size={14} />, label: 'Reputation reward', body: 'Joining and hosting both build your Network Score (capped daily, soft caps apply).' },
+        ]}
+      />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-gradient-to-r from-[#0a1628] via-primary to-[#0a1628] border-b border-white/10 px-4 py-4">
         <div className="max-w-3xl mx-auto flex items-center gap-3">

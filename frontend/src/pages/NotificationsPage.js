@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Bell, TrendingUp, Star, Users, Check } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const NotificationsPage = ({ user }) => {
   const [notifications, setNotifications] = useState([]);
@@ -59,6 +60,17 @@ const NotificationsPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT">
+      <FeatureIntroModal
+        featureKey="notifications"
+        icon={<Bell size={20} />}
+        title="Notifications"
+        subtitle="Stay updated on community activity, score changes, and connection requests."
+        bullets={[
+          { icon: <Star size={14} />, label: 'Score milestones', body: 'Get notified when you cross a tier or hit a streak bonus.' },
+          { icon: <Users size={14} />, label: 'Connection activity', body: 'See when someone wants to connect with you across the three connection types.' },
+          { icon: <Check size={14} />, label: 'Mark as read', body: 'Tap any notification to mark it read; unread items have a gold accent.' },
+        ]}
+      />
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
         <h1 className="text-2xl font-heading font-bold text-primary">Notifications</h1>
         <p className="text-sm text-text-secondary">

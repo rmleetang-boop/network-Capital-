@@ -41,9 +41,9 @@ const StokvelIntroPage = ({ onAcknowledge }) => {
           <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 rounded-full bg-secondary/15 border border-secondary/30 text-[11px] uppercase tracking-wider">
             <ShieldCheck size={13} className="text-secondary" /> Stokvel · Community Coordination
           </div>
-          <h1 className="text-3xl sm:text-4xl font-heading font-bold mb-3">How Stokvels Work on Network Capital</h1>
+          <h1 className="text-3xl sm:text-4xl font-heading font-bold mb-3">How Stokvel+ Works on Network Capital</h1>
           <p className="text-white/70 max-w-xl mx-auto leading-relaxed">
-            A simple, transparent overview before you create or join a group. Read once — then participate with full clarity.
+            Stokvel+ is your group-money coordination layer. Pool together for a holiday, a night out, a wedding, a group gift, or classic savings — your group, your purpose, your control. Read once — then participate with full clarity.
           </p>
         </div>
 

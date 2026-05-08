@@ -6,14 +6,27 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import BrandAttribution from '../components/BrandAttribution';
 import LocationPicker from '../components/LocationPicker';
+import { LOGO_SECONDARY } from '../constants/brand';
+
+const MONTHS = [
+  { v: 1, l: 'January' }, { v: 2, l: 'February' }, { v: 3, l: 'March' },
+  { v: 4, l: 'April' }, { v: 5, l: 'May' }, { v: 6, l: 'June' },
+  { v: 7, l: 'July' }, { v: 8, l: 'August' }, { v: 9, l: 'September' },
+  { v: 10, l: 'October' }, { v: 11, l: 'November' }, { v: 12, l: 'December' },
+];
 
 const AuthPage = ({ onLogin }) => {
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
-  const [signupStep, setSignupStep] = useState(1); // 1=credentials, 2=intent+profile
+  const [signupStep, setSignupStep] = useState(1); // 1=credentials, 1.5=OTP, 2=intent+profile
   const [loading, setLoading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [tempToken, setTempToken] = useState(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpHint, setOtpHint] = useState(''); // mock-mode dev hint
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [founderRank, setFounderRank] = useState(null);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -21,6 +34,7 @@ const AuthPage = ({ onLogin }) => {
     full_name: '',
     bio: '',
     intent: 'member', // "member" or "creator"
+    birth_month: '',
     country: '',
     province: '',
     city: '',
@@ -60,13 +74,77 @@ const AuthPage = ({ onLogin }) => {
         password: formData.password,
         step: 1,
       });
-      // Store temp token so step 2 can authenticate
+      // Store temp token so OTP / step 2 can authenticate
       localStorage.setItem('token', res.data.token);
       setTempToken(res.data.token);
-      toast.success('Account created! One more step to go.');
-      setSignupStep(2);
+      if (res.data.founder?.is_founder) {
+        setFounderRank(res.data.founder.rank);
+      }
+      toast.success('Account created! Verify your email.');
+      // Trigger OTP send and move to verification step
+      try {
+        const otpRes = await axiosInstance.post('/auth/send-otp', { email: formData.email });
+        if (otpRes.data?._mock_code) setOtpHint(otpRes.data._mock_code);
+        startResendCooldown(30);
+      } catch {}
+      setSignupStep(1.5);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Signup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startResendCooldown = (seconds) => {
+    setResendCooldown(seconds);
+    const id = setInterval(() => {
+      setResendCooldown((s) => {
+        if (s <= 1) { clearInterval(id); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || otpSending) return;
+    setOtpSending(true);
+    try {
+      const otpRes = await axiosInstance.post('/auth/send-otp', { email: formData.email });
+      if (otpRes.data?._mock_code) setOtpHint(otpRes.data._mock_code);
+      toast.success('Verification code sent.');
+      startResendCooldown(30);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not resend code.');
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    const code = (otpCode || '').trim();
+    if (code.length !== 6 || !/^\d{6}$/.test(code)) {
+      toast.error('Enter the 6-digit code from your email.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await axiosInstance.post('/auth/verify-otp', { email: formData.email, code });
+      // Capture pending referral attribution if present
+      try {
+        const stored = localStorage.getItem('nc_referrer');
+        if (stored) {
+          const { ref, joined, bm } = JSON.parse(stored);
+          if (ref) {
+            await axiosInstance.post('/referrals/capture', { ref, joined, bm }).catch(() => {});
+            localStorage.removeItem('nc_referrer');
+          }
+        }
+      } catch {}
+      toast.success('Email verified — let\'s finish your profile.');
+      setSignupStep(2);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Verification failed');
     } finally {
       setLoading(false);
     }
@@ -78,6 +156,10 @@ const AuthPage = ({ onLogin }) => {
       toast.error('Please fill in your name and username');
       return;
     }
+    if (!formData.birth_month) {
+      toast.error('Please select your birth month');
+      return;
+    }
     setLoading(true);
     try {
       const res = await axiosInstance.post('/auth/complete-profile', {
@@ -86,6 +168,7 @@ const AuthPage = ({ onLogin }) => {
         bio: formData.bio,
         intent: formData.intent,
         terms_accepted: true,
+        birth_month: parseInt(formData.birth_month, 10),
         country: formData.country || undefined,
         province: formData.province || undefined,
         city: formData.city || undefined,
@@ -118,20 +201,19 @@ const AuthPage = ({ onLogin }) => {
           <div className="flex justify-center mb-4 relative logo-container">
             <div className="absolute inset-0 bg-gradient-to-br from-secondary/20 to-transparent blur-3xl scale-150 rounded-full" />
             <img
-              src="https://customer-assets.emergentagent.com/job_network-capital/artifacts/ujjy9ep3_185322.png"
+              src={LOGO_SECONDARY}
               alt="Network Capital"
-              className="h-24 w-auto relative logo-glow rounded-xl"
-              style={{ background: 'linear-gradient(135deg, rgba(10,22,40,0.95) 0%, rgba(30,58,138,0.95) 100%)', padding: '10px' }}
+              className="h-32 sm:h-36 w-auto relative drop-shadow-[0_0_24px_rgba(232,168,23,0.25)]"
             />
           </div>
           <p className="text-white/70 text-base">
-            Build your network score and increase your networth
+            Increasing your network · Building shared access
           </p>
         </div>
 
         <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/20 p-6">
-          {/* Tab switch (hide during signup step 2) */}
-          {!(signupStep === 2 && !isLogin) && (
+          {/* Tab switch (hide during signup steps 1.5 and 2) */}
+          {!(signupStep !== 1 && !isLogin) && (
             <div className="flex gap-2 mb-6 bg-white/5 p-1 rounded-full">
               <button
                 onClick={() => { setIsLogin(true); setSignupStep(1); }}
@@ -232,6 +314,80 @@ const AuthPage = ({ onLogin }) => {
                   {!loading && <ArrowRight size={18} />}
                 </button>
               </motion.form>
+            ) : signupStep === 1.5 ? (
+              <motion.form
+                key="signup-otp"
+                onSubmit={handleVerifyOtp}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-4"
+              >
+                <div className="mb-3">
+                  <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                    <ShieldCheck size={20} className="text-secondary" /> Verify your email
+                  </h3>
+                  <p className="text-white/60 text-sm">Step 1.5 of 2 · We sent a 6-digit code to <span className="text-white font-semibold">{formData.email}</span></p>
+                </div>
+
+                {founderRank && (
+                  <div className="bg-secondary/10 border border-secondary/30 rounded-xl p-3 text-center" data-testid="founder-badge">
+                    <p className="text-secondary font-bold text-sm">🎉 Founding Member #{founderRank}</p>
+                    <p className="text-white/70 text-[11px] mt-0.5">You'll earn 2× Network Score for your first 30 days.</p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-1">Verification code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    className="w-full text-center text-2xl tracking-[0.6em] py-4 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/30 font-mono focus:border-secondary focus:ring-1 focus:ring-secondary outline-none"
+                    data-testid="otp-input"
+                    required
+                  />
+                </div>
+
+                {otpHint && (
+                  <div className="rounded-xl bg-white/5 border border-white/10 p-3 text-[11px] text-white/60 leading-relaxed" data-testid="otp-mock-hint">
+                    <span className="text-secondary font-semibold">Dev mode:</span> real email isn't wired yet. Your code is <span className="font-mono text-white font-bold tracking-wider">{otpHint}</span>.
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading || otpCode.length !== 6}
+                  className="w-full font-semibold py-3.5 rounded-full transition-all bg-gradient-to-r from-secondary to-yellow-500 text-primary disabled:opacity-50 flex items-center justify-center gap-2"
+                  data-testid="otp-verify-button"
+                >
+                  {loading ? 'Verifying…' : 'Verify & continue'}
+                  {!loading && <Check size={18} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0 || otpSending}
+                  className="w-full text-white/70 hover:text-white text-sm py-2 disabled:opacity-50"
+                  data-testid="otp-resend-button"
+                >
+                  {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : (otpSending ? 'Sending…' : 'Resend code')}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSignupStep(1)}
+                  className="text-white/50 hover:text-white text-xs flex items-center justify-center gap-1 w-full"
+                  data-testid="otp-back-to-step1"
+                >
+                  <ArrowLeft size={12} /> Use a different email
+                </button>
+              </motion.form>
             ) : (
               <motion.form
                 key="signup-2"
@@ -243,7 +399,7 @@ const AuthPage = ({ onLogin }) => {
               >
                 <button
                   type="button"
-                  onClick={() => setSignupStep(1)}
+                  onClick={() => setSignupStep(1.5)}
                   className="text-white/60 hover:text-white text-sm flex items-center gap-1 mb-2"
                   data-testid="back-to-step-1"
                 >
@@ -312,9 +468,30 @@ const AuthPage = ({ onLogin }) => {
                   />
                 </div>
 
+                {/* Birth Month — used for personalised referral links + birthday recognition */}
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-1">Birth Month</label>
+                  <div className="relative">
+                    <select
+                      name="birth_month"
+                      value={formData.birth_month}
+                      onChange={handleChange}
+                      required
+                      className="w-full pl-4 pr-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all appearance-none cursor-pointer"
+                      data-testid="birth-month-input"
+                    >
+                      <option value="" disabled className="bg-[#0a1628] text-white/50">Select your birth month</option>
+                      {MONTHS.map((m) => (
+                        <option key={m.v} value={m.v} className="bg-[#0a1628] text-white">{m.l}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-white/50 mt-1">Used to personalise your referral link and celebrate your birthday month.</p>
+                </div>
+
                 <button
                   type="submit"
-                  disabled={loading || !formData.username || !formData.full_name}
+                  disabled={loading || !formData.username || !formData.full_name || !formData.birth_month}
                   className="w-full font-semibold py-3.5 rounded-full transition-all bg-gradient-to-r from-secondary to-yellow-500 text-primary disabled:opacity-50 flex items-center justify-center gap-2"
                   data-testid="auth-submit-button"
                 >

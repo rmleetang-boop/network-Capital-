@@ -120,6 +120,7 @@ class User(BaseModel):
     session_minutes_today: Optional[int] = 0
     likes_received_count: Optional[int] = 0
     comments_given_count: Optional[int] = 0
+    birth_month: Optional[int] = None  # 1-12; used for personalised referrals + birthday recognition
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
@@ -130,6 +131,7 @@ class UpdateProfileRequest(BaseModel):
     profession: Optional[str] = None
     interests: Optional[List[str]] = None
     currency: Optional[str] = None
+    birth_month: Optional[int] = None
 
 # ============== CURRENCY & PREMIUM ==============
 
@@ -244,12 +246,16 @@ class Stokvel(BaseModel):
     group_strength: int
     activation_fee_paid: Optional[bool] = True
     members_fees_paid: Optional[Dict[str, bool]] = {}
+    # Purpose declares what the group is pooling money for — savings is just one option.
+    # Allowed: savings | holiday | event | gift | group_trip | wedding | funeral | other
+    purpose: Optional[str] = "savings"
 
 class CreateStokvelRequest(BaseModel):
     name: str
     description: str
     target_amount: float
     payout_cycle: str
+    purpose: Optional[str] = "savings"
 
 class InviteMemberRequest(BaseModel):
     user_id: str
@@ -285,6 +291,11 @@ class CreateProductRequest(BaseModel):
     min_support: Optional[float] = 10.0
     max_support: Optional[float] = 1000.0
     images: Optional[List[str]] = []
+    # New: type (product or service), local currency, availability framing
+    type: Optional[str] = "product"  # "product" | "service"
+    currency: Optional[str] = None  # auto-defaults to creator country if not set
+    availability: Optional[str] = "available_now"  # available_now | available_in_days | preorder | on_request
+    availability_days: Optional[int] = None  # used when availability == "available_in_days"
 
 class Product(BaseModel):
     id: str
@@ -306,6 +317,10 @@ class Product(BaseModel):
     total_support_amount: float
     created_at: str
     approved_at: Optional[str]
+    type: Optional[str] = "product"
+    currency: Optional[str] = "USD"
+    availability: Optional[str] = "available_now"
+    availability_days: Optional[int] = None
 
 class ProductFollower(BaseModel):
     id: str
@@ -353,6 +368,8 @@ class CompleteProfileRequest(BaseModel):
     bio: Optional[str] = ""
     intent: str  # "member" or "creator"
     terms_accepted: bool
+    # Birth month — required at signup for personalised referral links + birthday recognition
+    birth_month: Optional[int] = None  # 1-12
     # Location (optional at signup but encouraged)
     country: Optional[str] = None
     province: Optional[str] = None
@@ -369,6 +386,13 @@ class BankingDetailsRequest(BaseModel):
     account_number: str
     swift_code: str
     branch_number: str
+
+class SendOtpRequest(BaseModel):
+    email: str
+
+class VerifyOtpRequest(BaseModel):
+    email: str
+    code: str
 
 class UserScore(BaseModel):
     user_id: str
@@ -604,7 +628,18 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
         if existing:
             return 0
 
-    multiplier = 2 if user.get("premium_unlocked") else 1
+    # Multiplier — Premium OR Founder window grants 2×. They don't stack (max 2×).
+    is_premium = bool(user.get("premium_unlocked"))
+    is_founder_active = False
+    fmu = user.get("founder_multiplier_until")
+    if fmu:
+        try:
+            until_dt = datetime.fromisoformat(str(fmu).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) <= until_dt:
+                is_founder_active = True
+        except (ValueError, TypeError):
+            pass
+    multiplier = 2 if (is_premium or is_founder_active) else 1
     awarded = base_points * multiplier
     awarded = min(awarded, LIFETIME_SCORE_CAP - lifetime)
     if awarded <= 0:
@@ -771,6 +806,10 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
         if request.currency not in SUPPORTED_CURRENCIES:
             raise HTTPException(status_code=400, detail="Unsupported currency")
         update_data["currency"] = request.currency
+    if request.birth_month is not None:
+        if not (1 <= int(request.birth_month) <= 12):
+            raise HTTPException(status_code=400, detail="birth_month must be 1-12")
+        update_data["birth_month"] = int(request.birth_month)
     
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
@@ -1236,6 +1275,20 @@ async def score_summary(current_user: dict = Depends(get_current_user)):
 
     can_claim_premium = cap_reached and not user.get("premium_unlocked", False)
 
+    # Founder 2× multiplier window status
+    founder_active = False
+    founder_until = user.get("founder_multiplier_until")
+    founder_days_remaining = 0
+    if founder_until:
+        try:
+            until_dt = datetime.fromisoformat(str(founder_until).replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            if now <= until_dt:
+                founder_active = True
+                founder_days_remaining = max(0, (until_dt - now).days)
+        except Exception:
+            pass
+
     return {
         "monthly_score": monthly,
         "monthly_cap": cap,
@@ -1246,9 +1299,16 @@ async def score_summary(current_user: dict = Depends(get_current_user)):
         "lifetime_score": user.get("network_score", 0),
         "rank": user.get("rank", "Rising Star"),
         "premium_unlocked": bool(user.get("premium_unlocked")),
-        "premium_multiplier_active": bool(user.get("premium_unlocked")),
+        "premium_multiplier_active": bool(user.get("premium_unlocked")) or founder_active,
         "premium_grace": premium_grace,
         "can_claim_premium": can_claim_premium,
+        "founder_multiplier": {
+            "active": founder_active,
+            "is_founder": bool(user.get("is_founder")),
+            "rank": user.get("founder_signup_rank"),
+            "days_remaining": founder_days_remaining,
+            "until": founder_until,
+        },
         "session_minutes_today": user.get("session_minutes_today", 0),
         "month_key": user.get("month_key"),
     }
@@ -2808,13 +2868,19 @@ async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Dep
         raise HTTPException(status_code=400, detail="Failed to process activation fee")
     
     stokvel_id = str(uuid.uuid4())
-    
+
+    ALLOWED_PURPOSES = {"savings", "holiday", "event", "gift", "group_trip", "wedding", "funeral", "other"}
+    purpose = (request.purpose or "savings").strip().lower()
+    if purpose not in ALLOWED_PURPOSES:
+        purpose = "savings"
+
     stokvel_data = {
         "id": stokvel_id,
         "name": request.name,
         "description": request.description,
         "created_by": current_user["id"],
         "creator_name": current_user["username"],
+        "purpose": purpose,
         "members": [{
             "user_id": current_user["id"],
             "username": current_user["username"],
@@ -3786,7 +3852,33 @@ async def get_my_badges(current_user: dict = Depends(get_current_user)):
 async def create_product(request: CreateProductRequest, current_user: dict = Depends(get_current_user)):
     """Create a new product (goes to pending review)"""
     product_id = str(uuid.uuid4())
-    
+
+    # Auto-default currency to creator's country if not provided
+    COUNTRY_CURRENCY = {
+        "south_africa": "ZAR", "nigeria": "NGN", "kenya": "KES", "ghana": "GHS",
+        "zimbabwe": "USD", "tanzania": "USD", "uganda": "USD", "senegal": "USD",
+        "egypt": "USD", "morocco": "USD", "ethiopia": "USD", "rwanda": "USD",
+    }
+    creator_country = (current_user.get("country") or "").lower()
+    auto_currency = COUNTRY_CURRENCY.get(creator_country, "USD")
+    currency = (request.currency or auto_currency or "USD").upper()
+    if currency not in SUPPORTED_CURRENCIES:
+        currency = auto_currency
+
+    # Validate type + availability
+    p_type = (request.type or "product").strip().lower()
+    if p_type not in ("product", "service"):
+        p_type = "product"
+    availability = (request.availability or "available_now").strip().lower()
+    if availability not in ("available_now", "available_in_days", "preorder", "on_request"):
+        availability = "available_now"
+    avail_days = None
+    if availability == "available_in_days":
+        try:
+            avail_days = max(1, int(request.availability_days or 7))
+        except (TypeError, ValueError):
+            avail_days = 7
+
     product_data = {
         "id": product_id,
         "creator_id": current_user["id"],
@@ -3808,7 +3900,11 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         "followers": [],
         "supports": [],
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "approved_at": None
+        "approved_at": None,
+        "type": p_type,
+        "currency": currency,
+        "availability": availability,
+        "availability_days": avail_days,
     }
     
     await db.products.insert_one(product_data)
@@ -4211,14 +4307,23 @@ async def progressive_signup(request: ProgressiveSignupRequest):
         query["phone"] = request.phone
     else:
         raise HTTPException(status_code=400, detail="Email or phone required")
-    
+
     existing = await db.users.find_one(query)
     if existing:
         raise HTTPException(status_code=400, detail="Account already exists")
-    
+
     user_id = str(uuid.uuid4())
     hashed_password = hash_password(request.password)
-    
+
+    # Founder-member tracking — first 1,000 users get a 30-day 2× score multiplier
+    FOUNDER_LIMIT = 1000
+    FOUNDER_MULTIPLIER_DAYS = 30
+    existing_count = await db.users.count_documents({})
+    is_founder = existing_count < FOUNDER_LIMIT
+    founder_until = None
+    if is_founder:
+        founder_until = (datetime.now(timezone.utc) + timedelta(days=FOUNDER_MULTIPLIER_DAYS)).isoformat()
+
     user_data = {
         "id": user_id,
         "email": request.email or f"{request.phone}@phone.networkcapital.app",
@@ -4238,31 +4343,288 @@ async def progressive_signup(request: ProgressiveSignupRequest):
         "total_earned": 0.0,
         "total_spent": 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "referral_code": user_id[:8],
+        "referral_code": user_id[:8].upper(),
         "referred_by": None,
         "achievements": [],
         "terms_accepted": False,
-        "terms_accepted_at": None
+        "terms_accepted_at": None,
+        # Email verification (mock OTP)
+        "email_verified": False,
+        # Founder-member 2× multiplier window
+        "is_founder": is_founder,
+        "founder_signup_rank": existing_count + 1 if is_founder else None,
+        "founder_multiplier_until": founder_until,
     }
-    
+
     await db.users.insert_one(user_data)
-    
+
     token = create_access_token({"sub": user_id})
-    
+
     del user_data["password"]
     if "_id" in user_data:
         del user_data["_id"]
-    
+
     return {
         "token": token,
         "user": user_data,
         "next_step": 2,
-        "message": "Account created. Please complete your profile."
+        "founder": {
+            "is_founder": is_founder,
+            "rank": user_data.get("founder_signup_rank"),
+            "multiplier_until": founder_until,
+        },
+        "message": "Account created. Please verify your email to continue."
     }
+
+
+@api_router.get("/founders/status")
+async def founders_status():
+    """Public — returns how many of the first 1,000 founder spots remain.
+    Drives the landing-page urgency counter."""
+    FOUNDER_LIMIT = 1000
+    claimed = await db.users.count_documents({})
+    claimed_capped = min(claimed, FOUNDER_LIMIT)
+    return {
+        "limit": FOUNDER_LIMIT,
+        "claimed": claimed_capped,
+        "available": max(0, FOUNDER_LIMIT - claimed_capped),
+        "active": claimed_capped < FOUNDER_LIMIT,
+        "multiplier": 2,
+        "duration_days": 30,
+    }
+
+
+# ============== EMAIL OTP (MOCK) ==============
+# Mock implementation: 6-digit OTP is stored in `otps` collection and logged to backend logs.
+# Real provider (Resend / Gmail SMTP) can be wired later by replacing _send_otp_email.
+import logging as _otp_logging
+import secrets as _otp_secrets
+
+
+def _generate_otp() -> str:
+    return f"{_otp_secrets.randbelow(1_000_000):06d}"
+
+
+async def _send_otp_email(email: str, code: str) -> None:
+    """MOCK email send — replace with Resend/SendGrid/Gmail SMTP in production."""
+    _otp_logging.warning(f"[OTP-MOCK] Email to {email} — verification code: {code}")
+
+
+OTP_TTL_MINUTES = 10
+OTP_MAX_ATTEMPTS = 5
+OTP_RESEND_COOLDOWN_SECONDS = 30
+
+
+@api_router.post("/auth/send-otp")
+async def send_otp(request: SendOtpRequest, current_user: dict = Depends(get_current_user)):
+    """Send a 6-digit verification code to the user's email. MOCK — logs to backend."""
+    if current_user.get("email_verified"):
+        return {"sent": True, "already_verified": True, "message": "Email already verified."}
+
+    # Rate-limit resends per user
+    last = await db.otps.find_one(
+        {"user_id": current_user["id"]},
+        sort=[("created_at", -1)],
+    )
+    if last:
+        try:
+            last_dt = datetime.fromisoformat(last["created_at"].replace("Z", "+00:00"))
+            elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+            if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Please wait {int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)}s before requesting another code.",
+                )
+        except (ValueError, TypeError):
+            pass
+
+    code = _generate_otp()
+    now = datetime.now(timezone.utc)
+    await db.otps.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "email": (request.email or current_user.get("email") or "").lower(),
+        "code_hash": hash_password(code),  # never store plaintext
+        "attempts": 0,
+        "verified": False,
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=OTP_TTL_MINUTES)).isoformat(),
+    })
+
+    target_email = (request.email or current_user.get("email") or "").strip().lower()
+    await _send_otp_email(target_email, code)
+
+    return {
+        "sent": True,
+        "ttl_minutes": OTP_TTL_MINUTES,
+        "message": "Verification code sent. Check your inbox.",
+        # MOCK ONLY — exposes the code in dev so the frontend can show it as a hint.
+        # Remove this field when wiring a real email provider in production.
+        "_mock_code": code,
+    }
+
+
+@api_router.post("/auth/verify-otp")
+async def verify_otp(request: VerifyOtpRequest, current_user: dict = Depends(get_current_user)):
+    """Verify a 6-digit code emailed to the user."""
+    if current_user.get("email_verified"):
+        return {"verified": True, "already_verified": True}
+
+    record = await db.otps.find_one(
+        {"user_id": current_user["id"], "verified": False},
+        sort=[("created_at", -1)],
+    )
+    if not record:
+        raise HTTPException(status_code=400, detail="No active verification code. Request a new one.")
+
+    # Expiry
+    try:
+        expires_dt = datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires_dt:
+            raise HTTPException(status_code=400, detail="Code expired. Request a new one.")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid code record. Request a new one.")
+
+    # Attempts
+    if int(record.get("attempts", 0)) >= OTP_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
+
+    code_clean = (request.code or "").strip()
+    if not code_clean or not verify_password(code_clean, record["code_hash"]):
+        await db.otps.update_one({"id": record["id"]}, {"$inc": {"attempts": 1}})
+        raise HTTPException(status_code=400, detail="Incorrect code.")
+
+    await db.otps.update_one({"id": record["id"]}, {"$set": {"verified": True}})
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"email_verified": True, "email_verified_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"verified": True}
+
+
+# ============== REFERRAL ATTRIBUTION (anti-abuse) ==============
+class CaptureReferrerRequest(BaseModel):
+    ref: str  # canonical referral_code OR username (case-insensitive)
+    joined: Optional[str] = None
+    bm: Optional[str] = None
+
+
+@api_router.post("/referrals/capture")
+async def capture_referrer(payload: CaptureReferrerRequest, current_user: dict = Depends(get_current_user)):
+    """Called by frontend when an authed user opens the app via a /join?ref=… link.
+    Attribution is *pending* — referrer is rewarded only when this user verifies email
+    AND completes their profile (see _maybe_reward_referrer)."""
+    if not payload.ref:
+        raise HTTPException(status_code=400, detail="ref required")
+
+    # Already attributed? skip
+    if current_user.get("referred_by"):
+        return {"already_attributed": True}
+
+    ref = payload.ref.strip()
+    referrer = await db.users.find_one(
+        {"$or": [
+            {"referral_code": ref.upper()},
+            {"referral_code": ref},
+            {"username": ref},
+        ]},
+        {"_id": 0, "id": 1, "username": 1, "referral_code": 1, "email": 1},
+    )
+    if not referrer:
+        raise HTTPException(status_code=404, detail="Referrer not found")
+    if referrer["id"] == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Self-referral not allowed")
+
+    # Same-email collusion check — referrer email and invitee email must differ
+    if (referrer.get("email") or "").lower() == (current_user.get("email") or "").lower():
+        raise HTTPException(status_code=400, detail="Referrer and invitee email cannot match")
+
+    # Attach pending attribution to invitee user
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "referred_by": referrer["id"],
+            "referrer_id": referrer["id"],
+            "referral_attribution": {
+                "referrer_id": referrer["id"],
+                "referrer_username": referrer.get("username"),
+                "ref_used": ref,
+                "joined": payload.joined,
+                "birth_month_hint": payload.bm,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "status": "pending",  # pending | rewarded | rejected
+            },
+        }},
+    )
+
+    # Idempotent: rewarded only after both checks pass (handled in _maybe_reward_referrer)
+    return {"attributed": True, "referrer_username": referrer.get("username")}
+
+
+REFERRAL_DAILY_REWARD_CAP = 10  # max referral rewards a single user can receive per day
+
+
+async def _maybe_reward_referrer(user: dict) -> None:
+    """Idempotently reward the referrer once invitee:
+       1) has email_verified=true
+       2) has profile_completed=true
+       Plus per-referrer daily cap to prevent spam.
+    """
+    attribution = user.get("referral_attribution") or {}
+    if not attribution or attribution.get("status") != "pending":
+        return
+    referrer_id = attribution.get("referrer_id")
+    if not referrer_id:
+        return
+    if not user.get("email_verified") or not user.get("profile_completed"):
+        return
+
+    # One reward per unique invitee
+    already = await db.score_events.find_one({
+        "user_id": referrer_id,
+        "action": "referral",
+        "source_id": user["id"],
+    })
+    if already:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"referral_attribution.status": "rewarded"}},
+        )
+        return
+
+    # Per-day cap on this referrer
+    today_count = await db.score_events.count_documents({
+        "user_id": referrer_id,
+        "action": "referral",
+        "date_key": _date_key(),
+    })
+    if today_count >= REFERRAL_DAILY_REWARD_CAP:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"referral_attribution.status": "deferred"}},
+        )
+        return
+
+    awarded = await award_points(
+        referrer_id, "referral", 200,
+        source_id=user["id"],
+        message=f"Referral verified — @{user.get('username')} just joined and verified",
+    )
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"referral_attribution.status": "rewarded" if awarded > 0 else "deferred"}},
+    )
+
+
+
 
 @api_router.post("/auth/complete-profile")
 async def complete_profile(request: CompleteProfileRequest, current_user: dict = Depends(get_current_user)):
     """Step 2: Complete profile and select intent"""
+    # Email must be verified before profile can be completed (mock OTP)
+    if not current_user.get("email_verified"):
+        raise HTTPException(status_code=403, detail="Email not verified. Please verify your email first.")
+
     # Check username availability
     existing = await db.users.find_one({"username": request.username, "id": {"$ne": current_user["id"]}})
     if existing:
@@ -4293,6 +4655,10 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
         update_data["province"] = request.province
     if request.city:
         update_data["city"] = request.city
+    if request.birth_month is not None:
+        if not (1 <= int(request.birth_month) <= 12):
+            raise HTTPException(status_code=400, detail="birth_month must be 1-12")
+        update_data["birth_month"] = int(request.birth_month)
     if request.bank_name and request.account_number and request.swift_code and request.branch_number:
         update_data["banking"] = {
             "bank_name": request.bank_name.strip(),
@@ -4312,6 +4678,11 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
     # +250 once for completing the profile
     if not current_user.get("profile_completed"):
         await award_points(current_user["id"], "profile_completed", 0, source_id=current_user["id"], message="Profile completed — welcome bonus")
+
+    # Anti-abuse referral payout — only fires if invitee has BOTH verified email AND completed profile
+    await _maybe_reward_referrer(updated_user)
+    # Re-fetch user so the response reflects any score change
+    updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
 
     return {
         "user": updated_user,

@@ -7,7 +7,15 @@ import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import NetworkScore from '../components/NetworkScore';
 import RankBadge from '../components/RankBadge';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 import { Progress } from '@/components/ui/progress';
+
+const MONTHS = [
+  { v: 1, l: 'January' }, { v: 2, l: 'February' }, { v: 3, l: 'March' },
+  { v: 4, l: 'April' }, { v: 5, l: 'May' }, { v: 6, l: 'June' },
+  { v: 7, l: 'July' }, { v: 8, l: 'August' }, { v: 9, l: 'September' },
+  { v: 10, l: 'October' }, { v: 11, l: 'November' }, { v: 12, l: 'December' },
+];
 
 const ProfilePage = ({ user, setUser }) => {
   const { userId } = useParams();
@@ -22,6 +30,7 @@ const ProfilePage = ({ user, setUser }) => {
     photo: user.photo,
     city: user.city || '',
     profession: user.profession || '',
+    birth_month: user.birth_month || '',
   });
   const [cities, setCities] = useState([]);
   const [photos, setPhotos] = useState([]);
@@ -138,6 +147,9 @@ const ProfilePage = ({ user, setUser }) => {
         city: editData.city,
         profession: editData.profession,
       };
+      if (editData.birth_month) {
+        payload.birth_month = parseInt(editData.birth_month, 10);
+      }
       const response = await axiosInstance.put('/users/me', payload);
       setUser(response.data);
       setProfileUser(response.data);
@@ -186,6 +198,19 @@ const ProfilePage = ({ user, setUser }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT pb-6">
+      {isOwnProfile && (
+        <FeatureIntroModal
+          featureKey="profile"
+          icon={<Users size={20} />}
+          title="Your Profile"
+          subtitle="Your home base for media, banking, Quick Access, and your Network Score."
+          bullets={[
+            { icon: <Edit2 size={14} />, label: 'Edit anytime', body: 'Tap Edit to update photo, bio, city, profession, and birth month.' },
+            { icon: <Sparkles size={14} />, label: 'Quick Access menu', body: 'Wallet, Score Tracker, Stokvels, Messages, Products and Notifications all start here.' },
+            { icon: <Trophy size={14} />, label: 'Score & rank', body: 'See your live Network Score, current rank, and progress to the next tier.' },
+          ]}
+        />
+      )}
       <div className="bg-gradient-to-br from-primary to-secondary h-32"></div>
 
       <div className="max-w-2xl mx-auto px-4 -mt-16">
@@ -319,6 +344,20 @@ const ProfilePage = ({ user, setUser }) => {
                   data-testid="profession-edit-input"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Birth Month — used for personalised referrals &amp; birthday recognition</label>
+                <select
+                  value={editData.birth_month}
+                  onChange={(e) => setEditData({ ...editData, birth_month: e.target.value })}
+                  className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  data-testid="birth-month-edit-input"
+                >
+                  <option value="">Select your birth month…</option>
+                  {MONTHS.map((m) => (
+                    <option key={m.v} value={m.v}>{m.l}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           ) : (
             <div className="mb-6">
@@ -376,6 +415,34 @@ const ProfilePage = ({ user, setUser }) => {
                 >
                   Copy
                 </button>
+              </div>
+            </div>
+          )}
+
+          {isOwnProfile && profileUser.referral_code && (
+            <div className="bg-secondary/8 rounded-xl p-4 border border-secondary/30 mb-6" data-testid="profile-referral-code-card">
+              <p className="text-xs text-text-muted mb-1">Your Referral Code (same code shown on the Share page)</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-base font-mono font-bold text-secondary tracking-wider">{(profileUser.referral_code || '').toUpperCase()}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText((profileUser.referral_code || '').toUpperCase());
+                      toast.success('Referral code copied!');
+                    }}
+                    className="text-primary hover:text-primary-hover text-xs font-medium"
+                    data-testid="profile-referral-code-copy"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    onClick={() => navigate('/referral')}
+                    className="text-xs font-semibold text-primary border border-primary/40 px-3 py-1 rounded-full hover:bg-primary/5"
+                    data-testid="profile-referral-share"
+                  >
+                    Share
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -513,7 +580,7 @@ const ProfilePage = ({ user, setUser }) => {
                   { icon: Wallet, label: 'Wallet', path: '/wallet' },
                   { icon: Package, label: 'Products', path: '/products' },
                   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
-                  { icon: Activity, label: 'Activity', path: '/activity' },
+                  { icon: Activity, label: 'Score Tracker', path: '/tracker' },
                   { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
                   { icon: Bell, label: 'Notifications', path: '/notifications' },
                   { icon: HelpCircle, label: 'Help', path: '/help' },

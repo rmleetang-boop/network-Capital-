@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { axiosInstance } from '../App';
+import FeatureIntroModal from '../components/FeatureIntroModal';
 
 const ProductListPage = ({ user }) => {
   const navigate = useNavigate();
@@ -56,6 +57,17 @@ const ProductListPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] pb-24">
+      <FeatureIntroModal
+        featureKey="products"
+        icon={<Sparkles size={20} />}
+        title="Products & Creators"
+        subtitle="Discover what members in your community are building, and back the work you believe in."
+        bullets={[
+          { icon: <Package size={14} />, label: 'Browse by category', body: 'Filter by tech, fashion, food, education, and more.' },
+          { icon: <Users size={14} />, label: 'Follow creators', body: 'Following grows your social-capital network and unlocks creator tiers.' },
+          { icon: <Plus size={14} />, label: 'Create your own', body: 'Members on the Creator track can list a product and grow an audience here.' },
+        ]}
+      />
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#0a1628]/95 backdrop-blur-lg border-b border-white/10 px-4 py-4">
         <div className="max-w-3xl mx-auto">
