@@ -1,7 +1,7 @@
 # Network Capital — PRD
 
 ## Original problem statement
-Network Capital is a mobile-first **Community Resource Ecosystem** (formerly known as a reward-based Stokvel). Users build a Network Score representing their community engagement, participate in group savings circles, and access premium tiers. The app must use strict compliance phrasing (no "investing", "returns", or "profit"; instead "shared access", "collective participation"). It features an Instagram-vibe social feed (Stories, Explore, hashtags), Direct Messaging, multi-currency support, African Regional Hubs (Country to City selection), Activities (curated events), and a complex Network Score tracker capped at a lifetime 10,000 points.
+Network Capital is a mobile-first **Community Resource Ecosystem** (formerly known as a reward-based Stokvel). Users build a Network Score representing their community engagement, participate in group savings circles, and access premium tiers. Compliance phrasing: never "investing", "returns", or "profit"; instead "shared access", "collective participation".
 
 ## Compliance Rules (DO NOT BREAK)
 - Never use: "investing", "returns", "profit"
@@ -9,94 +9,63 @@ Network Capital is a mobile-first **Community Resource Ecosystem** (formerly kno
 - ZAR (Stripe $10 Premium) unlocks **features** (Wallet ops, multi-sig)
 - Network Score (Merit) unlocks **reputation** (Hub leaderboard, verified badges)
 
-## What's been implemented (cumulative)
-- Stokvel groups with banking info collection (independent partner)
-- DMs with post-sharing (text/image/voice up to 3MB)
-- 13 African Regional Hubs (Country→Province→City picker)
-- Activities discovery/creation
-- Stripe Premium $10 (via emergentintegrations) + confetti success
-- Instagram-vibe Feed/Stories/Explore
-- Network Score: 10K lifetime cap, daily check-ins, soft caps, premium 2× multiplier
-- Premium splash screen (sessionStorage gated)
-- Brand palette (Deep Navy/Brand Gold) applied globally
+## Score architecture (CURRENT — iteration 20)
+- **Monthly cap = 10,000** points. Resets at the start of every calendar month.
+- `monthly_score` and `network_score` are **mirrored** (same value). Profile and Score Tracker display this same field.
+- Premium OR Founder window = 2× multiplier (max 2×, no stacking).
+- Daily soft-cap (60) on engagement actions; weekly_resource_drop = 1/week; daily_checkin = 1/day.
+- Founders: first 1,000 signups, 30 days, 2× multiplier.
 
-## NEW in this iteration (Feb 2026)
-1. **Logos**: Replaced navy-bg favicon variant in headers with the **transparent Logo Mark**. Browser favicon stays as the navy variant. New brand constants in `/app/frontend/src/constants/brand.js`.
-2. **Score parity**: Score Tracker hero now displays `lifetime_score / 10,000` (matches `users.network_score` shown on Profile).
-3. **Referral code parity**: Referral page hero shows the canonical `referral_code` (uppercase, same field shown on Profile). Profile page shows a copyable **Referral Code card** linking to the Share page.
-4. **Tracker rename**: "Activity Tracker" → **"Score Tracker"**. Route `/activity` → 301 redirect → `/tracker`. Updated nav label, page title, and intro modal copy.
-5. **Stokvel+ purpose expansion**: Added `purpose` field — `savings | holiday | event | gift | group_trip | wedding | funeral | other`. Selectable grid on Create page. Intro page rewritten to position Stokvel+ as group-money coordination for any shared goal.
-6. **Product / Service**: New `type` toggle (product or service); `currency` auto-defaults to creator's country (ZAR/NGN/KES/GHS/USD); `availability` enum (`available_now | available_in_days | preorder | on_request`) with optional `availability_days` integer.
-7. **Hub clarity + filter**: Connection chips now show full label (Social/Financial/Professional) instead of first letter; added a category filter chip-bar above the people list (`all/social/financial/professional`).
-8. **Anti-abuse referrals**:
-   - `POST /api/referrals/capture` records pending attribution (referrer_id, ref_used, joined, bm).
-   - Reward (+200) fires only when invitee has BOTH `email_verified=true` AND `profile_completed=true`.
-   - Idempotent via `score_events` lookup (one reward per unique invitee).
-   - Self-referral blocked (400). Same-email collusion blocked (400). Unknown referrer 404.
-   - Per-day cap on referrer reward count (default 10).
-9. **Email OTP (MOCK)**:
-   - `POST /api/auth/send-otp` (auth required) — generates 6-digit code, hashes it in `db.otps`, returns `_mock_code` in dev response, logs `[OTP-MOCK]` to backend logs. 30s resend cooldown (429).
-   - `POST /api/auth/verify-otp` — 5 wrong attempts → 429, expired (10 min) → 400, success sets `email_verified=true`.
-   - `POST /api/auth/complete-profile` returns 403 if `email_verified=false`.
-   - **Production action item**: replace `_send_otp_email` with Resend / SendGrid / Gmail SMTP and remove `_mock_code` from response.
-10. **Founding-member 2× multiplier**:
-    - First **1,000 signups** become founders (`is_founder=true`, `founder_signup_rank=N`, `founder_multiplier_until=signup+30days`).
-    - `award_points` applies 2× when premium OR founder window active (max 2×, no stacking).
-    - `GET /api/founders/status` returns `{limit, claimed, available, active, multiplier, duration_days}` for landing-page counter.
-    - Landing page shows live counter in hero (visible only while founder window has spots).
+## What's implemented (cumulative)
+- Stokvel groups + banking (independent partner)
+- DMs with post-share, stories, explore, hashtags, mentions
+- 13 African Regional Hubs with Country→Province→City
+- Activities discovery/creation
+- Stripe Premium $10 + confetti
+- Premium splash (sessionStorage)
+- Brand palette + transparent Logo Mark in headers (navy favicon for browser only)
+- 5 Network Score tiers + lanes
+- Score parity (Profile ↔ Score Tracker)
+- Stokvel+ purpose grid (savings/holiday/event/gift/group_trip/wedding/funeral/other)
+- Product / Service toggle, currency auto-default per country, availability enum
+- Hub clarity + category filter chip-bar
+- Anti-abuse referrals (verified email + completed profile required for reward; idempotent; self-referral & same-email blocked; per-day cap 10)
+- Email OTP signup (MOCK)
+- Founder counter on landing page
+
+## NEW in iter 20 (Feb 2026)
+1. Stokvel create page — removed $10 activation fee + $2 membership fee mentions (kept all other pricing including intro page $20/$5/R1M).
+2. Referrals page stripped — auto-generated code, no explainer/chips/nudge. Just hero + link + 4 share buttons.
+3. **Score logic reverted to MONTHLY 10,000 cap** with monthly reset (was lifetime). `award_points` clamps on monthly cap; `_ensure_month_state` resets BOTH monthly_score AND network_score at month rollover.
+4. Help Center FAQ updated to reflect monthly cap.
+5. Bug fix (caught by testing agent): leftover `lifetime` / `new_lifetime` variable references in `award_points` causing NameError → 500 on every score-awarding call. Fixed.
 
 ## Code architecture
 ```
 /app/
-├── backend/
-│   ├── server.py (~4,800 lines monolith)
-│   ├── tests/test_iter19_otp_founder_referral.py
-│   └── .env
-├── frontend/
-│   ├── src/
-│   │   ├── constants/brand.js  ← LOGO_MARK transparent, FAVICON_URL navy
-│   │   ├── components/
-│   │   │   ├── FeatureIntroModal.js  ← 1-time per-feature modal
-│   │   │   └── PremiumLoadingScreen.js
-│   │   ├── pages/  (~25 pages)
-│   │   └── App.js  (routes incl. /tracker, /join, JoinHandler)
-└── memory/
-    ├── PRD.md, test_credentials.md
+├── backend/server.py (~4,830 lines)
+│   ├── MONTHLY_SCORE_CAP = 10000
+│   ├── award_points clamps monthly, mirrors network_score = monthly_score
+│   ├── _ensure_month_state resets both at month rollover
+│   └── /api/score/summary returns monthly_score + monthly_cap (=10000)
+├── backend/tests/test_iter20_monthly_cap.py
+├── frontend/src/
+│   ├── constants/brand.js (LOGO_MARK transparent + FAVICON navy)
+│   ├── components/FeatureIntroModal.js
+│   └── pages/ (~25 pages, all key flows)
+└── memory/PRD.md, test_credentials.md
 ```
 
-## Key DB fields added this iteration
-- `users`: `email_verified, email_verified_at, is_founder, founder_signup_rank, founder_multiplier_until, birth_month, referred_by, referral_attribution{}, referral_code (UPPERCASE)`
-- `otps`: `{user_id, email, code_hash, attempts, verified, created_at, expires_at}`
-- `stokvels`: `purpose`
-- `products`: `type, currency, availability, availability_days`
-
-## Known issue / next-action items (P-ordered)
-- **P0 (production)** Replace mock email send with real provider before launching to non-test users. Remove `_mock_code` from `/auth/send-otp` response when keys arrive.
+## Backlog (priority-ordered)
+- **P0 (production)** Wire real email provider (Resend / SendGrid / Gmail SMTP) and remove `_mock_code` from `/auth/send-otp`.
 - **P1** Real Paystack integration (NGN/GHS/KES/ZAR) — pending user test keys.
 - **P1** Carousel posts + Reels-style vertical video.
-- **P2** Migrate base64 media to S3/R2 (16MB Mongo doc cap).
-- **P2** Modularise `server.py` (>4,800 lines now) into routers.
+- **P2** Modularise `server.py` into routers.
+- **P2** Migrate base64 media to S3/R2 (16MB Mongo cap).
 - **P2** Live FX rates + creator-currency pricing.
 - **P3** Capacitor wrap (iOS/Android), Driver Pool extension.
-- **Hygiene** Add TTL index on `db.otps.expires_at`. Sweep older unverified records.
-- **Code review note** Centralise / dict-passthrough `users.me` response so future fields don't get stripped by Pydantic.
-
-## API endpoints (key)
-- `POST /api/auth/progressive-signup` — creates user + founder block
-- `POST /api/auth/send-otp` (auth) — mock email; returns `_mock_code` in dev
-- `POST /api/auth/verify-otp` (auth) — sets `email_verified=true`
-- `POST /api/auth/complete-profile` — 403 if not verified; consumes pending referral
-- `POST /api/referrals/capture` (auth) — anti-abuse referral attribution
-- `GET /api/founders/status` — public counter
-- `GET /api/score/summary` — includes `founder_multiplier{...}`
-- `POST /api/stokvels` — accepts `purpose`
-- `POST /api/products/create` — accepts `type / currency / availability / availability_days`
-- `PUT /api/users/me` — accepts `birth_month`
-- `POST /api/score/daily-checkin` — idempotent
-- `GET /api/score/tiers` — 5 tiers + lanes
-- `POST /api/payments/checkout/session` — Stripe
-- Admin: `POST /api/admin/products/{id}/moderate?action=approve` (X-Admin-Password header)
+- **Hygiene** TTL index on `db.otps.expires_at`. Centralise users.me response so Pydantic doesn't strip new fields.
 
 ## Testing
-- `iteration_19.json`: 27 PASS / 2 SKIPPED / 1 FAILED (now fixed — User model missing fields).
-- All 10 corrections from this iteration verified end-to-end via pytest sweep.
+- `iter_20.json`: 10/10 new tests PASS + 28/30 iter_19 regressions hold.
+- Critical NameError bug fixed inside this iteration.
