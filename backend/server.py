@@ -121,6 +121,13 @@ class User(BaseModel):
     likes_received_count: Optional[int] = 0
     comments_given_count: Optional[int] = 0
     birth_month: Optional[int] = None  # 1-12; used for personalised referrals + birthday recognition
+    # Email verification (mock OTP)
+    email_verified: Optional[bool] = False
+    email_verified_at: Optional[str] = None
+    # Founding-member 2× multiplier window
+    is_founder: Optional[bool] = False
+    founder_signup_rank: Optional[int] = None
+    founder_multiplier_until: Optional[str] = None
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None

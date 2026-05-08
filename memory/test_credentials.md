@@ -1,40 +1,47 @@
-# Test Credentials for Network Capital
+# Network Capital — Test Credentials
 
-## Test Account (Classic Signup)
-No pre-seeded accounts. Register via Sign Up:
-- Email: test@example.com
-- Password: Test123!
-- Username: testuser
+## Existing accounts
+Refer to previous iteration logs. The current testing pattern relies on dynamically generated users.
 
-## Progressive Signup Flow
-The /auth page uses a 2-step progressive signup:
-1. Step 1: email + password + terms → POST /api/auth/progressive-signup
-2. Step 2: intent (member/creator) + full_name + username + bio → POST /api/auth/complete-profile
-   - Creator intent → redirects to /products/create after signup
+## Generating a test user (recommended for new flows)
 
-## Regional Hubs / Connections Quick Test
-1. Register two users via /api/auth/progressive-signup with random emails
-2. PUT /api/users/me {"city":"cape_town", "profession":"Designer"} on each (with their bearer)
-3. Login as User A and visit /hubs — User B should appear
-4. Click S/F/P badges to send Social/Financial/Professional connection requests
-5. Login as User B and visit /connections to accept
+The signup flow now requires email-OTP verification. Email is currently MOCKED — the
+6-digit OTP is returned in the dev response as `_mock_code` and also logged to backend
+logs via `logging.warning("[OTP-MOCK] …")`.
 
-## Admin Dashboard
-- URL: /admin
-- Client password: NetworkCapital2025!
-- Backend admin endpoints require header: `X-Admin-Password: NetworkCapital2025!`
-  (configured via backend/.env → ADMIN_PASSWORD)
+```bash
+API=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d'=' -f2)
+EMAIL="test_$(date +%s)@example.com"
 
-## API Base URL
-https://stokvel-plus.preview.emergentagent.com/api
+# 1) Create account
+TOKEN=$(curl -s -X POST "$API/api/auth/progressive-signup" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"Test123!\",\"step\":1}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
 
-## Useful API Calls
-- Register: POST /api/auth/progressive-signup `{email, password}`
-- Complete: POST /api/auth/complete-profile `{full_name, username, bio, intent, terms_accepted}` (Bearer)
-- Update profile: PUT /api/users/me `{city, country, profession, bio, photo}` (Bearer)
-- Hub users: GET /api/hubs/users?city=cape_town (Bearer)
-- Send connection: POST /api/connections/request `{to_user_id, type, message, stokvel_id?}` (Bearer)
-- Inbox: GET /api/connections/inbox?type=social|financial|professional (Bearer)
-- Accept: POST /api/connections/{id}/accept (Bearer)
-- Upload photo: POST /api/users/me/photos `{data_url, caption}` (Bearer; max ~3MB)
-- Approve product: POST /api/admin/products/{id}/moderate?action=approve (X-Admin-Password header)
+# 2) Send OTP (auth required) — dev response contains _mock_code
+OTP=$(curl -s -X POST "$API/api/auth/send-otp" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\"}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['_mock_code'])")
+
+# 3) Verify
+curl -s -X POST "$API/api/auth/verify-otp" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"code\":\"$OTP\"}"
+
+# 4) Complete profile (now allowed)
+curl -s -X POST "$API/api/auth/complete-profile" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"full_name":"Test User","username":"testuser_'"$(date +%s)"'","bio":"qa","intent":"member","terms_accepted":true,"birth_month":6}'
+```
+
+## Admin
+Admin Dashboard: `/admin`
+Admin password: `NetworkCapital2025!`
+(sent via `X-Admin-Password` header for moderation endpoints)
+
+## Stripe
+- Test key wired: `sk_test_emergent`
+- Premium tier: $10
+- Stripe Checkout sessions live; integration handled by `emergentintegrations`
