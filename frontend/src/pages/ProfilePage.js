@@ -401,44 +401,26 @@ const ProfilePage = ({ user, setUser }) => {
             </div>
           </div>
 
-          {isOwnProfile && (
-            <div className="bg-primary/5 rounded-xl p-4 border border-primary/20 mb-6">
-              <p className="text-xs text-text-muted mb-1">Your User ID (for Stokvel invites)</p>
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-mono text-text-primary truncate">{profileUser.id}</p>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(profileUser.id);
-                    toast.success('User ID copied!');
-                  }}
-                  className="text-primary hover:text-primary-hover text-xs font-medium"
-                >
-                  Copy
-                </button>
-              </div>
-            </div>
-          )}
-
-          {isOwnProfile && profileUser.referral_code && (
-            <div className="bg-secondary/8 rounded-xl p-4 border border-secondary/30 mb-6" data-testid="profile-referral-code-card">
-              <p className="text-xs text-text-muted mb-1">Your Referral Code (same code shown on the Share page)</p>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-base font-mono font-bold text-secondary tracking-wider">{(profileUser.referral_code || '').toUpperCase()}</p>
-                <div className="flex items-center gap-2">
+          {isOwnProfile && profileUser.share_code && (
+            <div className="bg-secondary/8 rounded-xl p-4 border border-secondary/30 mb-6" data-testid="profile-share-code-card">
+              <p className="text-xs text-text-muted mb-1.5">Your code — for referrals &amp; Stokvel+ invites</p>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-sm font-mono font-bold text-secondary break-all">{profileUser.share_code}</p>
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText((profileUser.referral_code || '').toUpperCase());
-                      toast.success('Referral code copied!');
+                      navigator.clipboard.writeText(profileUser.share_code);
+                      toast.success('Code copied!');
                     }}
                     className="text-primary hover:text-primary-hover text-xs font-medium"
-                    data-testid="profile-referral-code-copy"
+                    data-testid="profile-share-code-copy"
                   >
                     Copy
                   </button>
                   <button
                     onClick={() => navigate('/referral')}
                     className="text-xs font-semibold text-primary border border-primary/40 px-3 py-1 rounded-full hover:bg-primary/5"
-                    data-testid="profile-referral-share"
+                    data-testid="profile-share-code-share"
                   >
                     Share
                   </button>

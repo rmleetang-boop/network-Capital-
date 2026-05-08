@@ -46,21 +46,33 @@ import Layout from './components/Layout';
 import { CurrencyProvider } from './context/CurrencyContext';
 import './App.css';
 
-// Captures referral context from a personalised invite link
-// Format: /join?ref=<username>&joined=<YYYY-MM-DD>&bm=<1-12>
+// Captures referral context from a personalised invite link.
+// Supports two formats:
+//   1) New path-style: /join/<share_code>            (e.g., /join/networkcapitalapp.maria.06.42)
+//   2) Legacy query:   /join?ref=<code>&joined=…&bm=…
 const JoinHandler = () => {
-  const search = window.location.search;
+  const { pathname, search } = window.location;
   try {
+    let ref = null;
+    let joined = null;
+    let bm = null;
+    // Path style: /join/<code>
+    const pathMatch = pathname.match(/^\/join\/(.+)$/);
+    if (pathMatch && pathMatch[1]) {
+      ref = decodeURIComponent(pathMatch[1]);
+    }
+    // Query style fallback / overlay
     const params = new URLSearchParams(search);
-    const ref = params.get('ref');
-    const joined = params.get('joined');
-    const bm = params.get('bm');
+    if (!ref) ref = params.get('ref');
+    joined = params.get('joined');
+    bm = params.get('bm');
     if (ref) {
-      const payload = { ref, joined: joined || null, bm: bm || null, captured_at: new Date().toISOString() };
-      localStorage.setItem('nc_referrer', JSON.stringify(payload));
+      localStorage.setItem('nc_referrer', JSON.stringify({
+        ref, joined: joined || null, bm: bm || null,
+        captured_at: new Date().toISOString(),
+      }));
     }
   } catch {}
-  // Token already? go home, else send them to onboarding/auth
   const token = localStorage.getItem('token');
   return <Navigate to={token ? '/' : '/auth'} replace />;
 };
@@ -157,6 +169,7 @@ function App() {
               <Route path="/admin" element={<AdminDashboardPage />} />
               <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
               <Route path="/join" element={<JoinHandler />} />
+              <Route path="/join/:slug" element={<JoinHandler />} />
               <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             </Routes>
           </BrowserRouter>
@@ -174,6 +187,7 @@ function App() {
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<JoinHandler />} />
+            <Route path="/join/:slug" element={<JoinHandler />} />
             <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -223,6 +237,7 @@ function App() {
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<Navigate to="/" replace />} />
+            <Route path="/join/:slug" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

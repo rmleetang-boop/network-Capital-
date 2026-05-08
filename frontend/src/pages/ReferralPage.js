@@ -2,30 +2,31 @@ import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Copy, Share2, Users, Gift, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { getShareOrigin } from '../constants/share';
 
 const ReferralPage = ({ user }) => {
-  // Personalised referral link — built automatically from the user's canonical referral_code.
-  // The code itself is auto-created at signup; users don't need to learn how it works.
+  // Canonical share code: networkcapitalapp.<username>.<MM>.<##>
+  // Generated server-side and stored on user.share_code — same code shown on Profile.
   const { referralUrl, referralCode } = useMemo(() => {
-    const origin = window.location.origin;
-    const code = (user?.referral_code || (user?.id ? user.id.substring(0, 8) : 'member')).toUpperCase();
-    const created = user?.created_at ? new Date(user.created_at) : new Date();
-    const joined = isNaN(created.getTime()) ? new Date() : created;
-    const yyyy = joined.getUTCFullYear();
-    const mm = String(joined.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(joined.getUTCDate()).padStart(2, '0');
-    const params = new URLSearchParams({ ref: code, joined: `${yyyy}-${mm}-${dd}` });
-    const bm = user?.birth_month;
-    if (bm && Number(bm) >= 1 && Number(bm) <= 12) params.set('bm', String(bm));
+    const code =
+      user?.share_code ||
+      `networkcapitalapp.${(user?.username || 'member').toLowerCase()}.${
+        user?.birth_month ? String(user.birth_month).padStart(2, '0') : '00'
+      }.00`;
     return {
-      referralUrl: `${origin}/join?${params.toString()}`,
+      referralUrl: `${getShareOrigin()}/join/${code}`,
       referralCode: code,
     };
-  }, [user?.referral_code, user?.id, user?.created_at, user?.birth_month]);
+  }, [user?.share_code, user?.username, user?.birth_month]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(referralUrl);
     toast.success('Referral link copied — share it with your circle!');
+  };
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(referralCode);
+    toast.success('Code copied!');
   };
 
   const shareVia = (platform) => {
@@ -65,14 +66,19 @@ const ReferralPage = ({ user }) => {
             <Gift size={30} className="text-secondary" />
           </div>
           <h2 className="text-2xl font-heading font-bold mb-2">Invite your circle</h2>
-          <p className="text-white/80 mb-3 leading-relaxed">
+          <p className="text-white/80 mb-4 leading-relaxed">
             Earn <span className="font-bold text-secondary">+200 points</span> for every friend who joins.
           </p>
 
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20" data-testid="referral-code-display">
+          <button
+            onClick={copyCode}
+            className="inline-flex flex-col items-center gap-1 px-5 py-3 rounded-2xl bg-white/10 border border-white/20 hover:bg-white/15 transition-all active:scale-95 group"
+            data-testid="referral-code-display"
+            title="Tap to copy"
+          >
             <span className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-semibold">Your code</span>
-            <span className="font-mono font-bold text-secondary tracking-wider text-sm">{referralCode}</span>
-          </div>
+            <span className="font-mono font-bold text-secondary text-sm break-all">{referralCode}</span>
+          </button>
         </motion.div>
 
         {/* Personal link card */}

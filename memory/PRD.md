@@ -33,6 +33,12 @@ Network Capital is a mobile-first **Community Resource Ecosystem** (formerly kno
 - Email OTP signup (MOCK)
 - Founder counter on landing page
 
+## NEW in iter 21 (Feb 2026)
+1. **Friendly share code**: new `share_code` field on user, format `networkcapitalapp.<username>.<MM>.<##>` (e.g., `networkcapitalapp.maria.06.42`). MM is birth month (`00` if unset), `##` is a stable 2-digit checksum derived from user.id. Auto-regenerated when username/birth_month changes (`_refresh_share_code`). Backfilled at startup.
+2. **Production domain in share URLs**: link is `https://networkcapitalapp.co.za/join/<share_code>` — no preview/emergent host in any user-facing share content. New `/app/frontend/src/constants/share.js`.
+3. **Stokvel invite by username/share_code**: `POST /api/stokvels/{id}/invite` now resolves `user_id` field as UUID OR username OR share_code. Profile no longer shows raw UUID — single "Your code" card serves both referrals AND Stokvel invites.
+4. **`/join/:slug` route** added (path-style invite links). Legacy `/join?ref=…` remains supported.
+
 ## NEW in iter 20 (Feb 2026)
 1. Stokvel create page — removed $10 activation fee + $2 membership fee mentions (kept all other pricing including intro page $20/$5/R1M).
 2. Referrals page stripped — auto-generated code, no explainer/chips/nudge. Just hero + link + 4 share buttons.

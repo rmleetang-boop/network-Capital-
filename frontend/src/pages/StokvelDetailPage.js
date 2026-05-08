@@ -753,15 +753,16 @@ const StokvelDetailPage = ({ user }) => {
             <h2 className="text-xl font-heading font-bold mb-4">Invite Member</h2>
             
             <div className="mb-4">
-              <label className="block text-sm font-medium text-text-primary mb-2">User ID</label>
+              <label className="block text-sm font-medium text-text-primary mb-2">Username or share code</label>
               <input
                 type="text"
                 value={inviteUserId}
                 onChange={(e) => setInviteUserId(e.target.value)}
-                className="w-full p-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                placeholder="Enter user ID to invite"
+                className="w-full p-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none font-mono text-sm"
+                placeholder="e.g., maria  or  networkcapitalapp.maria.06.42"
+                data-testid="stokvel-invite-input"
               />
-              <p className="text-xs text-text-muted mt-2">Tip: Users can find their ID in their profile</p>
+              <p className="text-xs text-text-muted mt-2">Tip: Use the friend's username or the code shown on their profile.</p>
             </div>
 
             <div className="flex gap-3">

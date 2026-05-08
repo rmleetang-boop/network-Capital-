@@ -121,6 +121,8 @@ class User(BaseModel):
     likes_received_count: Optional[int] = 0
     comments_given_count: Optional[int] = 0
     birth_month: Optional[int] = None  # 1-12; used for personalised referrals + birthday recognition
+    # Friendly share code (referrals + Stokvel invites): networkcapitalapp.<username>.<MM>.<##>
+    share_code: Optional[str] = None
     # Email verification (mock OTP)
     email_verified: Optional[bool] = False
     email_verified_at: Optional[str] = None
@@ -546,6 +548,54 @@ def _date_key(dt: Optional[datetime] = None) -> str:
     dt = dt or datetime.now(timezone.utc)
     return dt.strftime("%Y-%m-%d")
 
+
+# ============== REFERRAL / SHARE CODE ==============
+# Friendly, brand-anchored format: networkcapitalapp.<username>.<MM>.<##>
+# Example: networkcapitalapp.maria.06.42
+# - username: lowercase, sanitised (alnum + underscore)
+# - MM: 2-digit birth month (01-12), or "00" if not yet set
+# - ##: deterministic 2-digit checksum derived from user.id (stable across renames)
+SHARE_CODE_PREFIX = "networkcapitalapp"
+
+
+def _share_code_suffix(user_id: str) -> str:
+    """Stable 2-digit suffix derived from the user's UUID — survives username/birth-month changes."""
+    if not user_id:
+        return "00"
+    # Last 2 hex chars of the uuid → mod 100, zero-padded
+    try:
+        digest = int(user_id.replace("-", "")[-8:], 16)
+        return f"{digest % 100:02d}"
+    except Exception:
+        return "00"
+
+
+def build_share_code(username: Optional[str], birth_month: Optional[int], user_id: str) -> str:
+    """Build the friendly referral/share code shown to the user."""
+    uname = (username or "member").strip().lower()
+    # Sanitise username: alnum + underscore only, max 20 chars
+    uname = "".join(c if c.isalnum() or c == "_" else "" for c in uname)[:20] or "member"
+    try:
+        bm = int(birth_month) if birth_month else 0
+        if not (0 <= bm <= 12):
+            bm = 0
+    except (TypeError, ValueError):
+        bm = 0
+    mm = f"{bm:02d}"
+    suffix = _share_code_suffix(user_id)
+    return f"{SHARE_CODE_PREFIX}.{uname}.{mm}.{suffix}"
+
+
+async def _refresh_share_code(user_id: str) -> Optional[str]:
+    """Idempotently regenerate and persist user.share_code based on current username + birth_month."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return None
+    code = build_share_code(user.get("username"), user.get("birth_month"), user_id)
+    if user.get("share_code") != code:
+        await db.users.update_one({"id": user_id}, {"$set": {"share_code": code}})
+    return code
+
 async def _ensure_month_state(user: dict) -> dict:
     """If the calendar month has rolled over since user's last activity, reset monthly_score
     (preserving 3-month grace at top score for premium accounts that hit the cap)."""
@@ -867,6 +917,10 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
             sender_set["sender_username"] = propagate_set["sender_username"]
         if sender_set:
             await db.dm_messages.update_many({"sender_id": uid}, {"$set": sender_set})
+
+    # Refresh share_code if username or birth_month changed
+    if "username" in update_data or "birth_month" in update_data:
+        await _refresh_share_code(current_user["id"])
 
     updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
     return updated_user
@@ -2950,24 +3004,39 @@ async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_u
     if stokvel["created_by"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="Only creator can invite members")
     
-    user = await db.users.find_one({"id": request.user_id}, {"_id": 0, "password": 0})
+    # Accept user_id, username, OR friendly share_code (e.g., networkcapitalapp.maria.06.42)
+    ref_in = (request.user_id or "").strip()
+    if not ref_in:
+        raise HTTPException(status_code=400, detail="user_id, username, or share code required")
+
+    user = await db.users.find_one(
+        {"$or": [
+            {"id": ref_in},
+            {"share_code": ref_in.lower()},
+            {"share_code": ref_in},
+            {"username": ref_in.lower()},
+            {"username": ref_in},
+        ]},
+        {"_id": 0, "password": 0},
+    )
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    is_already_member = any(m["user_id"] == request.user_id for m in stokvel["members"])
+    target_user_id = user["id"]
+
+    is_already_member = any(m["user_id"] == target_user_id for m in stokvel["members"])
     if is_already_member:
         raise HTTPException(status_code=400, detail="User is already a member")
-    
+
     # Check if invited user has sufficient balance for member fee
     if user.get("wallet_balance", 0.0) < STOKVEL_MEMBER_FEE:
         raise HTTPException(
             status_code=400,
             detail=f"Invited user has insufficient balance. ${STOKVEL_MEMBER_FEE} required for membership fee."
         )
-    
+
     # Deduct member fee from invited user
     fee_deducted = await deduct_wallet_balance(
-        request.user_id,
+        target_user_id,
         STOKVEL_MEMBER_FEE,
         f"Stokvel+ membership fee - {stokvel['name']}"
     )
@@ -4336,6 +4405,10 @@ async def progressive_signup(request: ProgressiveSignupRequest):
     if is_founder:
         founder_until = (datetime.now(timezone.utc) + timedelta(days=FOUNDER_MULTIPLIER_DAYS)).isoformat()
 
+    # Initial share code uses placeholder username + month=00 — refreshed at complete-profile
+    placeholder_username = f"user_{user_id[:8]}"
+    initial_share_code = build_share_code(placeholder_username, None, user_id)
+
     user_data = {
         "id": user_id,
         "email": request.email or f"{request.phone}@phone.networkcapital.app",
@@ -4355,7 +4428,8 @@ async def progressive_signup(request: ProgressiveSignupRequest):
         "total_earned": 0.0,
         "total_spent": 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "referral_code": user_id[:8].upper(),
+        "referral_code": user_id[:8].upper(),  # legacy hex code (kept for back-compat)
+        "share_code": initial_share_code,  # new friendly format: networkcapitalapp.user_XXX.00.NN
         "referred_by": None,
         "achievements": [],
         "terms_accepted": False,
@@ -4534,13 +4608,20 @@ async def capture_referrer(payload: CaptureReferrerRequest, current_user: dict =
         return {"already_attributed": True}
 
     ref = payload.ref.strip()
+    # Resolution order:
+    #   1) New friendly share_code  (e.g., networkcapitalapp.maria.06.42)
+    #   2) Legacy uppercase referral_code (e.g., 00EC4A27)
+    #   3) Username
     referrer = await db.users.find_one(
         {"$or": [
+            {"share_code": ref.lower()},
+            {"share_code": ref},
             {"referral_code": ref.upper()},
             {"referral_code": ref},
+            {"username": ref.lower()},
             {"username": ref},
         ]},
-        {"_id": 0, "id": 1, "username": 1, "referral_code": 1, "email": 1},
+        {"_id": 0, "id": 1, "username": 1, "referral_code": 1, "share_code": 1, "email": 1},
     )
     if not referrer:
         raise HTTPException(status_code=404, detail="Referrer not found")
@@ -4685,6 +4766,9 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
         {"$set": update_data}
     )
 
+    # Refresh share_code now that username + birth_month are committed
+    await _refresh_share_code(current_user["id"])
+
     updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
 
     # +250 once for completing the profile
@@ -4821,6 +4905,17 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def backfill_share_codes():
+    """Idempotently backfill share_code for any existing users missing it."""
+    try:
+        async for u in db.users.find({"share_code": {"$exists": False}}, {"_id": 0, "id": 1, "username": 1, "birth_month": 1}):
+            code = build_share_code(u.get("username"), u.get("birth_month"), u["id"])
+            await db.users.update_one({"id": u["id"]}, {"$set": {"share_code": code}})
+    except Exception as e:
+        logger.warning(f"share_code backfill skipped: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
