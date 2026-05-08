@@ -48,7 +48,7 @@ const FAQS = [
 
   // Network Score
   { cat: 'score', q: 'What increases my Network Score?', a: 'Daily check-in +10 · Post +15 · Share +8 · Comment +5 · Story +5 · Weekly Resource Drop +30 (max 1/week) · Profile completion +250 · First Stokvel join +250 · Host an Activity +150 · Join an Activity +25 · Refer a member +200 (+500 quality bonus when they hit 1,000). Daily soft-cap on engagement = 60 pts to prevent farming. Premium doubles all gains.' },
-  { cat: 'score', q: 'Is there a cap?', a: 'Yes — 10,000 lifetime cap. A dedicated user reaches the top tier (Steward) in roughly 12 months at a steady cadence. Premium members earn 2× per action.' },
+  { cat: 'score', q: 'Is there a cap?', a: 'Yes — 10,000 per month. Your score resets at the start of every calendar month. Premium members earn 2× per action.' },
   { cat: 'score', q: 'What does a high score unlock?', a: '500+ Stokvel eligibility · 2,000+ priority on Activities · 3,000+ verified badge · 4,000+ creator marketplace listing · 5,000+ Hub leaderboard placement · 10,000 once → claim 3 months free Premium + permanent Steward badge.' },
   { cat: 'score', q: 'Score vs Premium — what\'s the difference?', a: 'Money buys tools. Score earns trust. Premium ($10) unlocks features (Wallet ops, multi-sig, creator backing, currency switcher, 2× score multiplier). Score unlocks reputation lanes (Stokvel eligibility, verified badge, leaderboard, listings). They are two separate currencies.' },
 

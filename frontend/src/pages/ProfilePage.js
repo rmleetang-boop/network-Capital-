@@ -381,9 +381,9 @@ const ProfilePage = ({ user, setUser }) => {
 
           <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 mb-6">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-text-secondary">Network Score</span>
+              <span className="text-sm font-medium text-text-secondary">Network Score · this month</span>
               <span className="text-xs text-text-muted">
-                {profileUser.network_score} / {getNextRankScore(profileUser.network_score)}
+                {profileUser.network_score} / 10,000
               </span>
             </div>
             <NetworkScore score={profileUser.network_score} size="large" />

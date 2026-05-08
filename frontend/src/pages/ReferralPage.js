@@ -1,22 +1,12 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Copy, Share2, Users, Gift, Cake, MessageCircle, Calendar, AlertCircle, ArrowRight } from 'lucide-react';
+import { Copy, Share2, Users, Gift, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { useNavigate } from 'react-router-dom';
-import FeatureIntroModal from '../components/FeatureIntroModal';
-
-const MONTH_LABELS = [
-  'January','February','March','April','May','June',
-  'July','August','September','October','November','December',
-];
 
 const ReferralPage = ({ user }) => {
-  const navigate = useNavigate();
-
-  // Build the personalised referral link
-  // Format: https://<host>/join?ref=<referral_code>&joined=<YYYY-MM-DD>&bm=<birth_month>
-  // Note: ref is the canonical referral_code (same as displayed on Profile page) — never username.
-  const { referralUrl, referralCode, joinedDate, birthMonthLabel, missingBirthMonth } = useMemo(() => {
+  // Personalised referral link — built automatically from the user's canonical referral_code.
+  // The code itself is auto-created at signup; users don't need to learn how it works.
+  const { referralUrl, referralCode } = useMemo(() => {
     const origin = window.location.origin;
     const code = (user?.referral_code || (user?.id ? user.id.substring(0, 8) : 'member')).toUpperCase();
     const created = user?.created_at ? new Date(user.created_at) : new Date();
@@ -24,16 +14,12 @@ const ReferralPage = ({ user }) => {
     const yyyy = joined.getUTCFullYear();
     const mm = String(joined.getUTCMonth() + 1).padStart(2, '0');
     const dd = String(joined.getUTCDate()).padStart(2, '0');
-    const joinedStr = `${yyyy}-${mm}-${dd}`;
+    const params = new URLSearchParams({ ref: code, joined: `${yyyy}-${mm}-${dd}` });
     const bm = user?.birth_month;
-    const params = new URLSearchParams({ ref: code, joined: joinedStr });
     if (bm && Number(bm) >= 1 && Number(bm) <= 12) params.set('bm', String(bm));
     return {
       referralUrl: `${origin}/join?${params.toString()}`,
       referralCode: code,
-      joinedDate: joined.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
-      birthMonthLabel: bm && Number(bm) >= 1 && Number(bm) <= 12 ? MONTH_LABELS[Number(bm) - 1] : null,
-      missingBirthMonth: !(bm && Number(bm) >= 1 && Number(bm) <= 12),
     };
   }, [user?.referral_code, user?.id, user?.created_at, user?.birth_month]);
 
@@ -62,18 +48,6 @@ const ReferralPage = ({ user }) => {
 
   return (
     <div className="min-h-screen bg-background-DEFAULT">
-      <FeatureIntroModal
-        featureKey="referrals"
-        icon={<Gift size={20} />}
-        title="Invite your circle"
-        subtitle="Share your personal referral link — every friend who joins boosts your Network Score."
-        bullets={[
-          { icon: <Users size={14} />, label: 'Personalised link', body: 'Includes your username, the date you joined, and your birth month so friends see who invited them.' },
-          { icon: <Cake size={14} />, label: 'Birthday recognition', body: 'Your birth month unlocks small celebratory perks during your month.' },
-          { icon: <Share2 size={14} />, label: 'Share anywhere', body: 'WhatsApp, SMS, X (Twitter), Facebook, LinkedIn or just copy the link.' },
-        ]}
-      />
-
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
         <h1 className="text-2xl font-heading font-bold text-primary">Referrals</h1>
         <p className="text-sm text-text-secondary">Invite friends and grow your Network Score.</p>
@@ -92,18 +66,13 @@ const ReferralPage = ({ user }) => {
           </div>
           <h2 className="text-2xl font-heading font-bold mb-2">Invite your circle</h2>
           <p className="text-white/80 mb-3 leading-relaxed">
-            Earn <span className="font-bold text-secondary">+200 points</span> for every friend who signs up with your link.
+            Earn <span className="font-bold text-secondary">+200 points</span> for every friend who joins.
           </p>
 
-          {/* Canonical referral code — same as on Profile page */}
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20" data-testid="referral-code-display">
             <span className="text-[10px] uppercase tracking-[0.18em] text-white/50 font-semibold">Your code</span>
             <span className="font-mono font-bold text-secondary tracking-wider text-sm">{referralCode}</span>
           </div>
-
-          <p className="text-white/55 text-xs mt-3">
-            Reputation only — not a financial product.
-          </p>
         </motion.div>
 
         {/* Personal link card */}
@@ -118,44 +87,9 @@ const ReferralPage = ({ user }) => {
             Your personal link
           </h3>
 
-          <div className="bg-background-subtle rounded-xl p-4 mb-3 break-all font-mono text-xs text-text-primary border border-gray-200" data-testid="referral-link-display">
+          <div className="bg-background-subtle rounded-xl p-4 mb-4 break-all font-mono text-xs text-text-primary border border-gray-200" data-testid="referral-link-display">
             {referralUrl}
           </div>
-
-          {/* Link breakdown chips — what's encoded */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-primary/8 text-primary border border-primary/15">
-              <Users size={12} /> Code: {referralCode}
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-primary/8 text-primary border border-primary/15">
-              <Calendar size={12} /> Joined {joinedDate}
-            </span>
-            {birthMonthLabel ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs bg-secondary/15 text-[#7a4f00] border border-secondary/30" data-testid="referral-birth-month-chip">
-                <Cake size={12} /> Birth month: {birthMonthLabel}
-              </span>
-            ) : null}
-          </div>
-
-          {/* Birth month nudge (only shown if missing) */}
-          {missingBirthMonth && (
-            <div className="mb-4 p-3 rounded-xl bg-secondary/10 border border-secondary/30 flex items-start gap-2.5" data-testid="birth-month-nudge">
-              <AlertCircle size={16} className="text-secondary flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-text-primary font-semibold">Add your birth month</p>
-                <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
-                  Your referral link is missing your birth month. Adding it personalises your link and unlocks birthday-month recognition.
-                </p>
-                <button
-                  onClick={() => navigate('/profile')}
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary-hover"
-                  data-testid="birth-month-nudge-cta"
-                >
-                  Add it on your profile <ArrowRight size={12} />
-                </button>
-              </div>
-            </div>
-          )}
 
           <button
             onClick={copyToClipboard}
@@ -208,33 +142,6 @@ const ReferralPage = ({ user }) => {
             >
               LinkedIn
             </button>
-          </div>
-        </motion.div>
-
-        {/* How it works */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="bg-gradient-to-br from-primary/8 to-secondary/8 rounded-2xl border border-primary/15 p-6"
-        >
-          <h3 className="font-heading font-bold text-text-primary mb-3">How it works</h3>
-          <div className="space-y-3">
-            {[
-              ['Share your link', 'Send your unique link to friends in your circle.'],
-              ['They sign up', 'Your friend creates an account using your link — they\'ll see who invited them.'],
-              ['You earn reputation', '+200 Network Score points for each successful signup. Reputation only — not money.'],
-            ].map(([t, b], i) => (
-              <div key={i} className="flex gap-3" data-testid={`referral-step-${i+1}`}>
-                <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${i === 2 ? 'bg-secondary text-primary' : 'bg-primary text-white'}`}>
-                  {i + 1}
-                </div>
-                <div>
-                  <p className="text-sm text-text-primary font-medium">{t}</p>
-                  <p className="text-xs text-text-secondary leading-relaxed">{b}</p>
-                </div>
-              </div>
-            ))}
           </div>
         </motion.div>
       </div>

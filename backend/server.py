@@ -502,8 +502,10 @@ async def update_user_score(user_id: str, points: int, notification_msg: str, ac
 
 # ============== NETWORK SCORE — REBALANCED (Iter 18) ==============
 # Lifetime ranking out of 10,000. A *dedicated* user reaches Steward tier in ~12 months.
-# Daily soft-cap prevents farming; the lifetime cap only kicks in at 10,000.
-LIFETIME_SCORE_CAP = 10000
+# Monthly score cap — score resets every calendar month.
+# Both Profile and Score Tracker display the SAME field: monthly_score (mirrored to network_score).
+MONTHLY_SCORE_CAP = 10000
+LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP  # legacy alias kept for /tiers endpoint
 DAILY_SOFT_CAP = 60          # post/share/comment combined per day
 WEEKLY_RESOURCE_DROP_LIMIT = 1
 PREMIUM_TOP_GRACE_DAYS = 90
@@ -534,7 +536,7 @@ SCORE_TABLE = {
     "premium_welcome_bonus": 500,
     "manual_admin_grant": 0,
 }
-MONTHLY_SCORE_CAP = LIFETIME_SCORE_CAP  # legacy alias kept; behaviour migrated below
+MONTHLY_SCORE_CAP_TOPLINE = MONTHLY_SCORE_CAP  # back-compat (kept for any imports)
 
 def _month_key(dt: Optional[datetime] = None) -> str:
     dt = dt or datetime.now(timezone.utc)
@@ -569,8 +571,10 @@ async def _ensure_month_state(user: dict) -> dict:
 
     if keep_at_top:
         new_state["monthly_score"] = MONTHLY_SCORE_CAP
+        new_state["network_score"] = MONTHLY_SCORE_CAP
     else:
         new_state["monthly_score"] = 0
+        new_state["network_score"] = 0
         new_state["cap_reached_at"] = None
 
     await db.users.update_one({"id": user["id"]}, {"$set": new_state})
@@ -578,13 +582,15 @@ async def _ensure_month_state(user: dict) -> dict:
     return user
 
 async def award_points(user_id: str, action: str, base_points: int, source_id: Optional[str] = None, message: Optional[str] = None) -> int:
-    """Award points (rebalanced iter 18).
+    """Award points (rebalanced — monthly cap of 10,000, resets each calendar month).
 
     Rules:
-      • Lifetime cap = LIFETIME_SCORE_CAP (10,000). Once hit, no further points awarded.
-      • Premium = 2× multiplier on base_points (existing scores preserved).
+      • Monthly cap = MONTHLY_SCORE_CAP (10,000). Once hit, no further points awarded this month.
+      • At month rollover, network_score & monthly_score reset to 0 (handled in _ensure_month_state).
+      • Premium OR Founder window grants 2× multiplier (max 2×, no stacking).
       • Daily soft-cap on engagement actions (post/share/comment/story) = DAILY_SOFT_CAP.
       • weekly_resource_drop limited to once per ISO week.
+      • daily_checkin limited to once per calendar day.
       • base_points may be 0 — we'll look up SCORE_TABLE[action] when so.
     """
     user = await db.users.find_one({"id": user_id})
@@ -599,8 +605,8 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
     if base_points <= 0:
         return 0
 
-    lifetime = user.get("network_score", 0)
-    if lifetime >= LIFETIME_SCORE_CAP:
+    monthly = user.get("monthly_score", 0)
+    if monthly >= MONTHLY_SCORE_CAP:
         return 0
 
     # Daily soft-cap on noisy engagement actions
@@ -648,19 +654,18 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
             pass
     multiplier = 2 if (is_premium or is_founder_active) else 1
     awarded = base_points * multiplier
-    awarded = min(awarded, LIFETIME_SCORE_CAP - lifetime)
+    awarded = min(awarded, MONTHLY_SCORE_CAP - monthly)
     if awarded <= 0:
         return 0
 
-    new_lifetime = lifetime + awarded
-    new_monthly = user.get("monthly_score", 0) + awarded  # tracked for analytics only
+    new_monthly = monthly + awarded
 
     update = {
         "monthly_score": new_monthly,
-        "network_score": new_lifetime,
-        "rank": calculate_rank(new_lifetime),
+        "network_score": new_monthly,  # mirror — Profile and Tracker show the same value
+        "rank": calculate_rank(new_monthly),
     }
-    if new_lifetime >= LIFETIME_SCORE_CAP and not user.get("cap_reached_at"):
+    if new_monthly >= MONTHLY_SCORE_CAP and not user.get("cap_reached_at"):
         update["cap_reached_at"] = datetime.now(timezone.utc).isoformat()
 
     await db.users.update_one({"id": user_id}, {"$set": update})
@@ -690,8 +695,8 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
-    # Quality referral bonus: when this user crosses 1,000 lifetime, fire +500 to the referrer once
-    if lifetime < 1000 and new_lifetime >= 1000 and user.get("referrer_id"):
+    # Quality referral bonus: when this user crosses 1,000 this month, fire +500 to the referrer once
+    if monthly < 1000 and new_monthly >= 1000 and user.get("referrer_id"):
         ref_id = user["referrer_id"]
         already = await db.score_events.find_one({
             "user_id": ref_id,

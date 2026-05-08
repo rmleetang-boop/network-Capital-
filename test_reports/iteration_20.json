@@ -1,0 +1,48 @@
+{
+  "summary": "Iter 20 full sweep (backend + frontend visual). 10/10 new tests PASS in test_iter20_monthly_cap.py (monthly cap=10000, daily-checkin idempotent, score parity, month rollover resets BOTH monthly_score AND network_score, cap saturation blocks further awards, founder/tiers public payloads). Iter 19 regression: 28/30 pass + 2 expected skips (stokvel-fee gate). Frontend visual confirmed on mobile viewport: /tracker hero 'Network Score · this month' with N/10,000, /profile shows 'Network Score · this month' with score/10,000, /stokvels/create is fee-free (no $10/$2) and keeps Score Rewards (+50/+15/+20), /stokvels/intro correctly preserved with $20/$5 + R1,000,000 quarterly prize pool, /referral page stripped of explainer/chips/nudge — hero code in uppercase + Copy Link + 4 share buttons (WhatsApp, SMS, X/Twitter, LinkedIn). Iter 19 known schema gap (User missing email_verified/founder fields) is now FIXED (verified via UI roundtrip — complete-profile response surfaces email_verified=true, is_founder=true, founder_signup_rank=374, founder_multiplier_until). Found and fixed one CRITICAL backend bug: award_points referenced undefined `lifetime`/`new_lifetime` variables (leftover from monthly-cap refactor) causing every score award to 500 the request — every complete-profile, daily-checkin, etc. was returning 500.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/auth/complete-profile (and any path that calls award_points)",
+        "issue": "award_points at /app/backend/server.py line 699 referenced undefined variables `lifetime` and `new_lifetime` (leftover names from the lifetime-cap → monthly-cap refactor). Resulted in NameError → 500 on every score-awarding request. RESOLVED: replaced `lifetime`/`new_lifetime` with `monthly`/`new_monthly`. Verified by re-running pytest (was 500 before fix, all 10 pass after).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter20_monthly_cap.py",
+    "/app/test_reports/pytest/iter20_results.xml",
+    "/app/backend/tests/test_iter19_otp_founder_referral.py"
+  ],
+  "action_items": [
+    "Confirm the award_points typo fix (monthly/new_monthly) at /app/backend/server.py line 699 — already applied by testing agent and verified end-to-end. Re-review during code review if intent of the quality-bonus threshold should be lifetime-cumulative across months instead of within-month (current behaviour after fix: bonus fires when invitee crosses 1,000 in the SAME month, which may differ from product spec).",
+    "Optional: rename `lifetime_score` field returned from /api/score/summary (line 1311) since it's now mirroring monthly_score — kept for back-compat, but doc note recommended."
+  ],
+  "critical_code_review_comments": [
+    "server.py award_points was broken end-to-end before this iteration — every score-awarding endpoint returned 500. This means the fix is required for ALL flows that depended on award_points: complete-profile (250 base), daily-checkin (10), referral reward (200), profile_completed bonus, weekly-resource (30), etc. Anything that worked in iter 19 tests must have been against a previous deploy; with the current code it would not have. Suggest a regression test suite that calls award_points directly via a small unit test against a Mongo test fixture.",
+    "server.py /api/score/summary (line 1311) returns lifetime_score=user.network_score. After the spec change to mirror network_score=monthly_score, this is correct numerically but the FIELD NAME is misleading. Either rename to monthly_score_mirrored or document the change in the API contract.",
+    "server.py _ensure_month_state (line 549) does not zero out cap_reached_at when entering grace period (premium top-grace branch lines 572-574). Minor — won't break anything but cap_reached_at could persist stale across multiple months for premium accounts.",
+    "server.py LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP alias (line 508) — purely cosmetic; consider removing once /score/tiers payload is updated to use monthly_cap.",
+    "Frontend ReferralPage.js correctly hides chips, but the personal link query-string still contains joined=YYYY-MM-DD&bm=N — that's a URL param (used for deep-link attribution), NOT a visual chip, so spec is satisfied. If product wants to also strip from URL, additional change needed."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (line 699: fixed NameError — lifetime → monthly, new_lifetime → new_monthly)",
+    "/app/backend/tests/test_iter20_monthly_cap.py (NEW — 10 pytest cases, all PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% — 10/10 iter20 tests PASS; 28/30 iter19 PASS + 2 expected skip",
+    "frontend": "100% — all 5 routes (/tracker, /profile, /stokvels/create, /stokvels/intro, /referral) match spec. Mobile viewport 390x844 verified."
+  },
+  "test_credentials": "Dynamic — every test creates a fresh TEST_iter20_*@example.com user via /api/auth/progressive-signup with password Test123!. OTP read from _mock_code in send-otp dev response.",
+  "seed_data_creation": "~12 fresh test users prefixed TEST_iter20_ + 1 UI test user qaui_*. No cleanup fixture (matches prior iters). DB doc directly mutated for two tests (set month_key='1999-01' and monthly_score=10000) but those users are then disposable.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 20 backend regression: /app/backend/tests/test_iter20_monthly_cap.py (10 cases ~5s) plus /app/backend/tests/test_iter19_otp_founder_referral.py (30 cases ~108s). Run with MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2). The award_points NameError fix at server.py line 699 is critical — without it ALL score-awarding endpoints crash. The test_award_zero_when_monthly_cap_reached and test_month_rollover_resets_both_scores tests use direct pymongo writes (skipped if MONGO_URL not set). Visual screenshots are in /tmp/{tracker,profile,create,intro,referral}.png. Frontend mobile viewport 390x844 was used for all UI screenshots.",
+  "rca_of_the_issue": "BUG: award_points at /app/backend/server.py:699 raised NameError. Reproduction: any user signing up + completing profile → 500. RCA: the lifetime-cap → monthly-cap refactor (iter 18→20) renamed `lifetime`→`monthly` and `new_lifetime`→`new_monthly` everywhere EXCEPT the quality-referral-bonus block (line 698-707), where the old names persisted. NameError on first eval (`if lifetime < 1000`). Mitigation applied: 1-line search/replace `lifetime → monthly`, `new_lifetime → new_monthly`. After fix, all 10 iter20 tests + 28 iter19 tests pass and the UI roundtrip (signup → verify → complete-profile) returns 200 with monthly_score=500 (founder 250 base × 2 multiplier)."
+}

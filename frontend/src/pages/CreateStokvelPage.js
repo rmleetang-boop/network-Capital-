@@ -190,20 +190,13 @@ const CreateStokvelPage = () => {
           <div className="bg-primary/5 rounded-xl p-4 border border-primary/20">
             <h4 className="font-semibold text-text-primary mb-2 flex items-center gap-2">
               <DollarSign className="text-secondary" size={18} />
-              Platform Fees & Rewards
+              Score Rewards
             </h4>
             <ul className="text-sm text-text-secondary space-y-1">
-              <li className="flex items-center justify-between">
-                <span>• Activation Fee (One-time):</span>
-                <span className="font-semibold text-secondary">$10.00</span>
-              </li>
               <li>• Create Stokvel+: <span className="font-semibold text-primary">+50 points</span></li>
               <li>• Contribute funds: <span className="font-semibold text-primary">+15 points</span> per contribution</li>
               <li>• Invite members: <span className="font-semibold text-primary">+20 points</span> per member</li>
             </ul>
-            <p className="text-xs text-text-muted mt-2 pt-2 border-t border-primary/20">
-              Note: Members pay $2.00 membership fee when joining
-            </p>
           </div>
 
           <button
