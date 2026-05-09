@@ -33,6 +33,38 @@ Network Capital is a mobile-first **Community Resource Ecosystem** (formerly kno
 - Email OTP signup (MOCK)
 - Founder counter on landing page
 
+## NEW in iter 22 (Feb 2026) — major refactor
+
+### Three-tier score engine
+- **T1 Ads** — `ad_watch_engage` 500 (cap 5/day, 24h cooldown same ad) · `ad_watch_share` diminishing 300/150/50/50/50 per unique ad (max 5 shares).
+- **T2 Referrals** — `referral_qualified` 400 (fires once when invitee crosses monthly_score 1,000) · `referral_feature_unlock` 200/feature/friend · `referral_first_post` 150 (referee posts within first 7 days).
+- **T3 Standard** — `post_create` 50 (cap 5/d) · `post_share` 20 (cap 10/d) · `comment_quality` 30 (cap 10/d, AI ≥0.6) · `post_like` 5 (cap 20/d) · `video_watched` 10 (cap 10/d).
+- Global: monthly cap 10,000 (resets every calendar month) · 24h cooldown on same source_id (except ad_watch_share, ladder is its own anti-abuse) · Premium/Founder 2× multiplier (max 2×) · auto review-flag if >80% of monthly score from one action type.
+
+### Badge engine
+At month rollover, the highest badge earned is saved into `user.badge_history`:
+- 1,000–2,999 → Bronze Networker
+- 3,000–5,999 → Silver Connector
+- 6,000–8,999 → Gold Influencer
+- 9,000–9,999 → Diamond Achiever
+- 10,000 → Network Legend
+
+### AI comment relevance
+- Heuristic-first (gates: empty / gibberish / <5 words / duplicate)
+- LLM (claude-haiku-4-5) via Emergent LLM key
+- ≥0.6 → quality comment earns 30 pts; <0.6 earns 0
+
+### Account management
+- `POST /api/account/deactivate` (reversible — login auto-reactivates)
+- `POST /api/account/delete` — 30-day grace, requires username confirm; auto-cancels Stripe sub
+- `POST /api/account/cancel-deletion` (or just login during grace)
+- Hard-delete on startup for docs whose `deletion_purge_at` has elapsed
+
+### New endpoints
+- `POST /api/score/ad-event {ad_id, action: 'engage'|'share'}`
+- `POST /api/score/video-watched {video_id}`
+- `POST /api/account/{deactivate,reactivate,delete,cancel-deletion}`
+
 ## NEW in iter 21 (Feb 2026)
 1. **Friendly share code**: new `share_code` field on user, format `networkcapitalapp.<username>.<MM>.<##>` (e.g., `networkcapitalapp.maria.06.42`). MM is birth month (`00` if unset), `##` is a stable 2-digit checksum derived from user.id. Auto-regenerated when username/birth_month changes (`_refresh_share_code`). Backfilled at startup.
 2. **Production domain in share URLs**: link is `https://networkcapitalapp.co.za/join/<share_code>` — no preview/emergent host in any user-facing share content. New `/app/frontend/src/constants/share.js`.
