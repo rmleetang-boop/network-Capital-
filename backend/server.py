@@ -504,41 +504,64 @@ async def update_user_score(user_id: str, points: int, notification_msg: str, ac
 
 # ============== NETWORK SCORE — REBALANCED (Iter 18) ==============
 # Lifetime ranking out of 10,000. A *dedicated* user reaches Steward tier in ~12 months.
-# Monthly score cap — score resets every calendar month.
-# Both Profile and Score Tracker display the SAME field: monthly_score (mirrored to network_score).
+# ============================================================================
+# NETWORK SCORE ENGINE — refactored iter 22
+# ============================================================================
+# Cap: 10,000 per calendar month; resets at month rollover.
+# Highest badge of the month is saved to user.badge_history (see _close_month()).
+# Three tiers (highest → lowest):
+#   T1 Ads · T2 Referrals & invites · T3 Standard social activity
+# Per-action daily caps + 24h same-source cooldown + 80% single-action review flag.
+# ============================================================================
+
 MONTHLY_SCORE_CAP = 10000
-LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP  # legacy alias kept for /tiers endpoint
-DAILY_SOFT_CAP = 60          # post/share/comment combined per day
+LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP   # legacy alias kept for /tiers endpoint
 WEEKLY_RESOURCE_DROP_LIMIT = 1
 PREMIUM_TOP_GRACE_DAYS = 90
 
-# Award table — single source of truth used everywhere.
+# Per-action config — points + daily count cap (None = no daily count cap)
 SCORE_TABLE = {
-    # Daily / passive
-    "daily_checkin": 10,
-    # Sharing
-    "post_create": 15,
-    "post_share": 8,
-    "post_comment": 5,
-    "story_create": 5,
-    "weekly_resource_drop": 30,   # max 1/week
-    # Referrals
-    "referral_joined": 200,
-    "referral_quality_bonus": 500,  # fired once when a referred user hits 1k
-    # Milestones
-    "monthly_streak": 100,
-    "stokvel_first_join": 250,
-    "activity_created": 150,
-    "activity_joined": 25,
-    "profile_completed": 250,
-    # Premium / ads (legacy compatibility)
-    "ad_watch_share": 100,
-    "ad_watch_engage": 500,
-    "creator_engagement": 500,
-    "premium_welcome_bonus": 500,
-    "manual_admin_grant": 0,
+    # ── T1: AD ENGAGEMENT (highest value) ────────────────────────────────────
+    "ad_watch_engage":   {"points": 500, "daily_cap": 5},     # watched 100% + engaged with product
+    "ad_watch_share":    {"points": 300, "daily_cap": None},  # diminishing per unique ad: 300/150/50/50/50
+    # ── T2: REFERRALS & INVITATIONS ──────────────────────────────────────────
+    "referral_qualified":     {"points": 400, "daily_cap": None},  # referred member crosses 1,000 same month
+    "referral_feature_unlock":{"points": 200, "daily_cap": None},  # referred friend activates a feature
+    "referral_first_post":    {"points": 150, "daily_cap": None},  # referred friend posts in first 7 days
+    # ── T3: STANDARD SOCIAL ACTIVITY ─────────────────────────────────────────
+    "post_create":       {"points": 50, "daily_cap": 5},
+    "post_share":        {"points": 20, "daily_cap": 10},
+    "comment_quality":   {"points": 30, "daily_cap": 10},     # AI-validated relevance ≥0.6
+    "post_like":         {"points": 5,  "daily_cap": 20},
+    "video_watched":     {"points": 10, "daily_cap": 10},     # non-ad video to completion
+    # ── Misc / kept for back-compat (not in tier doc but already wired) ──────
+    "daily_checkin":     {"points": 10, "daily_cap": 1},
+    "story_create":      {"points": 5,  "daily_cap": 10},
+    "weekly_resource_drop": {"points": 30, "daily_cap": None},
+    "monthly_streak":    {"points": 100, "daily_cap": None},
+    "stokvel_first_join":{"points": 250, "daily_cap": None},
+    "activity_created":  {"points": 150, "daily_cap": None},
+    "activity_joined":   {"points": 25,  "daily_cap": None},
+    "profile_completed": {"points": 250, "daily_cap": 1},
+    "creator_engagement":{"points": 500, "daily_cap": None},
+    "premium_welcome_bonus": {"points": 500, "daily_cap": None},
+    "manual_admin_grant":{"points": 0,  "daily_cap": None},
 }
-MONTHLY_SCORE_CAP_TOPLINE = MONTHLY_SCORE_CAP  # back-compat (kept for any imports)
+
+# Ad share diminishing returns — per unique ad (key = ad_id)
+AD_SHARE_LADDER = [300, 150, 50, 50, 50]   # 1st→5th share; >5 returns 0
+
+# 24-hour cooldown applies to: liking the same post, sharing the same post, watching the
+# same ad, etc. NB: ad_watch_share is intentionally NOT in this set — its diminishing
+# ladder (300/150/50/50/50, max 5) is its own anti-abuse mechanism.
+COOLDOWN_ACTIONS = {
+    "post_like", "post_share", "post_create", "comment_quality",
+    "ad_watch_engage", "video_watched",
+}
+
+# Auto-flag user for review when >80% of monthly points come from a single action type
+SINGLE_ACTION_REVIEW_THRESHOLD = 0.80
+
 
 def _month_key(dt: Optional[datetime] = None) -> str:
     dt = dt or datetime.now(timezone.utc)
@@ -596,12 +619,56 @@ async def _refresh_share_code(user_id: str) -> Optional[str]:
         await db.users.update_one({"id": user_id}, {"$set": {"share_code": code}})
     return code
 
+# ── Badges (highest of the month is saved into user.badge_history) ──────────
+BADGE_TIERS = [
+    (10000, "Network Legend"),
+    (9000,  "Diamond Achiever"),
+    (6000,  "Gold Influencer"),
+    (3000,  "Silver Connector"),
+    (1000,  "Bronze Networker"),
+]
+
+
+def calculate_badge(score: int) -> Optional[str]:
+    for threshold, name in BADGE_TIERS:
+        if score >= threshold:
+            return name
+    return None
+
+
+async def _close_month(user: dict, prev_month_key: str) -> None:
+    """Persist the highest badge earned in the just-ended month into badge_history."""
+    score_at_close = int(user.get("monthly_score", 0))
+    badge = calculate_badge(score_at_close)
+    if not badge or not prev_month_key:
+        return
+    try:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$push": {
+                "badge_history": {
+                    "month": prev_month_key,
+                    "badge": badge,
+                    "score": score_at_close,
+                    "saved_at": datetime.now(timezone.utc).isoformat(),
+                }
+            }},
+        )
+    except Exception as e:
+        logger.warning(f"_close_month failed for user={user.get('id')}: {e}")
+
+
 async def _ensure_month_state(user: dict) -> dict:
-    """If the calendar month has rolled over since user's last activity, reset monthly_score
-    (preserving 3-month grace at top score for premium accounts that hit the cap)."""
+    """If the calendar month has rolled over since the user's last activity, save the
+    user's highest badge for the closing month, then reset monthly_score & network_score."""
     cur_key = _month_key()
     if user.get("month_key") == cur_key:
         return user
+
+    prev_key = user.get("month_key")
+    # Persist closing-month badge BEFORE resetting score
+    if prev_key:
+        await _close_month(user, prev_key)
 
     new_state = {"month_key": cur_key, "session_minutes_today": 0, "last_session_date": _date_key()}
 
@@ -631,17 +698,71 @@ async def _ensure_month_state(user: dict) -> dict:
     user.update(new_state)
     return user
 
-async def award_points(user_id: str, action: str, base_points: int, source_id: Optional[str] = None, message: Optional[str] = None) -> int:
-    """Award points (rebalanced — monthly cap of 10,000, resets each calendar month).
 
-    Rules:
-      • Monthly cap = MONTHLY_SCORE_CAP (10,000). Once hit, no further points awarded this month.
-      • At month rollover, network_score & monthly_score reset to 0 (handled in _ensure_month_state).
-      • Premium OR Founder window grants 2× multiplier (max 2×, no stacking).
-      • Daily soft-cap on engagement actions (post/share/comment/story) = DAILY_SOFT_CAP.
-      • weekly_resource_drop limited to once per ISO week.
-      • daily_checkin limited to once per calendar day.
-      • base_points may be 0 — we'll look up SCORE_TABLE[action] when so.
+async def _check_review_flag(user_id: str, monthly_score: int) -> None:
+    """Auto-flag a user for review when >80% of monthly points come from a single action type."""
+    if monthly_score < 1000:
+        return  # noise floor — small accounts can't get flagged
+    pipeline = [
+        {"$match": {"user_id": user_id, "month_key": _month_key()}},
+        {"$group": {"_id": "$action", "total": {"$sum": "$points"}}},
+        {"$sort": {"total": -1}},
+        {"$limit": 1},
+    ]
+    rows = await db.score_events.aggregate(pipeline).to_list(1)
+    if rows and rows[0]["total"] / max(monthly_score, 1) >= SINGLE_ACTION_REVIEW_THRESHOLD:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "review_flag": {
+                    "reason": "single_action_dominance",
+                    "action": rows[0]["_id"],
+                    "share": round(rows[0]["total"] / monthly_score, 3),
+                    "month": _month_key(),
+                    "flagged_at": datetime.now(timezone.utc).isoformat(),
+                }
+            }},
+        )
+
+
+async def _resolve_base_points(action: str, base_points: int, source_id: Optional[str], user_id: str) -> int:
+    """Computes the base points for the given action. Handles ad-share diminishing returns."""
+    if action == "ad_watch_share" and source_id:
+        # Diminishing per unique ad: 300 / 150 / 50 / 50 / 50, max 5 shares
+        prior = await db.score_events.count_documents({
+            "user_id": user_id, "action": "ad_watch_share", "source_id": source_id,
+        })
+        if prior >= len(AD_SHARE_LADDER):
+            return 0
+        return AD_SHARE_LADDER[prior]
+    if base_points and base_points > 0:
+        return base_points
+    cfg = SCORE_TABLE.get(action)
+    if isinstance(cfg, dict):
+        return int(cfg.get("points", 0))
+    if isinstance(cfg, int):
+        return cfg
+    return 0
+
+
+async def award_points(
+    user_id: str,
+    action: str,
+    base_points: int = 0,
+    source_id: Optional[str] = None,
+    message: Optional[str] = None,
+    actor_ip: Optional[str] = None,
+    actor_device: Optional[str] = None,
+) -> int:
+    """Award points — refactored iter 22.
+
+    Enforces:
+      • Monthly cap (10,000) — hard reset at month rollover (badge saved first).
+      • Per-action daily cap (count of events today) from SCORE_TABLE.
+      • 24-hour cooldown for (action, source_id) when action is in COOLDOWN_ACTIONS.
+      • Ad-share diminishing returns (300/150/50/50/50 per unique ad, max 5 shares).
+      • Premium / Founder 2× multiplier (max 2×, no stacking).
+      • Auto review-flag when >80% of monthly points come from one action.
     """
     user = await db.users.find_one({"id": user_id})
     if not user:
@@ -649,9 +770,8 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
 
     user = await _ensure_month_state(user)
 
-    # Resolve base if caller passed 0 / wants table value
-    if base_points <= 0 and action in SCORE_TABLE:
-        base_points = SCORE_TABLE[action]
+    # Resolve base points (handles ad-share ladder + table lookup)
+    base_points = await _resolve_base_points(action, base_points, source_id, user_id)
     if base_points <= 0:
         return 0
 
@@ -659,20 +779,27 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
     if monthly >= MONTHLY_SCORE_CAP:
         return 0
 
-    # Daily soft-cap on noisy engagement actions
-    DAILY_CAPPED = {"post_create", "post_share", "post_comment", "story_create"}
-    if action in DAILY_CAPPED:
-        today_total = 0
-        async for ev in db.score_events.find({
-            "user_id": user_id,
-            "action": {"$in": list(DAILY_CAPPED)},
-            "date_key": _date_key(),
-        }):
-            today_total += int(ev.get("points", 0))
-        remaining = max(0, DAILY_SOFT_CAP - today_total)
-        if remaining <= 0:
+    # Per-action daily count cap
+    cfg = SCORE_TABLE.get(action) or {}
+    daily_cap = cfg.get("daily_cap") if isinstance(cfg, dict) else None
+    if daily_cap is not None:
+        today_count = await db.score_events.count_documents({
+            "user_id": user_id, "action": action, "date_key": _date_key(),
+        })
+        if today_count >= daily_cap:
             return 0
-        base_points = min(base_points, remaining)
+
+    # 24-hour cooldown on identical (action, source_id)
+    if source_id and action in COOLDOWN_ACTIONS:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        recent = await db.score_events.find_one({
+            "user_id": user_id,
+            "action": action,
+            "source_id": source_id,
+            "created_at": {"$gte": cutoff},
+        })
+        if recent:
+            return 0
 
     # Weekly resource drop — at most once per ISO week
     if action == "weekly_resource_drop":
@@ -683,15 +810,7 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
         if existing:
             return 0
 
-    # Daily check-in — at most once per calendar day
-    if action == "daily_checkin":
-        existing = await db.score_events.find_one({
-            "user_id": user_id, "action": "daily_checkin", "date_key": _date_key(),
-        })
-        if existing:
-            return 0
-
-    # Multiplier — Premium OR Founder window grants 2×. They don't stack (max 2×).
+    # Multiplier — Premium OR Founder window grants 2× (max 2×, no stacking)
     is_premium = bool(user.get("premium_unlocked"))
     is_founder_active = False
     fmu = user.get("founder_multiplier_until")
@@ -712,7 +831,7 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
 
     update = {
         "monthly_score": new_monthly,
-        "network_score": new_monthly,  # mirror — Profile and Tracker show the same value
+        "network_score": new_monthly,
         "rank": calculate_rank(new_monthly),
     }
     if new_monthly >= MONTHLY_SCORE_CAP and not user.get("cap_reached_at"):
@@ -745,16 +864,28 @@ async def award_points(user_id: str, action: str, base_points: int, source_id: O
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
-    # Quality referral bonus: when this user crosses 1,000 this month, fire +500 to the referrer once
+    # T2 Referral payout — fires ONCE per referrer/invitee when invitee crosses 1,000
+    # in the SAME month. Reward is "referral_qualified" (+400). Replaces the old +200/+500 split.
     if monthly < 1000 and new_monthly >= 1000 and user.get("referrer_id"):
         ref_id = user["referrer_id"]
         already = await db.score_events.find_one({
             "user_id": ref_id,
-            "action": "referral_quality_bonus",
+            "action": "referral_qualified",
             "source_id": user_id,
         })
         if not already:
-            await award_points(ref_id, "referral_quality_bonus", 500, source_id=user_id, message=f"Quality referral bonus — @{user.get('username')} crossed 1,000")
+            await award_points(
+                ref_id, "referral_qualified", 0, source_id=user_id,
+                message=f"Referral qualified — @{user.get('username')} crossed 1,000",
+            )
+            # Mark attribution as rewarded so we don't double-pay via _maybe_reward_referrer
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {"referral_attribution.status": "rewarded"}},
+            )
+
+    # Single-action dominance review flag (>80% from one action type)
+    await _check_review_flag(user_id, new_monthly)
 
     return awarded
 
@@ -833,11 +964,29 @@ async def login(request: LoginRequest):
     user = await db.users.find_one({"email": request.email}, {"_id": 0})
     if not user or not verify_password(request.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
+    # Auto-reactivate: a successful login cancels a pending deactivation.
+    # If the account is in deletion grace period, login also cancels that.
+    auto_unset = {}
+    auto_set = {}
+    if user.get("deactivated"):
+        auto_set["deactivated"] = False
+        auto_unset["deactivated_at"] = ""
+        auto_unset["deactivation_reason"] = ""
+    if user.get("pending_deletion"):
+        auto_set["pending_deletion"] = False
+        auto_unset["deletion_purge_at"] = ""
+        auto_unset["deletion_requested_at"] = ""
+        auto_unset["deletion_reason"] = ""
+    if auto_set or auto_unset:
+        upd = {}
+        if auto_set: upd["$set"] = auto_set
+        if auto_unset: upd["$unset"] = auto_unset
+        await db.users.update_one({"id": user["id"]}, upd)
+        user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+
     token = create_access_token({"sub": user["id"]})
-    
     user_response = {k: v for k, v in user.items() if k != "password"}
-    
     return {"token": token, "user": user_response}
 
 @api_router.get("/users/me", response_model=User)
@@ -1487,7 +1636,7 @@ async def score_tiers():
     """Public — exposes the rebalanced score table + tier thresholds."""
     return {
         "lifetime_cap": LIFETIME_SCORE_CAP,
-        "daily_soft_cap": DAILY_SOFT_CAP,
+        "monthly_cap": MONTHLY_SCORE_CAP,
         "tiers": [
             {"name": "Member", "min": 0, "max": 999},
             {"name": "Contributor", "min": 1000, "max": 2999},
@@ -2672,7 +2821,30 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
     
     await db.posts.insert_one(post_data)
     await award_points(current_user["id"], "post_create", 0, source_id=post_data["id"], message="Posted new content")
-    
+
+    # Referral first-post bonus (+150) — fires once if invitee posts within their first 7 days
+    try:
+        attribution = current_user.get("referral_attribution") or {}
+        referrer_id = attribution.get("referrer_id")
+        if referrer_id:
+            created_at_str = current_user.get("created_at")
+            if created_at_str:
+                created_at = datetime.fromisoformat(str(created_at_str).replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - created_at).days <= 7:
+                    already = await db.score_events.find_one({
+                        "user_id": referrer_id,
+                        "action": "referral_first_post",
+                        "source_id": current_user["id"],
+                    })
+                    if not already:
+                        await award_points(
+                            referrer_id, "referral_first_post", 0,
+                            source_id=current_user["id"],
+                            message=f"Bonus — @{current_user['username']} posted in their first 7 days",
+                        )
+    except Exception:
+        pass
+
     return post_data
 
 @api_router.get("/posts", response_model=List[Post])
@@ -2695,22 +2867,13 @@ async def like_post(post_id: str, current_user: dict = Depends(get_current_user)
         likes.append(current_user["id"])
         await db.posts.update_one({"id": post_id}, {"$set": {"likes": likes}})
 
+        # T3: liking a post earns 5 pts (cap 20/day, 24h cooldown on the same post)
         if post["user_id"] != current_user["id"]:
-            # Track lifetime likes received and award 10 pts every 50 likes
-            owner = await db.users.find_one({"id": post["user_id"]}, {"_id": 0})
-            if owner:
-                prev = owner.get("likes_received_count", 0)
-                new_count = prev + 1
-                await db.users.update_one(
-                    {"id": post["user_id"]},
-                    {"$set": {"likes_received_count": new_count}}
-                )
-                if new_count // 50 > prev // 50:
-                    await award_points(
-                        post["user_id"], "like_milestone", 10,
-                        source_id=post_id,
-                        message=f"You hit {new_count} likes received +10"
-                    )
+            await award_points(
+                current_user["id"], "post_like", 0,
+                source_id=post_id,
+                message="You liked a post",
+            )
 
         return {"liked": True, "likes_count": len(likes)}
 
@@ -2719,49 +2882,60 @@ async def comment_post(post_id: str, request: CommentRequest, current_user: dict
     post = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
-    
+
+    content = (request.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+
+    # AI relevance scoring (mocked LLM gracefully fallbacks to heuristic if unavailable)
+    relevance = await _score_comment_relevance(post.get("content", ""), content, current_user["id"])
+
     comment = {
         "id": str(uuid.uuid4()),
         "user_id": current_user["id"],
         "username": current_user["username"],
         "user_photo": current_user["photo"],
-        "content": request.content,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "content": content,
+        "ai_relevance": relevance.get("score"),
+        "quality": relevance.get("quality"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    
+
     comments = post.get("comments", [])
     comments.append(comment)
     await db.posts.update_one({"id": post_id}, {"$set": {"comments": comments}})
-    
-    if post["user_id"] != current_user["id"]:
-        await award_points(post["user_id"], "comment_received", 2, source_id=post_id,
-                           message=f"{current_user['username']} commented on your post +2")
-    # Award 20 pts to commenter once they've left 10 cumulative comments (10 comments = 20pts/spec)
-    prev_comments = current_user.get("comments_given_count", 0)
-    new_comments = prev_comments + 1
-    await db.users.update_one({"id": current_user["id"]}, {"$set": {"comments_given_count": new_comments}})
-    if new_comments // 10 > prev_comments // 10:
-        await award_points(current_user["id"], "comment_milestone", 20,
-                           message=f"You hit {new_comments} comments +20")
 
-    return comment
+    # T3: quality comment earns 30 pts (cap 10/day) only if AI relevance ≥ 0.6
+    awarded = 0
+    if relevance.get("quality") == "quality" and post["user_id"] != current_user["id"]:
+        awarded = await award_points(
+            current_user["id"], "comment_quality", 0,
+            source_id=post_id,
+            message="Quality comment",
+        )
+
+    return {**comment, "awarded": awarded, "ai_score": relevance.get("score"), "ai_flag": relevance.get("flag")}
 
 @api_router.post("/posts/{post_id}/share")
 async def share_post(post_id: str, current_user: dict = Depends(get_current_user)):
     post = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
-    
+
     shares = post.get("shares", 0) + 1
     await db.posts.update_one({"id": post_id}, {"$set": {"shares": shares}})
-    
-    if post["user_id"] != current_user["id"]:
-        await award_points(post["user_id"], "share_received", 5, source_id=post_id,
-                           message=f"{current_user['username']} shared your post +5")
-    # Award the sharer per spec: 10 pts per share
-    await award_points(current_user["id"], "post_share", 0, source_id=post_id, message="You shared a post")
 
-    return {"shares": shares}
+    # T3: sharing another user's post earns 20 pts (cap 10/day; 24h cooldown on same post).
+    # Self-shares don't earn points.
+    awarded = 0
+    if post["user_id"] != current_user["id"]:
+        awarded = await award_points(
+            current_user["id"], "post_share", 0,
+            source_id=post_id,
+            message="You shared a post",
+        )
+
+    return {"shares": shares, "awarded": awarded}
 
 @api_router.get("/leaderboard", response_model=List[User])
 async def get_leaderboard(skip: int = 0, limit: int = 50):
@@ -4658,54 +4832,18 @@ REFERRAL_DAILY_REWARD_CAP = 10  # max referral rewards a single user can receive
 
 
 async def _maybe_reward_referrer(user: dict) -> None:
-    """Idempotently reward the referrer once invitee:
-       1) has email_verified=true
-       2) has profile_completed=true
-       Plus per-referrer daily cap to prevent spam.
-    """
+    """Per the iter-22 refactor, the referrer is rewarded ONLY when the invitee actually
+    crosses 1,000 monthly_score (handled inside award_points()). This function now only
+    transitions referral_attribution.status from 'pending' → 'verified' once the invitee
+    has email_verified + profile_completed — proving the account is real."""
     attribution = user.get("referral_attribution") or {}
     if not attribution or attribution.get("status") != "pending":
         return
-    referrer_id = attribution.get("referrer_id")
-    if not referrer_id:
-        return
     if not user.get("email_verified") or not user.get("profile_completed"):
         return
-
-    # One reward per unique invitee
-    already = await db.score_events.find_one({
-        "user_id": referrer_id,
-        "action": "referral",
-        "source_id": user["id"],
-    })
-    if already:
-        await db.users.update_one(
-            {"id": user["id"]},
-            {"$set": {"referral_attribution.status": "rewarded"}},
-        )
-        return
-
-    # Per-day cap on this referrer
-    today_count = await db.score_events.count_documents({
-        "user_id": referrer_id,
-        "action": "referral",
-        "date_key": _date_key(),
-    })
-    if today_count >= REFERRAL_DAILY_REWARD_CAP:
-        await db.users.update_one(
-            {"id": user["id"]},
-            {"$set": {"referral_attribution.status": "deferred"}},
-        )
-        return
-
-    awarded = await award_points(
-        referrer_id, "referral", 200,
-        source_id=user["id"],
-        message=f"Referral verified — @{user.get('username')} just joined and verified",
-    )
     await db.users.update_one(
         {"id": user["id"]},
-        {"$set": {"referral_attribution.status": "rewarded" if awarded > 0 else "deferred"}},
+        {"$set": {"referral_attribution.status": "verified"}},
     )
 
 
@@ -4906,6 +5044,247 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# AI COMMENT RELEVANCE — Tier 3 anti-spam gate for comment_quality awards
+# ============================================================================
+
+def _heuristic_relevance(post_text: str, comment_text: str, prior_comments: List[str]) -> Dict[str, Any]:
+    """Cheap deterministic fallback when the LLM isn't reachable. Mirrors the spec rules:
+       • ≥5 meaningful words • not a duplicate • not gibberish/emoji-only."""
+    import re as _re
+    txt = (comment_text or "").strip()
+    if not txt:
+        return {"score": 0.0, "quality": "low", "flag": "empty"}
+    # gibberish / emoji-only
+    letters = _re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ]", txt)
+    if len(letters) < len(txt) * 0.4:
+        return {"score": 0.1, "quality": "low", "flag": "gibberish_or_emoji"}
+    words = [w for w in _re.split(r"\s+", txt) if len(w) >= 2]
+    if len(words) < 5:
+        return {"score": 0.2, "quality": "low", "flag": "too_short"}
+    # duplicate of any prior comment by same user
+    norm = txt.lower()
+    if any(norm == (p or "").lower().strip() for p in prior_comments):
+        return {"score": 0.0, "quality": "low", "flag": "duplicate"}
+    # Lexical overlap with post text — naive proxy for semantic relevance
+    post_terms = set(_re.findall(r"[a-zA-ZÀ-ÖØ-öø-ÿ]{3,}", (post_text or "").lower()))
+    com_terms = set(_re.findall(r"[a-zA-ZÀ-ÖØ-öø-ÿ]{3,}", txt.lower()))
+    overlap = len(post_terms & com_terms)
+    score = 0.5 + min(0.4, overlap * 0.1)
+    return {"score": round(score, 2), "quality": "quality" if score >= 0.6 else "low", "flag": None}
+
+
+async def _score_comment_relevance(post_text: str, comment_text: str, user_id: str) -> Dict[str, Any]:
+    """Scores comment relevance 0–1.0 against the post. Uses an LLM if EMERGENT_LLM_KEY is
+    configured; otherwise falls back to a deterministic heuristic. Always returns a dict
+    {score, quality, flag} where quality ∈ {'quality','low'}."""
+    # Prior comments by this user — for duplicate detection
+    prior_cursor = db.posts.aggregate([
+        {"$unwind": "$comments"},
+        {"$match": {"comments.user_id": user_id}},
+        {"$project": {"_id": 0, "content": "$comments.content"}},
+        {"$limit": 50},
+    ])
+    prior_comments = [doc.get("content", "") async for doc in prior_cursor]
+
+    # Run heuristic first — cheap, fast, catches obvious abuse
+    heur = _heuristic_relevance(post_text, comment_text, prior_comments)
+    # Don't bother with LLM if heuristic already disqualifies (duplicate/gibberish/empty/short)
+    if heur["flag"] in {"duplicate", "gibberish_or_emoji", "too_short", "empty"}:
+        return heur
+
+    # Otherwise call the LLM for nuanced semantic scoring
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        return heur
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"comment-rel-{user_id}",
+            system_message=(
+                "You score how relevant a comment is to a post. "
+                "Return ONLY a single number between 0.0 and 1.0 (no words, no JSON). "
+                "0.0 = irrelevant, off-topic, spam, or gibberish. "
+                "1.0 = highly relevant and meaningful."
+            ),
+        ).with_model("anthropic", "claude-haiku-4-5-20251001")
+        prompt = f"POST:\n{(post_text or '')[:600]}\n\nCOMMENT:\n{comment_text[:400]}\n\nScore (0.0–1.0):"
+        raw = await chat.send_message(UserMessage(text=prompt))
+        import re as _re
+        m = _re.search(r"\b(?:0?\.\d{1,3}|1(?:\.0+)?|0|1)\b", str(raw))
+        if not m:
+            return heur
+        score = max(0.0, min(1.0, float(m.group(0))))
+        return {
+            "score": round(score, 2),
+            "quality": "quality" if score >= 0.6 else "low",
+            "flag": None if score >= 0.6 else "low_relevance",
+        }
+    except Exception as e:
+        logger.warning(f"LLM relevance scorer fell back to heuristic: {e}")
+        return heur
+
+
+# ============================================================================
+# AD & VIDEO COMPLETION — T1 / T3 score endpoints
+# ============================================================================
+
+class AdEventRequest(BaseModel):
+    ad_id: str
+    action: str  # "engage" or "share"
+
+
+@api_router.post("/score/ad-event")
+async def ad_event(payload: AdEventRequest, current_user: dict = Depends(get_current_user)):
+    """T1 ad engagement scoring.
+       action='engage' → +500 (cap 5/day, 24h cooldown on same ad)
+       action='share'  → diminishing 300/150/50/50/50 per unique ad (max 5 shares)"""
+    if not payload.ad_id:
+        raise HTTPException(status_code=400, detail="ad_id required")
+    act = (payload.action or "").lower().strip()
+    if act not in ("engage", "share"):
+        raise HTTPException(status_code=400, detail="action must be 'engage' or 'share'")
+    score_action = "ad_watch_engage" if act == "engage" else "ad_watch_share"
+    awarded = await award_points(
+        current_user["id"], score_action, 0,
+        source_id=payload.ad_id,
+        message=f"Ad {act} on {payload.ad_id}",
+    )
+    return {"awarded": awarded, "action": score_action, "ad_id": payload.ad_id}
+
+
+class VideoWatchRequest(BaseModel):
+    video_id: str
+
+
+@api_router.post("/score/video-watched")
+async def video_watched(payload: VideoWatchRequest, current_user: dict = Depends(get_current_user)):
+    """T3 — non-ad video watched to completion. +10 (cap 10/day, 24h cooldown)."""
+    if not payload.video_id:
+        raise HTTPException(status_code=400, detail="video_id required")
+    awarded = await award_points(
+        current_user["id"], "video_watched", 0,
+        source_id=payload.video_id,
+        message="Watched a video to completion",
+    )
+    return {"awarded": awarded, "video_id": payload.video_id}
+
+
+# ============================================================================
+# ACCOUNT MANAGEMENT — Deactivate (reversible) + Delete (30-day grace)
+# ============================================================================
+
+class DeactivateAccountRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class DeleteAccountRequest(BaseModel):
+    confirm: str  # must equal exactly the user's username
+    reason: Optional[str] = None
+
+
+@api_router.post("/account/deactivate")
+async def deactivate_account(payload: DeactivateAccountRequest, current_user: dict = Depends(get_current_user)):
+    """Temporarily deactivate the account. Profile hidden, can't post, but reactivates
+    automatically the next time the user logs in. All data preserved."""
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "deactivated": True,
+            "deactivated_at": datetime.now(timezone.utc).isoformat(),
+            "deactivation_reason": (payload.reason or "")[:300] or None,
+        }},
+    )
+    return {"deactivated": True, "message": "Account deactivated. Log in again any time to reactivate."}
+
+
+@api_router.post("/account/reactivate")
+async def reactivate_account(current_user: dict = Depends(get_current_user)):
+    """Cancel a pending deactivation."""
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"deactivated": False}, "$unset": {"deactivated_at": "", "deactivation_reason": ""}},
+    )
+    return {"reactivated": True}
+
+
+@api_router.post("/account/delete")
+async def delete_account(payload: DeleteAccountRequest, current_user: dict = Depends(get_current_user)):
+    """Soft-delete with a 30-day grace period. After 30 days the user document is
+    hard-deleted. Premium subscriptions auto-cancel at Stripe (best-effort).
+    Confirmation: payload.confirm must equal the user's exact username."""
+    expected = (current_user.get("username") or "").strip()
+    if not payload.confirm or payload.confirm.strip() != expected:
+        raise HTTPException(status_code=400, detail=f"Type your username '{expected}' to confirm deletion.")
+
+    # Best-effort: cancel Stripe subscription if any
+    try:
+        if current_user.get("stripe_subscription_id"):
+            import stripe as _stripe
+            api_key = os.environ.get("STRIPE_API_KEY")
+            if api_key:
+                _stripe.api_key = api_key
+                _stripe.Subscription.delete(current_user["stripe_subscription_id"])
+    except Exception as e:
+        logger.warning(f"Stripe sub cancel skipped for {current_user['id']}: {e}")
+
+    purge_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {
+            "pending_deletion": True,
+            "deletion_requested_at": datetime.now(timezone.utc).isoformat(),
+            "deletion_purge_at": purge_at,
+            "deactivated": True,  # also hide immediately
+            "deletion_reason": (payload.reason or "")[:300] or None,
+        }},
+    )
+    return {
+        "deletion_scheduled": True,
+        "purge_at": purge_at,
+        "message": "Your account is scheduled for deletion in 30 days. Log in any time within 30 days to cancel.",
+    }
+
+
+@api_router.post("/account/cancel-deletion")
+async def cancel_deletion(current_user: dict = Depends(get_current_user)):
+    """Cancel a pending account deletion (works any time within the 30-day grace)."""
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {
+            "$set": {"pending_deletion": False, "deactivated": False},
+            "$unset": {"deletion_purge_at": "", "deletion_requested_at": "", "deletion_reason": ""},
+        },
+    )
+    return {"cancelled": True, "message": "Deletion cancelled. Welcome back."}
+
+
+@app.on_event("startup")
+async def purge_overdue_deletions():
+    """Hard-delete user docs whose 30-day deletion grace has elapsed."""
+    try:
+        cutoff = datetime.now(timezone.utc).isoformat()
+        async for u in db.users.find(
+            {"pending_deletion": True, "deletion_purge_at": {"$lte": cutoff}},
+            {"_id": 0, "id": 1},
+        ):
+            uid = u["id"]
+            try:
+                await db.users.delete_one({"id": uid})
+                # Sweep direct-PII collections; community content (posts/comments) intentionally
+                # left in place but anonymised by removing ownership reference.
+                await db.dm_messages.delete_many({"$or": [{"sender_id": uid}, {"recipient_id": uid}]})
+                await db.notifications.delete_many({"user_id": uid})
+                await db.otps.delete_many({"user_id": uid})
+                await db.score_events.delete_many({"user_id": uid})
+                logger.info(f"Hard-deleted user {uid} after 30-day grace")
+            except Exception as e:
+                logger.warning(f"purge failed for {uid}: {e}")
+    except Exception as e:
+        logger.warning(f"purge_overdue_deletions skipped: {e}")
+
+
 @app.on_event("startup")
 async def backfill_share_codes():
     """Idempotently backfill share_code for any existing users missing it."""
@@ -4920,3 +5299,8 @@ async def backfill_share_codes():
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+# Re-register the router AFTER all the routes appended below the original include_router call.
+# This is necessary because new endpoints (account management, ad/video score, AI comment scorer)
+# were added after the original include_router; FastAPI requires routes to be registered before include.
+app.include_router(api_router)

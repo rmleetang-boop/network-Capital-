@@ -40,6 +40,7 @@ import PremiumSuccessPage from './pages/PremiumSuccessPage';
 import MessagesPage from './pages/MessagesPage';
 import ChatThreadPage from './pages/ChatThreadPage';
 import ActivitiesPage from './pages/ActivitiesPage';
+import AccountSettingsPage from './pages/AccountSettingsPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -234,6 +235,7 @@ function App() {
             <Route path="/messages/:userId" element={<ChatThreadPage user={user} />} />
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
+            <Route path="/settings" element={<AccountSettingsPage user={user} onLogout={handleLogout} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<Navigate to="/" replace />} />

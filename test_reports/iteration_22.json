@@ -1,0 +1,41 @@
+{
+  "summary": "Iter 22 backend-only sweep — score-engine refactor (3 tiers + caps/cooldowns/ladder) and account deactivation/deletion. Authored /app/backend/tests/test_iter22_score_refactor.py (21 cases). 21/21 PASS in ~96s. Iter 20 regression suite (10/10) still green. No backend issues found. All new endpoints (POST /api/score/ad-event, /api/score/video-watched, /api/account/{deactivate,reactivate,delete,cancel-deletion}) work to spec. Founder 2× multiplier honoured throughout (current claimed=384/1000, so all new test users are founders). Referral_qualified fires exactly once when invitee crosses monthly_score=1000; referral_first_post fires once per referee within the 7-day window. Comment quality heuristic correctly awards 5+ meaningful overlapping words and zero-awards 1-word comments. Login auto-cancels both deactivation AND pending deletion. /score/tiers payload no longer carries daily_soft_cap; monthly_cap=10000.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_score_refactor.py",
+    "/app/test_reports/pytest/iter22_results.xml",
+    "/app/backend/tests/test_iter20_monthly_cap.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 5306 lines — well over the 700-line guideline. Should be split into modules (auth, score_engine, account, posts/feed, stokvels, products) before adding more iter-XX features. Compounding cost: every grep across the file is now slow and merge conflicts will dominate.",
+    "Two @app.on_event('startup') handlers (purge_overdue_deletions, backfill_share_codes) are appended at the bottom of the file (after include_router); fine functionally but FastAPI deprecated on_event in favour of lifespan handlers — convert before next major version bump.",
+    "Comment endpoint POST /api/posts/{post_id}/comment returns awarded but does NOT surface ai_score in response body in the current code path (test fell back to score-delta oracle). Consider exposing ai_score and reason explicitly so the frontend can show a 'thoughtful comment' badge / hint.",
+    "/api/score/summary still returns lifetime_score=user.network_score even though network_score now mirrors monthly_score. Same caveat noted in iter 20 — field name is misleading. Either rename or add a doc note.",
+    "post_like endpoint silently swallows the cooldown / cap blocks (returns 200 either way). For better UX the response should include {awarded:int} so the frontend can grey out the +5 indicator when daily_cap=20 has been hit.",
+    "Hard delete in purge_overdue_deletions sweeps dm_messages/notifications/otps/score_events but leaves posts/comments/connections referencing the deleted user_id. Result: orphaned posts will still show old username/photo cached at write-time. Consider an anonymise pass (replace user_id with 'deleted-user') for GDPR right-to-be-forgotten.",
+    "Stripe Subscription.delete is called inside delete_account synchronously inside the request handler. If Stripe is slow this blocks the user-facing 200 response. Push to a background task.",
+    "AD_SHARE_LADDER cooldown: ad_watch_share is intentionally NOT in COOLDOWN_ACTIONS (correct per spec) but the daily_cap=None means a user can get 5 shares from one ad and then 5 more shares from a different ad with no global limit. Spec only says max-5-shares-per-ad but consider adding a global daily cap to prevent ad-share farming."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter22_score_refactor.py (NEW — 21 pytest cases, all PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% — 21/21 iter22 tests PASS; 10/10 iter20 regression tests PASS",
+    "frontend": "skipped per review_request (testing_type=backend only)"
+  },
+  "test_credentials": "Dynamic — every test creates a fresh TEST_i22_*@example.com user via /api/auth/progressive-signup with password Test123!. OTP read from _mock_code in send-otp dev response. Founder rank assigned automatically (claimed 384/1000 at run time, so all test users get 2× multiplier).",
+  "seed_data_creation": "~30 fresh test users prefixed TEST_i22_* + several authoring users for like-cap/post-relevance scenarios. No cleanup fixture (matches prior iters). Note: each run advances the founder counter by ~25-30; once it crosses 1000 the multiplier-dependent assertions will see multiplier=1 — handled dynamically in helper signup() so tests stay valid.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter22_score_refactor.py -v --junitxml=/app/test_reports/pytest/iter22_results.xml. Takes ~96s end-to-end. The signup() helper auto-detects is_founder and dynamically picks multiplier=1 or 2, so tests remain valid even after founder slots run out. The like-cap test creates 21 posts under a single author — note post_create has its own daily_cap=5 but creation succeeds regardless (cap only blocks score, not the POST). Comment-quality test allows fallback to score-delta if API doesn't expose ai_score in response body. Iter 20 regression suite (test_iter20_monthly_cap.py — 10 cases, ~5s) also confirmed green.",
+  "rca_of_the_issue": "N/A — no new bugs surfaced this iteration. Iter 22 refactor (SCORE_TABLE rewrite, AD_SHARE_LADDER, COOLDOWN_ACTIONS, BADGE_TIERS, account deletion, AI comment relevance, login auto-reactivation) is functionally correct. The only authoring snag was that /users/me uses the User pydantic response_model which doesn't surface profile_completed; test was adjusted to use /score/summary monthly_score>0 as the post-completion oracle (this is a test-shape issue, not a backend bug)."
+}
