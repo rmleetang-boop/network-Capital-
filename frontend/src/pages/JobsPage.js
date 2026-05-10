@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Plus, Search, MapPin, DollarSign, Lock, Loader2, Inbox, Users as UsersIcon } from 'lucide-react';
 import { axiosInstance } from '../App';
@@ -209,10 +208,12 @@ const JobsPage = ({ user }) => {
 };
 
 const JobRow = ({ job, onClick, showStatus, showApplicants }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+  <div
+    role="button"
+    tabIndex={0}
     onClick={onClick}
-    className="bg-white rounded-2xl border border-gray-100 p-4 cursor-pointer hover:shadow-md transition-shadow"
+    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick && onClick(); } }}
+    className="bg-white rounded-2xl border border-gray-100 p-4 cursor-pointer hover:shadow-md transition-shadow animate-fade-in"
     data-testid={`job-row-${job.id}`}>
     <div className="flex items-start justify-between gap-2">
       <div className="flex-1 min-w-0">
@@ -231,7 +232,7 @@ const JobRow = ({ job, onClick, showStatus, showApplicants }) => (
         </span>
       )}
     </div>
-  </motion.div>
+  </div>
 );
 
 const StatusBadge = ({ status }) => {

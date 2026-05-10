@@ -5780,7 +5780,7 @@ async def apply_to_job(job_id: str, req: ApplyJobRequest, current_user: dict = D
     # One application per (job, user)
     existing = await db.job_applications.find_one({"job_id": job_id, "applicant_id": current_user["id"]})
     if existing:
-        raise HTTPException(status_code=400, detail="You've already applied to this job.")
+        raise HTTPException(status_code=409, detail="You've already applied to this job.")
 
     app_id = str(uuid.uuid4())
     application = {

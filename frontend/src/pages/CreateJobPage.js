@@ -61,12 +61,49 @@ const CreateJobPage = ({ user }) => {
   const [skills, setSkills] = useState([]);
   const [steps, setSteps] = useState([]);
 
+  const [unlocking, setUnlocking] = useState(false);
+  const handleUnlock = async () => {
+    setUnlocking(true);
+    try {
+      const r = await axiosInstance.post('/jobs/checkout', {
+        origin_url: window.location.origin,
+      });
+      if (r.data?.url) {
+        window.location.href = r.data.url;
+      } else {
+        toast.error('Could not start checkout.');
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not start checkout.');
+    } finally {
+      setUnlocking(false);
+    }
+  };
+
   if (!user?.job_post_unlocked) {
     return (
-      <div className="min-h-screen bg-background-DEFAULT flex items-center justify-center p-6 text-center">
-        <div>
-          <p className="text-text-secondary mb-3">You need to unlock job posting first ($50 once-off).</p>
-          <button onClick={() => navigate('/jobs')} className="bg-primary text-white px-5 py-2.5 rounded-full font-semibold">
+      <div className="min-h-screen bg-background-DEFAULT flex items-center justify-center p-6" data-testid="job-post-unlock-gate">
+        <div className="max-w-md w-full bg-white rounded-2xl border border-gray-100 p-6 text-center shadow-sm">
+          <div className="w-12 h-12 mx-auto mb-4 rounded-xl bg-secondary/20 flex items-center justify-center">
+            <Plus size={22} className="text-primary" />
+          </div>
+          <h2 className="text-lg font-heading font-bold text-primary mb-1">Unlock job posting</h2>
+          <p className="text-sm text-text-secondary mb-1">A once-off <strong className="text-primary">$50</strong> fee enables your account to publish unlimited roles to the Network Capital community.</p>
+          <p className="text-[11px] text-text-muted mb-5">Powered by Stripe. Cancel any time before paying.</p>
+          <button
+            onClick={handleUnlock}
+            disabled={unlocking}
+            className="w-full bg-secondary text-primary font-bold px-5 py-3 rounded-full inline-flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
+            data-testid="unlock-job-posting-cta"
+          >
+            {unlocking ? <Loader2 size={16} className="animate-spin" /> : null}
+            Unlock for $50
+          </button>
+          <button
+            onClick={() => navigate('/jobs')}
+            className="w-full mt-3 text-xs text-text-muted hover:text-text-secondary"
+            data-testid="unlock-back-jobs"
+          >
             Back to Jobs
           </button>
         </div>

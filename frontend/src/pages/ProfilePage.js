@@ -421,6 +421,38 @@ const ProfilePage = ({ user, setUser }) => {
           )}
 
           <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 mb-6">
+            {/* Always-visible Profile-type toggle (Social ↔ Professional) */}
+            <div className="mb-4" data-testid="user-kind-toggle">
+              <p className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">Profile type</p>
+              <div className="inline-flex p-1 bg-white rounded-full border border-gray-200">
+                {[{ v: 'social', label: 'Social' }, { v: 'professional', label: 'Professional' }].map((k) => (
+                  <button
+                    key={k.v}
+                    type="button"
+                    disabled={profileUser.user_kind === k.v}
+                    onClick={async () => {
+                      try {
+                        const res = await axiosInstance.put('/users/me', { user_kind: k.v });
+                        setUser(res.data);
+                        setProfileUser(res.data);
+                        setEditData((prev) => ({ ...prev, user_kind: k.v }));
+                        toast.success(`Switched to ${k.label}`);
+                      } catch (err) {
+                        toast.error(err.response?.data?.detail || 'Could not switch profile type');
+                      }
+                    }}
+                    className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all ${
+                      profileUser.user_kind === k.v
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'text-text-secondary hover:text-primary'
+                    }`}
+                    data-testid={`user-kind-toggle-${k.v}`}
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {profileUser.user_kind === 'professional' && (
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-3 bg-primary text-white text-[10px] font-bold uppercase tracking-wider rounded-full" data-testid="professional-badge">
                 <Briefcase size={11} /> Professional

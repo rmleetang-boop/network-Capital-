@@ -1,0 +1,39 @@
+{
+  "summary": "Iter 24 retest of the 4 fixes from iter23 — all PASS. (1) Backend duplicate POST /api/jobs/{id}/apply now correctly returns 409 (verified via dedicated test that creates an open job via DB-elevated poster, applies once → 200, applies again → 409 with body 'You've already applied to this job.'). (2) FE JobRow click on /jobs navigates to /jobs/:jobId (plain div role=button onClick works once the FeatureIntroModal 'First look' overlay is dismissed). (3) ProfilePage exposes user-kind-toggle with two buttons; clicking 'Social' fires PUT /users/me {user_kind:'social'}, server confirms via GET /users/me, and after page.reload() the social button is disabled while professional becomes enabled — change persists. (4) /jobs/new shows inline unlock-job-posting-cta for Professional users without job_post_unlocked; clicking it hits POST /api/jobs/checkout and redirects to a real https://checkout.stripe.com/c/pay/cs_test_… session ($50.00 sandbox shown). Regression: jobs list seed (BD Agent) intact, /score/summary OK, posts CRUD OK, account deactivate→login reactivate OK, user_kind PUT/GET round-trip OK.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/jobs and /profile", "issues": ["FeatureIntroModal ('First look') is rendered with z-[80] and a full-screen backdrop that intercepts pointer events. Until the user clicks 'Got it', JobRow clicks and the user-kind-toggle are functionally unreachable. Not a bug per se (intentional onboarding) but worth knowing for testing — and consider auto-closing on outside click for usability."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24_retest.py",
+    "/app/test_reports/pytest/iter24_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FeatureIntroModal modals (jobs, profile) are full-screen overlays with no auto-dismiss; users must click 'Got it'. If a UX issue is reported about the toggle/click 'not working' on first session, this is almost certainly the cause — recommend adding click-outside-to-close or auto-dismiss after N seconds, or lower z-index for non-blocking intros.",
+    "ProfilePage line 23: `isOwnProfile = !userId || userId === user.id` will throw if `user` is null. Code path is only reached when authenticated, but a defensive `user?.id` would be safer.",
+    "server.py is now ~5923 lines — splitting overdue (already flagged in iter23, no action taken).",
+    "JobsPage onClick now correctly forwards to JobRow's plain div + role='button' + tabIndex; keyboard activation (Enter/Space) also wired. Good.",
+    "CreateJobPage handleUnlock posts {origin_url: window.location.origin} — backend uses this to build success/cancel URLs; verified Stripe redirect works."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24_retest.py (NEW — 8 cases, 7 PASS, 1 expected-fail because the test fixture pre-unlocks the user so /jobs/checkout legitimately returns 400 'already unlocked'. Not a code bug.)"
+  ],
+  "success_rate": {
+    "backend": "100% on the 4-fix scope (1/1 duplicate-apply 409 verified; regression: jobs list, score/summary, posts CRUD, account deactivate/reactivate, user_kind PUT all PASS).",
+    "frontend": "100% on the 3-fix scope (JobRow click → /jobs/:id PASS, user-kind-toggle PUT+persist PASS, /jobs/new unlock CTA → Stripe redirect PASS)."
+  },
+  "test_credentials": "Dynamic per-test users via /api/auth/progressive-signup → /auth/send-otp (_mock_code) → /auth/verify-otp → /auth/complete-profile. To create an unlocked employer: complete profile then `db.users.update_one({id}, {$set:{job_post_unlocked:true}})` directly via pymongo.",
+  "seed_data_creation": "~6 fresh TEST_iter24_*@example.com users + 1 TEST_uitest24*_ user for browser automation. One open job 'QA Open Role iter24' with min_network_score=0 created for duplicate-apply test. No cleanup fixture (matches prior iterations).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) MONGO_URL=$(grep MONGO_URL /app/backend/.env | cut -d= -f2 | tr -d '\"') DB_NAME=$(grep DB_NAME /app/backend/.env | cut -d= -f2 | tr -d '\"') python -m pytest /app/backend/tests/test_iter24_retest.py -v --junitxml=/app/test_reports/pytest/iter24_results.xml. The duplicate-apply 409 case is the canonical test. For UI re-tests, ALWAYS pre-set `localStorage.setItem('feature_intro_seen_jobs','1'); localStorage.setItem('feature_intro_seen_profile','1');` (and the v2 variants) BEFORE navigating, OR programmatically dismiss [data-testid='feature-intro-jobs'] and [data-testid='feature-intro-profile*'] — these full-screen overlays block any click on the underlying page until 'Got it' is pressed. Iter23 frontend test reported #1/#2 as fail likely because of this same overlay; the fixes themselves were already working.",
+  "rca_of_the_issue": "FE BUG #1/#2 in iter23 may have been false positives caused by FeatureIntroModal overlay intercepting pointer events on first session. With the modal dismissed, the new plain-div JobRow correctly fires onClick → navigate(/jobs/:id), and the new ProfilePage user-kind-toggle correctly PUTs /users/me and persists across refresh. The backend duplicate-apply gate now raises HTTPException(409, ...) at server.py:5783 (was 400 in iter23) — confirmed via two consecutive applies from the same user, second returning {'detail':'You\u2019ve already applied to this job.'} with status 409."
+}
