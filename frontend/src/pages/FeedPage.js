@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
 import MockAdButton from '../components/MockAdButton';
 import StoriesRibbon from '../components/StoriesRibbon';
@@ -92,6 +92,42 @@ const FeedPage = ({ user }) => {
   const handleShare = (postId) => {
     const post = posts.find((p) => p.id === postId);
     if (post) setSharingPost(post);
+  };
+
+  const handleDeletePost = async (postId) => {
+    if (!window.confirm('Delete this post?\n\nYou will lose any score earned for this post, and points earned by people who liked or commented on it will also be reversed.')) return;
+    try {
+      await axiosInstance.delete(`/posts/${postId}`);
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+      toast.success('Post deleted');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not delete post');
+    }
+  };
+
+  const handleEditPost = async (postId, newContent) => {
+    try {
+      const res = await axiosInstance.patch(`/posts/${postId}`, { content: newContent });
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, ...res.data } : p)));
+      toast.success('Post updated');
+      return true;
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not update post');
+      return false;
+    }
+  };
+
+  const handleDeleteComment = async (postId, commentId) => {
+    if (!window.confirm('Delete this comment?\n\nIf score points were earned, they will be reversed.')) return;
+    try {
+      await axiosInstance.delete(`/posts/${postId}/comments/${commentId}`);
+      setPosts((prev) => prev.map((p) =>
+        p.id === postId ? { ...p, comments: (p.comments || []).filter((c) => c.id !== commentId) } : p
+      ));
+      toast.success('Comment deleted');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not delete comment');
+    }
   };
 
   const confirmShare = async () => {
@@ -197,6 +233,9 @@ const FeedPage = ({ user }) => {
             onComment={handleComment}
             onShare={handleShare}
             onUserClick={(userId) => navigate(`/profile/${userId}`)}
+            onDeletePost={handleDeletePost}
+            onEditPost={handleEditPost}
+            onDeleteComment={handleDeleteComment}
             index={index}
           />
         ))}
@@ -318,13 +357,18 @@ const FeedPage = ({ user }) => {
   );
 };
 
-const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, index }) => {
+const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, onDeletePost, onEditPost, onDeleteComment, index }) => {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [showHeart, setShowHeart] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(post.content || '');
+  const [savingEdit, setSavingEdit] = useState(false);
   const lastTapRef = useRef(0);
   const isLiked = post.likes.includes(currentUserId);
   const isAuto = !!post.is_auto_narrated;
+  const isOwner = post.user_id === currentUserId;
 
   const handleCommentSubmit = () => {
     if (commentText.trim()) {
@@ -380,15 +424,93 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
               </span>
             )}
           </div>
-          <p className="text-[11px] text-text-muted">{new Date(post.created_at).toLocaleDateString()}</p>
+          <p className="text-[11px] text-text-muted">
+            {new Date(post.created_at).toLocaleDateString()}
+            {post.edited_at && <span className="ml-1.5 italic">· edited</span>}
+          </p>
         </div>
+
+        {/* Owner-only actions menu */}
+        {isOwner && (
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="p-1.5 rounded-full hover:bg-gray-100 text-text-secondary"
+              aria-label="Post actions"
+              data-testid={`post-menu-button-${index}`}
+            >
+              <MoreHorizontal size={18} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-gray-100 z-20 overflow-hidden" data-testid={`post-menu-${index}`}>
+                  <button
+                    onClick={() => { setEditing(true); setEditValue(post.content || ''); setMenuOpen(false); }}
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-text-primary"
+                    data-testid={`post-edit-button-${index}`}
+                  >
+                    <Edit2 size={14} /> Edit post
+                  </button>
+                  <button
+                    onClick={() => { setMenuOpen(false); onDeletePost && onDeletePost(post.id); }}
+                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-50 flex items-center gap-2 text-red-600 border-t border-gray-100"
+                    data-testid={`post-delete-button-${index}`}
+                  >
+                    <Trash2 size={14} /> Delete post
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Content text */}
-      {post.content && (
-        <div className="px-4 pb-3">
-          <HashtagText text={post.content} className="text-text-primary text-sm whitespace-pre-wrap" />
+      {/* Content text — switches to inline editor when owner taps Edit */}
+      {editing ? (
+        <div className="px-4 pb-3 space-y-2" data-testid={`post-edit-area-${index}`}>
+          <textarea
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            rows={3}
+            maxLength={5000}
+            className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none"
+            data-testid={`post-edit-input-${index}`}
+            autoFocus
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => { setEditing(false); setEditValue(post.content || ''); }}
+              disabled={savingEdit}
+              className="px-3 py-1.5 rounded-full text-xs font-semibold text-text-secondary hover:bg-gray-50 border border-gray-200 disabled:opacity-50"
+              data-testid={`post-edit-cancel-${index}`}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                const v = editValue.trim();
+                if (!v) return;
+                if (v === (post.content || '')) { setEditing(false); return; }
+                setSavingEdit(true);
+                const ok = await onEditPost(post.id, v);
+                setSavingEdit(false);
+                if (ok) setEditing(false);
+              }}
+              disabled={savingEdit || !editValue.trim()}
+              className="px-3 py-1.5 rounded-full text-xs font-bold bg-primary text-white hover:bg-primary-hover disabled:opacity-50 inline-flex items-center gap-1.5"
+              data-testid={`post-edit-save-${index}`}
+            >
+              <Check size={12} /> {savingEdit ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         </div>
+      ) : (
+        post.content && (
+          <div className="px-4 pb-3">
+            <HashtagText text={post.content} className="text-text-primary text-sm whitespace-pre-wrap" />
+          </div>
+        )
       )}
 
       {/* Full-bleed media with double-tap to like */}
@@ -456,18 +578,33 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
       {/* Comments */}
       {showComments && (
         <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
-          {post.comments.map((comment) => (
-            <div key={comment.id} className="flex gap-2">
-              <Avatar className="w-8 h-8">
-                <AvatarImage src={comment.user_photo} />
-                <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1 bg-gray-50 rounded-xl p-3">
-                <p className="text-sm font-semibold text-text-primary">{comment.username}</p>
-                <HashtagText text={comment.content} className="text-sm text-text-secondary" />
+          {post.comments.map((comment) => {
+            const canDeleteComment = comment.user_id === currentUserId || isOwner;
+            return (
+              <div key={comment.id} className="flex gap-2 group">
+                <Avatar className="w-8 h-8">
+                  <AvatarImage src={comment.user_photo} />
+                  <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 bg-gray-50 rounded-xl p-3 relative">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-text-primary">{comment.username}</p>
+                    {canDeleteComment && (
+                      <button
+                        onClick={() => onDeleteComment && onDeleteComment(post.id, comment.id)}
+                        className="text-text-muted hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 -m-1"
+                        aria-label="Delete comment"
+                        data-testid={`comment-delete-${comment.id}`}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                  <HashtagText text={comment.content} className="text-sm text-text-secondary" />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           <div className="flex gap-2">
             <input

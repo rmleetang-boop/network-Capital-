@@ -33,6 +33,17 @@ Network Capital is a mobile-first **Community Resource Ecosystem** (formerly kno
 - Email OTP signup (MOCK)
 - Founder counter on landing page
 
+## NEW in iter 23 (Feb 2026) — Post & comment delete/edit
+- **Edit post**: `PATCH /api/posts/{id}` (author only). Re-extracts hashtags. Sets `edited_at`. Score is NOT changed on edit (zero cost to fix typos).
+- **Delete post**: `DELETE /api/posts/{id}` (author only). Cascades:
+  - Revokes the author's `post_create` points.
+  - Revokes every commenter's `comment_quality` points.
+  - Revokes every liker's `post_like` points.
+- **Delete comment**: `DELETE /api/posts/{id}/comments/{cid}`. Allowed by comment author OR post owner. Revokes the commenter's `comment_quality` points.
+- **Un-like**: now revokes the liker's `post_like` points (was a known abuse path: like → unlike → relike to game points).
+- **`revoke_score_event(user_id, action, source_id)`** helper — clamped at 0, removes score_event row so daily-cap counts re-open.
+- **Frontend**: "..." menu on each post card (owner only) → Edit (inline) / Delete (with confirmation explaining points reversal). Hover Trash icon next to each comment for owner / post-author moderators.
+
 ## NEW in iter 22 (Feb 2026) — major refactor
 
 ### Three-tier score engine

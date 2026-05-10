@@ -889,6 +889,35 @@ async def award_points(
 
     return awarded
 
+
+async def revoke_score_event(user_id: str, action: str, source_id: str) -> int:
+    """Reverses a previously-awarded score event when the user undoes the action
+    (delete post / delete comment / un-like). Removes the score_events row so daily-cap
+    counts re-open, and deducts the awarded points from monthly_score & network_score
+    (clamped at 0). Returns the number of points reversed (0 if nothing matched)."""
+    if not (user_id and action and source_id):
+        return 0
+    ev = await db.score_events.find_one({
+        "user_id": user_id, "action": action, "source_id": source_id,
+    })
+    if not ev:
+        return 0
+    pts = int(ev.get("points", 0))
+    await db.score_events.delete_one({"_id": ev["_id"]})
+    if pts > 0:
+        user = await db.users.find_one({"id": user_id}, {"_id": 0, "monthly_score": 1, "network_score": 1})
+        if user:
+            new_monthly = max(0, int(user.get("monthly_score", 0)) - pts)
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {
+                    "monthly_score": new_monthly,
+                    "network_score": new_monthly,
+                    "rank": calculate_rank(new_monthly),
+                }},
+            )
+    return pts
+
 @api_router.post("/auth/signup", response_model=AuthResponse)
 async def signup(request: SignupRequest):
     existing_user = await db.users.find_one({"email": request.email}, {"_id": 0})
@@ -2847,6 +2876,102 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
 
     return post_data
 
+
+class EditPostRequest(BaseModel):
+    content: str
+
+
+def _extract_hashtags(text: str) -> List[str]:
+    """Extract #hashtags from text (lowercase, no '#'). Mirrors create_post extraction."""
+    import re as _re
+    return list({m.lower() for m in _re.findall(r"#([\w]+)", text or "")})
+
+
+@api_router.patch("/posts/{post_id}", response_model=Post)
+async def edit_post(post_id: str, payload: EditPostRequest, current_user: dict = Depends(get_current_user)):
+    """Author-only edit of a post's text. Re-extracts hashtags. Adds an `edited_at` timestamp.
+    Score is NOT changed on edit (only on delete) to keep the cost of fixing a typo zero."""
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only edit your own posts")
+
+    new_content = (payload.content or "").strip()
+    if not new_content:
+        raise HTTPException(status_code=400, detail="Post content cannot be empty")
+    if len(new_content) > 5000:
+        raise HTTPException(status_code=400, detail="Post is too long (max 5,000 characters)")
+
+    update = {
+        "content": new_content,
+        "hashtags": _extract_hashtags(new_content),
+        "edited_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.posts.update_one({"id": post_id}, {"$set": update})
+    refreshed = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return refreshed
+
+
+@api_router.delete("/posts/{post_id}")
+async def delete_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    """Author-only delete. Cascades:
+       • revokes the author's +50 post_create score
+       • revokes every commenter's comment_quality score for this post
+       • revokes every liker's post_like score for this post
+       • removes the post (and its comments / likes) from the feed
+    """
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own posts")
+
+    revoked_total = 0
+
+    # 1) Revoke the author's post_create points
+    revoked_total += await revoke_score_event(current_user["id"], "post_create", post_id)
+
+    # 2) Revoke every commenter's comment_quality points
+    for c in (post.get("comments") or []):
+        if c.get("user_id"):
+            revoked_total += await revoke_score_event(c["user_id"], "comment_quality", post_id)
+
+    # 3) Revoke every liker's post_like points
+    for liker_id in (post.get("likes") or []):
+        revoked_total += await revoke_score_event(liker_id, "post_like", post_id)
+
+    await db.posts.delete_one({"id": post_id})
+    return {"deleted": True, "score_revoked": revoked_total}
+
+
+@api_router.delete("/posts/{post_id}/comments/{comment_id}")
+async def delete_comment(post_id: str, comment_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a comment. Allowed by:
+       • the comment's author (revokes their own comment_quality points)
+       • OR the post owner (moderation — also revokes the commenter's points)
+    """
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    comments = post.get("comments") or []
+    target = next((c for c in comments if c.get("id") == comment_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    is_comment_author = target.get("user_id") == current_user["id"]
+    is_post_owner = post["user_id"] == current_user["id"]
+    if not (is_comment_author or is_post_owner):
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
+
+    # Revoke comment_quality score from the comment author (if any was awarded)
+    revoked = await revoke_score_event(target.get("user_id"), "comment_quality", post_id)
+
+    new_comments = [c for c in comments if c.get("id") != comment_id]
+    await db.posts.update_one({"id": post_id}, {"$set": {"comments": new_comments}})
+    return {"deleted": True, "score_revoked": revoked}
+
 @api_router.get("/posts", response_model=List[Post])
 async def get_posts(skip: int = 0, limit: int = 20):
     posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
@@ -2862,6 +2987,8 @@ async def like_post(post_id: str, current_user: dict = Depends(get_current_user)
     if current_user["id"] in likes:
         likes.remove(current_user["id"])
         await db.posts.update_one({"id": post_id}, {"$set": {"likes": likes}})
+        # Un-liking revokes the +5 the user earned for this like (anti-abuse: like→unlike→relike loops)
+        await revoke_score_event(current_user["id"], "post_like", post_id)
         return {"liked": False, "likes_count": len(likes)}
     else:
         likes.append(current_user["id"])
