@@ -1,0 +1,52 @@
+{
+  "summary": "Iter 23 — backend + frontend sweep for Jobs feature, Resend OTP integration, and user_kind toggle. Authored /app/backend/tests/test_iter23_jobs_resend.py (18 cases, all PASS in 18s). Frontend: footer Careers modal flow PASS, /jobs list PASS, JobDetail renders fully via direct URL PASS, but two real frontend bugs found — (1) clicking a JobRow on /jobs does NOT navigate to /jobs/:jobId (URL stays unchanged) and (2) ProfilePage has no user_kind toggle widget (only displays current value as a badge). Resend OTP fallback path verified end-to-end: /auth/send-otp returns delivered=False with _mock_code (never 500s) and verify-otp accepts the fallback code. Backend logs confirm [OTP-FALLBACK] lines for non-account-owner emails (Resend test domain restriction).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/jobs/{id}/apply", "issue": "Duplicate application returns 400 (review_request expected 409). Error message: 'You\u2019ve already applied to this job.' Functionally correct but spec says 409. Either align code to 409 or update spec."},
+      {"endpoint": "POST /api/jobs/checkout", "issue": "Endpoint is /jobs/checkout (no /session suffix). Review_request mentioned /api/jobs/checkout/session — actual path is /api/jobs/checkout. Works correctly, just naming mismatch."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "JobsPage / JobRow", "issue": "Clicking a JobRow card on /jobs does NOT navigate to /jobs/:jobId. URL stays at /jobs after click on [data-testid='job-row-<id>']. Direct navigation to /jobs/<id> renders JobDetailPage correctly, so the route works \u2014 the onClick handler on motion.div is the broken piece. Likely framer-motion onClick bubbling or a stopPropagation upstream.", "selector": "[data-testid^='job-row-']", "priority": "HIGH"},
+      {"component": "ProfilePage", "issue": "Missing user_kind toggle widget. ProfilePage displays 'PROFESSIONAL' (or 'SOCIAL') as a static badge but provides NO control for the user to switch between Social and Professional. Review_request explicitly required this toggle to persist on refresh.", "selector": "n/a (component absent)", "priority": "HIGH"},
+      {"component": "CreateJobPage (/jobs/new)", "issue": "Professional user without job_post_unlocked sees only the static text 'You need to unlock job posting first ($50 once-off). Back to Jobs' \u2014 there is NO inline Stripe checkout CTA on /jobs/new itself; user must navigate back to /jobs and tap 'Unlock $50' header button. Review_request expected the unlock CTA on /jobs/new directly.", "selector": "/jobs/new", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Authenticated landing footer", "issues": ["When a user is authenticated, '/' renders FeedPage (no Footer component), so the auth-user \u2192 /jobs flow via the Careers footer link is unreachable. Flagged in review_request as a known limitation \u2014 included here for completeness."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_jobs_resend.py",
+    "/app/test_reports/pytest/iter23_results.xml"
+  ],
+  "action_items": [
+    "FIX FE: JobRow onClick \u2192 navigate to /jobs/:jobId. Inspect motion.div from framer-motion (may need wrapping div with onClick or using <Link>/<button> instead). Add a Playwright regression once fixed.",
+    "FIX FE: Add a user_kind toggle to ProfilePage that calls PUT /users/me { user_kind: 'social'|'professional' } and reflects the change after refresh. Backend already supports it (PUT /users/me validated in tests).",
+    "FIX FE: Surface the Stripe $50 unlock CTA inline on /jobs/new for Professional users without job_post_unlocked (instead of only showing the bounce-back message).",
+    "OPTIONAL BE: Change duplicate-apply response from 400 \u2192 409 to match review_request and standard REST semantics."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 5923 lines (was 5306 in iter22) and continuing to grow. Jobs routes, Resend integration, and seed-job all live in this monolith. Splitting is overdue \u2014 every iter adds ~600 lines.",
+    "Three @app.on_event('startup') handlers now exist (purge_overdue_deletions, backfill_share_codes, seed_network_capital_job). FastAPI has deprecated on_event; consolidate into a lifespan handler.",
+    "_send_otp_email is correctly wrapped in try/except so the endpoint never 500s on Resend errors (verified). Good defensive design \u2014 logs both [OTP-RESEND] success and [OTP-FALLBACK] failure with the code.",
+    "min_network_score=2000 on the seeded BD Agent job means no fresh signup user can apply via the UI happy-path. Good for production realism, but consider seeding a second open-to-all job for first-run user demos.",
+    "JobsPage uses motion.div for the row; the onClick is dropped (frontend bug). Replacing motion.div with a regular div (or wrapping with React Router <Link>) would fix and avoid the framer-motion gotcha.",
+    "JobDetailPage has no data-testid='job-apply-button' on the apply CTA \u2014 makes Playwright targeting harder. Add testid attributes for apply/close/edit actions."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter23_jobs_resend.py (NEW \u2014 18 pytest cases, all PASS)"
+  ],
+  "success_rate": {
+    "backend": "100% \u2014 18/18 iter23 backend tests PASS (Resend OTP fallback, user_kind PUT, jobs CRUD, jobs checkout, apply gate, regression on /score/summary + posts CRUD + account deactivate/reactivate)",
+    "frontend": "~62% \u2014 5/8 critical UI flows pass (footer modal open/close/dismiss/signin, /jobs list, JobDetail via direct URL, /jobs/new gate). 3 fail/gap: JobRow click \u219b detail nav, missing ProfilePage toggle, missing inline Stripe CTA on /jobs/new."
+  },
+  "test_credentials": "Dynamic per-test users created via /api/auth/progressive-signup \u2192 /auth/send-otp (returns _mock_code in fallback) \u2192 /auth/verify-otp \u2192 /auth/complete-profile. UI session bootstrapped by setting localStorage.token directly with a server-issued JWT.",
+  "seed_data_creation": "~10 fresh TEST_iter23_*@example.com users + 1 TEST_uitest_* user for browser automation. No cleanup fixture (matches prior iterations).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter23_jobs_resend.py -v --junitxml=/app/test_reports/pytest/iter23_results.xml (~18s). All 18 PASS as of this iteration. Resend is in test mode \u2014 only rmleetang@gmail.com can actually receive an email; all other addresses fall back to _mock_code (verified via [OTP-FALLBACK] log lines). For UI testing, bootstrap an authenticated session by POSTing to /api/auth/progressive-signup, /auth/send-otp (read _mock_code), /auth/verify-otp, /auth/complete-profile, then page.evaluate(\\\"localStorage.setItem('token', JWT); localStorage.setItem('hasSeenOnboarding','true');\\\") before navigating to /jobs. Front-end bugs to retest after fix: (a) JobRow click \u2192 /jobs/:id navigation; (b) ProfilePage user_kind toggle widget; (c) /jobs/new inline unlock CTA.",
+  "rca_of_the_issue": "JobRow click bug RCA: JobRow is rendered as a framer-motion <motion.div> with onClick={onClick} (JobsPage.js line 211-216). Browser confirms the element receives the click (data-testid resolves and force=True click succeeds) but window.location does not change \u2014 no navigation occurs and no console error fires. The likely cause is that framer-motion's onClick prop binding can be intercepted by motion's drag/gesture handlers; the safe fix is to swap motion.div for a regular div (motion adds no critical animation here beyond entry fade) or wrap the entire row in a React Router <Link to={`/jobs/${job.id}`}>. ProfilePage user_kind toggle is simply not implemented \u2014 the page reads user.user_kind but exposes no setter UI (verified by grep on ProfilePage.js: only 'PROFESSIONAL' badge rendering present). PUT /users/me with {user_kind:'social'|'professional'} works on the backend (test_toggle_user_kind_via_put PASSES)."
+}

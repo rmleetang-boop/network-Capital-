@@ -4800,20 +4800,70 @@ async def founders_status():
     }
 
 
-# ============== EMAIL OTP (MOCK) ==============
-# Mock implementation: 6-digit OTP is stored in `otps` collection and logged to backend logs.
-# Real provider (Resend / Gmail SMTP) can be wired later by replacing _send_otp_email.
+# ============== EMAIL OTP (Resend) ==============
+# Sends a 6-digit OTP via Resend. Falls back to logging the code if Resend fails
+# or is not configured, so that QA / non-verified test domains still work.
 import logging as _otp_logging
 import secrets as _otp_secrets
+import asyncio as _otp_asyncio
+import resend as _resend
+
+_RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+_SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+if _RESEND_API_KEY:
+    _resend.api_key = _RESEND_API_KEY
 
 
 def _generate_otp() -> str:
     return f"{_otp_secrets.randbelow(1_000_000):06d}"
 
 
-async def _send_otp_email(email: str, code: str) -> None:
-    """MOCK email send — replace with Resend/SendGrid/Gmail SMTP in production."""
-    _otp_logging.warning(f"[OTP-MOCK] Email to {email} — verification code: {code}")
+def _otp_email_html(code: str) -> str:
+    """Inline-styled HTML email template for the OTP code."""
+    return f"""
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a1628;padding:32px 0;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
+      <tr><td align="center">
+        <table width="480" cellpadding="0" cellspacing="0" style="background:#0f1d35;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px;">
+          <tr><td style="text-align:center;padding-bottom:16px;">
+            <span style="font-size:14px;color:#f5d76e;letter-spacing:2px;text-transform:uppercase;">Network Capital</span>
+          </td></tr>
+          <tr><td style="text-align:center;padding-bottom:8px;">
+            <h1 style="margin:0;font-size:22px;color:#ffffff;">Verify your email</h1>
+          </td></tr>
+          <tr><td style="text-align:center;color:#cbd5e1;font-size:14px;line-height:22px;padding-bottom:24px;">
+            Use the code below to finish setting up your account. It expires in 10 minutes.
+          </td></tr>
+          <tr><td align="center" style="padding-bottom:24px;">
+            <div style="display:inline-block;padding:16px 28px;background:#f5d76e;color:#0a1628;font-size:32px;font-weight:bold;letter-spacing:8px;border-radius:12px;">{code}</div>
+          </td></tr>
+          <tr><td style="text-align:center;color:#94a3b8;font-size:11px;line-height:18px;">
+            If you didn't request this code, you can safely ignore this email.<br/>
+            © Network Capital · Powered by Mici Business pty ltd
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+    """
+
+
+async def _send_otp_email(email: str, code: str) -> bool:
+    """Send OTP via Resend. Returns True on real send, False on fallback (logged only)."""
+    if not _RESEND_API_KEY:
+        _otp_logging.warning(f"[OTP-FALLBACK] No RESEND_API_KEY — code for {email}: {code}")
+        return False
+    params = {
+        "from": f"Network Capital <{_SENDER_EMAIL}>",
+        "to": [email],
+        "subject": "Your Network Capital verification code",
+        "html": _otp_email_html(code),
+    }
+    try:
+        result = await _otp_asyncio.to_thread(_resend.Emails.send, params)
+        _otp_logging.info(f"[OTP-RESEND] Sent to {email} — id={result.get('id') if isinstance(result, dict) else result}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _otp_logging.warning(f"[OTP-FALLBACK] Resend failed for {email}: {exc} — code: {code}")
+        return False
 
 
 OTP_TTL_MINUTES = 10
@@ -4858,16 +4908,19 @@ async def send_otp(request: SendOtpRequest, current_user: dict = Depends(get_cur
     })
 
     target_email = (request.email or current_user.get("email") or "").strip().lower()
-    await _send_otp_email(target_email, code)
+    delivered = await _send_otp_email(target_email, code)
 
-    return {
+    response = {
         "sent": True,
+        "delivered": delivered,
         "ttl_minutes": OTP_TTL_MINUTES,
-        "message": "Verification code sent. Check your inbox.",
-        # MOCK ONLY — exposes the code in dev so the frontend can show it as a hint.
-        # Remove this field when wiring a real email provider in production.
-        "_mock_code": code,
+        "message": "Verification code sent. Check your inbox." if delivered else "Verification code generated (fallback mode — see backend logs).",
     }
+    # Only expose the code when the real email provider could not deliver it,
+    # so QA / non-verified domains still complete the flow during development.
+    if not delivered:
+        response["_mock_code"] = code
+    return response
 
 
 @api_router.post("/auth/verify-otp")
