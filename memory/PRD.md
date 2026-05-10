@@ -9,112 +9,82 @@ Network Capital is a mobile-first **Community Resource Ecosystem** (formerly kno
 - ZAR (Stripe $10 Premium) unlocks **features** (Wallet ops, multi-sig)
 - Network Score (Merit) unlocks **reputation** (Hub leaderboard, verified badges)
 
-## Score architecture (CURRENT — iteration 20)
+## Score architecture
 - **Monthly cap = 10,000** points. Resets at the start of every calendar month.
-- `monthly_score` and `network_score` are **mirrored** (same value). Profile and Score Tracker display this same field.
-- Premium OR Founder window = 2× multiplier (max 2×, no stacking).
-- Daily soft-cap (60) on engagement actions; weekly_resource_drop = 1/week; daily_checkin = 1/day.
-- Founders: first 1,000 signups, 30 days, 2× multiplier.
+- `monthly_score` and `network_score` mirrored.
+- Premium / Founder window = 2× multiplier (max 2×).
+- Three-tier engine: T1 Ads (`ad_watch_engage` 500/day cap 5; `ad_watch_share` diminishing 300→50), T2 Referrals (`referral_qualified` 400 once at 1k score), T3 Standard (`post_create` 50, `comment_quality` 30 ≥0.6 AI, `post_like` 5, `post_share` 20, `video_watched` 10).
+- Founders: first 1,000 signups, 30 days, 2×.
 
-## What's implemented (cumulative)
+## Cumulative implementation
 - Stokvel groups + banking (independent partner)
-- DMs with post-share, stories, explore, hashtags, mentions
-- 13 African Regional Hubs with Country→Province→City
+- DMs, stories, explore, hashtags, mentions
+- 13 African Regional Hubs (Country→Province→City)
 - Activities discovery/creation
-- Stripe Premium $10 + confetti
-- Premium splash (sessionStorage)
-- Brand palette + transparent Logo Mark in headers (navy favicon for browser only)
-- 5 Network Score tiers + lanes
-- Score parity (Profile ↔ Score Tracker)
-- Stokvel+ purpose grid (savings/holiday/event/gift/group_trip/wedding/funeral/other)
-- Product / Service toggle, currency auto-default per country, availability enum
+- Stripe Premium $10 + confetti, premium splash
+- Brand palette + transparent Logo Mark (navy favicon)
+- Stokvel+ purpose grid, Product/Service toggle, currency auto-default, availability enum
 - Hub clarity + category filter chip-bar
-- Anti-abuse referrals (verified email + completed profile required for reward; idempotent; self-referral & same-email blocked; per-day cap 10)
-- Email OTP signup (MOCK)
-- Founder counter on landing page
+- Anti-abuse referrals (verified email + completed profile required, idempotent, day-cap 10)
+- Friendly share code: `networkcapitalapp.<username>.<MM>.<##>` + `/join/:slug` route
+- Stokvel invite by username/share_code
+- Account deactivate (reversible) / delete (30-day grace, auto-cancels Stripe sub)
+- Feed post edit/delete with score revocation cascades; un-like also revokes points
+- Comment delete (author or post-owner) revokes commenter's points
+- Score events: 24h same-source cooldown, daily soft-cap 60, monthly cap 10,000, auto-flag if >80% from one action
 
-## NEW in iter 23 (Feb 2026) — Post & comment delete/edit
-- **Edit post**: `PATCH /api/posts/{id}` (author only). Re-extracts hashtags. Sets `edited_at`. Score is NOT changed on edit (zero cost to fix typos).
-- **Delete post**: `DELETE /api/posts/{id}` (author only). Cascades:
-  - Revokes the author's `post_create` points.
-  - Revokes every commenter's `comment_quality` points.
-  - Revokes every liker's `post_like` points.
-- **Delete comment**: `DELETE /api/posts/{id}/comments/{cid}`. Allowed by comment author OR post owner. Revokes the commenter's `comment_quality` points.
-- **Un-like**: now revokes the liker's `post_like` points (was a known abuse path: like → unlike → relike to game points).
-- **`revoke_score_event(user_id, action, source_id)`** helper — clamped at 0, removes score_event row so daily-cap counts re-open.
-- **Frontend**: "..." menu on each post card (owner only) → Edit (inline) / Delete (with confirmation explaining points reversal). Hover Trash icon next to each comment for owner / post-author moderators.
+## NEW iter 24 (Feb 10, 2026) — Jobs feature + Resend email + Careers footer
+### Jobs feature
+- New `user_kind` ('social' | 'professional') + `job_post_unlocked` boolean fields on user.
+- `GET /api/jobs` (list), `POST /api/jobs` (gated by job_post_unlocked), `GET /api/jobs/{id}`, `POST /api/jobs/{id}/apply` (409 on duplicate), `GET /api/jobs/{id}/applications` (employer only).
+- `POST /api/jobs/checkout` — Stripe $50 once-off unlock for posting jobs.
+- `PUT /api/users/me` accepts `user_kind` switch (Social ↔ Professional).
+- Seeded "Business Developer Agent" job at Network Capital (R8,500 CTC + commission, min_network_score 2000).
+- Frontend: `/jobs` list (mine, applications, all), `/jobs/:id` detail with apply, `/jobs/new` create form gated by inline Stripe $50 unlock CTA.
+- ProfilePage: always-visible user_kind pill toggle (`data-testid='user-kind-toggle'`).
+- AuthPage: Social / Professional choice during signup.
+- LandingPage Footer: Careers link → opens sign-in-required modal for guests, routes to `/jobs` for authenticated users.
 
-## NEW in iter 22 (Feb 2026) — major refactor
-
-### Three-tier score engine
-- **T1 Ads** — `ad_watch_engage` 500 (cap 5/day, 24h cooldown same ad) · `ad_watch_share` diminishing 300/150/50/50/50 per unique ad (max 5 shares).
-- **T2 Referrals** — `referral_qualified` 400 (fires once when invitee crosses monthly_score 1,000) · `referral_feature_unlock` 200/feature/friend · `referral_first_post` 150 (referee posts within first 7 days).
-- **T3 Standard** — `post_create` 50 (cap 5/d) · `post_share` 20 (cap 10/d) · `comment_quality` 30 (cap 10/d, AI ≥0.6) · `post_like` 5 (cap 20/d) · `video_watched` 10 (cap 10/d).
-- Global: monthly cap 10,000 (resets every calendar month) · 24h cooldown on same source_id (except ad_watch_share, ladder is its own anti-abuse) · Premium/Founder 2× multiplier (max 2×) · auto review-flag if >80% of monthly score from one action type.
-
-### Badge engine
-At month rollover, the highest badge earned is saved into `user.badge_history`:
-- 1,000–2,999 → Bronze Networker
-- 3,000–5,999 → Silver Connector
-- 6,000–8,999 → Gold Influencer
-- 9,000–9,999 → Diamond Achiever
-- 10,000 → Network Legend
-
-### AI comment relevance
-- Heuristic-first (gates: empty / gibberish / <5 words / duplicate)
-- LLM (claude-haiku-4-5) via Emergent LLM key
-- ≥0.6 → quality comment earns 30 pts; <0.6 earns 0
-
-### Account management
-- `POST /api/account/deactivate` (reversible — login auto-reactivates)
-- `POST /api/account/delete` — 30-day grace, requires username confirm; auto-cancels Stripe sub
-- `POST /api/account/cancel-deletion` (or just login during grace)
-- Hard-delete on startup for docs whose `deletion_purge_at` has elapsed
-
-### New endpoints
-- `POST /api/score/ad-event {ad_id, action: 'engage'|'share'}`
-- `POST /api/score/video-watched {video_id}`
-- `POST /api/account/{deactivate,reactivate,delete,cancel-deletion}`
-
-## NEW in iter 21 (Feb 2026)
-1. **Friendly share code**: new `share_code` field on user, format `networkcapitalapp.<username>.<MM>.<##>` (e.g., `networkcapitalapp.maria.06.42`). MM is birth month (`00` if unset), `##` is a stable 2-digit checksum derived from user.id. Auto-regenerated when username/birth_month changes (`_refresh_share_code`). Backfilled at startup.
-2. **Production domain in share URLs**: link is `https://networkcapitalapp.co.za/join/<share_code>` — no preview/emergent host in any user-facing share content. New `/app/frontend/src/constants/share.js`.
-3. **Stokvel invite by username/share_code**: `POST /api/stokvels/{id}/invite` now resolves `user_id` field as UUID OR username OR share_code. Profile no longer shows raw UUID — single "Your code" card serves both referrals AND Stokvel invites.
-4. **`/join/:slug` route** added (path-style invite links). Legacy `/join?ref=…` remains supported.
-
-## NEW in iter 20 (Feb 2026)
-1. Stokvel create page — removed $10 activation fee + $2 membership fee mentions (kept all other pricing including intro page $20/$5/R1M).
-2. Referrals page stripped — auto-generated code, no explainer/chips/nudge. Just hero + link + 4 share buttons.
-3. **Score logic reverted to MONTHLY 10,000 cap** with monthly reset (was lifetime). `award_points` clamps on monthly cap; `_ensure_month_state` resets BOTH monthly_score AND network_score at month rollover.
-4. Help Center FAQ updated to reflect monthly cap.
-5. Bug fix (caught by testing agent): leftover `lifetime` / `new_lifetime` variable references in `award_points` causing NameError → 500 on every score-awarding call. Fixed.
+### Real email integration (Resend)
+- Replaced mock OTP with Resend SDK (`resend>=2.0.0`).
+- `POST /api/auth/send-otp` returns `{delivered: bool, ttl_minutes, message, _mock_code?}`.
+  - `delivered=true` (Resend success) — code never exposed.
+  - `delivered=false` (test-mode rejection / SDK error) — graceful fallback exposes `_mock_code` so QA & non-verified domains keep flowing.
+- HTML email template (table-based, inline-styled, brand colours).
+- Async non-blocking via `asyncio.to_thread(resend.Emails.send, params)`.
+- Env: `RESEND_API_KEY`, `SENDER_EMAIL=onboarding@resend.dev` (Resend test mode — only account owner can receive; use a verified domain in production).
 
 ## Code architecture
 ```
 /app/
-├── backend/server.py (~4,830 lines)
-│   ├── MONTHLY_SCORE_CAP = 10000
-│   ├── award_points clamps monthly, mirrors network_score = monthly_score
-│   ├── _ensure_month_state resets both at month rollover
-│   └── /api/score/summary returns monthly_score + monthly_cap (=10000)
-├── backend/tests/test_iter20_monthly_cap.py
+├── backend/
+│   ├── server.py (~5,930 lines — splitting overdue)
+│   │   ├── EMAIL OTP via Resend (line ~4803): _send_otp_email + _otp_email_html
+│   │   ├── Jobs routes & seed (~last 200 lines)
+│   │   └── Three @app.on_event('startup') handlers (purge / share-codes / seed-job)
+│   └── tests/ (test_iter20…test_iter24_retest.py)
 ├── frontend/src/
-│   ├── constants/brand.js (LOGO_MARK transparent + FAVICON navy)
-│   ├── components/FeatureIntroModal.js
-│   └── pages/ (~25 pages, all key flows)
+│   ├── pages/ (JobsPage, JobDetailPage, CreateJobPage, AuthPage, ProfilePage, …)
+│   ├── components/Footer.js (Careers modal)
+│   ├── constants/share.js
+│   └── components/FeatureIntroModal.js
 └── memory/PRD.md, test_credentials.md
 ```
 
 ## Backlog (priority-ordered)
-- **P0 (production)** Wire real email provider (Resend / SendGrid / Gmail SMTP) and remove `_mock_code` from `/auth/send-otp`.
 - **P1** Real Paystack integration (NGN/GHS/KES/ZAR) — pending user test keys.
-- **P1** Carousel posts + Reels-style vertical video.
-- **P2** Modularise `server.py` into routers.
-- **P2** Migrate base64 media to S3/R2 (16MB Mongo cap).
+- **P1** Verify a real domain on Resend (e.g., `mail.networkcapitalapp.co.za`) so production OTP emails reach all users (current `onboarding@resend.dev` is test-only).
+- **P1** Carousel posts + Reels-style vertical video feed.
+- **P2** Modularise `server.py` into routers (`/app/backend/routes/`) — every iter adds ~600 lines.
+- **P2** Migrate base64 media → S3/R2 (16MB Mongo doc cap).
 - **P2** Live FX rates + creator-currency pricing.
-- **P3** Capacitor wrap (iOS/Android), Driver Pool extension.
-- **Hygiene** TTL index on `db.otps.expires_at`. Centralise users.me response so Pydantic doesn't strip new fields.
+- **P2** Consolidate `@app.on_event('startup')` into FastAPI lifespan handler (deprecation).
+- **P2** TTL index on `db.otps.expires_at`.
+- **P2** Add a UX-friendly auto-dismiss / click-outside on `FeatureIntroModal` (currently blocks underlying clicks until "Got it").
+- **P3** Capacitor wrap (iOS/Android).
+- **P3** Driver Pool extension.
 
 ## Testing
-- `iter_20.json`: 10/10 new tests PASS + 28/30 iter_19 regressions hold.
-- Critical NameError bug fixed inside this iteration.
+- iter_22.json: 38/40 cumulative regressions PASS.
+- iter_23.json: 18/18 backend (Jobs + Resend OTP fallback + user_kind PUT) PASS; 5/8 frontend at first sweep.
+- iter_24.json: ALL 4 frontend & backend fixes verified — 100% on both.
