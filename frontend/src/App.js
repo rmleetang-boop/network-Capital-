@@ -41,6 +41,9 @@ import MessagesPage from './pages/MessagesPage';
 import ChatThreadPage from './pages/ChatThreadPage';
 import ActivitiesPage from './pages/ActivitiesPage';
 import AccountSettingsPage from './pages/AccountSettingsPage';
+import JobsPage from './pages/JobsPage';
+import JobDetailPage from './pages/JobDetailPage';
+import CreateJobPage from './pages/CreateJobPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -236,6 +239,9 @@ function App() {
             <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
             <Route path="/help" element={<HelpCenterPage />} />
             <Route path="/settings" element={<AccountSettingsPage user={user} onLogout={handleLogout} />} />
+            <Route path="/jobs" element={<JobsPage user={user} />} />
+            <Route path="/jobs/new" element={<CreateJobPage user={user} />} />
+            <Route path="/jobs/:jobId" element={<JobDetailPage user={user} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<Navigate to="/" replace />} />

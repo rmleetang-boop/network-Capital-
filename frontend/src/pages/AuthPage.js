@@ -34,6 +34,7 @@ const AuthPage = ({ onLogin }) => {
     full_name: '',
     bio: '',
     intent: 'member', // "member" or "creator"
+    user_kind: 'social', // "social" or "professional"
     birth_month: '',
     country: '',
     province: '',
@@ -169,6 +170,7 @@ const AuthPage = ({ onLogin }) => {
         intent: formData.intent,
         terms_accepted: true,
         birth_month: parseInt(formData.birth_month, 10),
+        user_kind: formData.user_kind,
         country: formData.country || undefined,
         province: formData.province || undefined,
         city: formData.city || undefined,
@@ -466,6 +468,32 @@ const AuthPage = ({ onLogin }) => {
                     theme="dark"
                     testIdPrefix="signup-location"
                   />
+                </div>
+
+                {/* User kind toggle — drives Profile layout & Jobs feature visibility */}
+                <div>
+                  <label className="block text-sm font-medium text-white/80 mb-1.5">I'm signing up as a…</label>
+                  <div className="grid grid-cols-2 gap-2" data-testid="user-kind-toggle">
+                    {[
+                      { v: 'social', label: 'Social User', desc: 'Connect, post, and engage' },
+                      { v: 'professional', label: 'Professional', desc: 'Showcase skills, find jobs' },
+                    ].map((k) => (
+                      <button
+                        key={k.v}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, user_kind: k.v })}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          formData.user_kind === k.v
+                            ? 'bg-secondary/20 border-secondary text-white'
+                            : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                        }`}
+                        data-testid={`user-kind-${k.v}`}
+                      >
+                        <p className="font-semibold text-sm">{k.label}</p>
+                        <p className="text-[11px] text-white/55 mt-0.5">{k.desc}</p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Birth Month — used for personalised referral links + birthday recognition */}

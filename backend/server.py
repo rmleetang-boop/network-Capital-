@@ -120,7 +120,12 @@ class User(BaseModel):
     session_minutes_today: Optional[int] = 0
     likes_received_count: Optional[int] = 0
     comments_given_count: Optional[int] = 0
-    birth_month: Optional[int] = None  # 1-12; used for personalised referrals + birthday recognition
+    birth_month: Optional[int] = None
+    # Jobs feature
+    user_kind: Optional[str] = "social"  # "social" | "professional"
+    skills: Optional[List[str]] = []
+    experience: Optional[List[Dict[str, Any]]] = []
+    job_post_unlocked: Optional[bool] = False
     # Friendly share code (referrals + Stokvel invites): networkcapitalapp.<username>.<MM>.<##>
     share_code: Optional[str] = None
     # Email verification (mock OTP)
@@ -141,6 +146,10 @@ class UpdateProfileRequest(BaseModel):
     interests: Optional[List[str]] = None
     currency: Optional[str] = None
     birth_month: Optional[int] = None
+    # Professional profile (only relevant when user_kind == 'professional')
+    user_kind: Optional[str] = None  # "social" | "professional"
+    skills: Optional[List[str]] = None
+    experience: Optional[List[Dict[str, Any]]] = None
 
 # ============== CURRENCY & PREMIUM ==============
 
@@ -379,6 +388,8 @@ class CompleteProfileRequest(BaseModel):
     terms_accepted: bool
     # Birth month — required at signup for personalised referral links + birthday recognition
     birth_month: Optional[int] = None  # 1-12
+    # User kind — drives profile layout & Jobs feature visibility ("social" or "professional")
+    user_kind: Optional[str] = "social"
     # Location (optional at signup but encouraged)
     country: Optional[str] = None
     province: Optional[str] = None
@@ -1050,7 +1061,15 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
         if not (1 <= int(request.birth_month) <= 12):
             raise HTTPException(status_code=400, detail="birth_month must be 1-12")
         update_data["birth_month"] = int(request.birth_month)
-    
+    if request.user_kind is not None:
+        if request.user_kind not in ("social", "professional"):
+            raise HTTPException(status_code=400, detail="user_kind must be 'social' or 'professional'")
+        update_data["user_kind"] = request.user_kind
+    if request.skills is not None:
+        update_data["skills"] = [str(s).strip() for s in request.skills if str(s).strip()][:30]
+    if request.experience is not None:
+        update_data["experience"] = request.experience[:20]
+
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
 
@@ -5017,6 +5036,10 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
         if not (1 <= int(request.birth_month) <= 12):
             raise HTTPException(status_code=400, detail="birth_month must be 1-12")
         update_data["birth_month"] = int(request.birth_month)
+    if request.user_kind:
+        if request.user_kind not in ("social", "professional"):
+            raise HTTPException(status_code=400, detail="user_kind must be 'social' or 'professional'")
+        update_data["user_kind"] = request.user_kind
     if request.bank_name and request.account_number and request.swift_code and request.branch_number:
         update_data["banking"] = {
             "bank_name": request.bank_name.strip(),
@@ -5427,7 +5450,421 @@ async def backfill_share_codes():
 async def shutdown_db_client():
     client.close()
 
-# Re-register the router AFTER all the routes appended below the original include_router call.
-# This is necessary because new endpoints (account management, ad/video score, AI comment scorer)
-# were added after the original include_router; FastAPI requires routes to be registered before include.
+
+# ============================================================================
+# JOBS FEATURE — iter 24
+# ============================================================================
+# Two roles: employer (post jobs, requires $50 once-off Stripe unlock) and
+# employee (browse + apply with CV). Network Capital seed Business Developer
+# Agent listing is created at startup (idempotent).
+
+JOB_POST_FEE_USD = 50.00
+
+
+class CreateJobRequest(BaseModel):
+    title: str
+    company: Optional[str] = None
+    location: Optional[str] = "Remote"
+    employment_type: Optional[str] = "Full-time"  # Full-time | Part-time | Contract | Performance & Growth Focused | etc.
+    salary: Optional[str] = ""  # free-form: e.g., "R8,500 CTC + Performance Commission"
+    description: str
+    responsibilities: Optional[List[str]] = []
+    requirements: Optional[List[str]] = []
+    skills: Optional[List[str]] = []
+    application_steps: Optional[List[str]] = []
+    contact_email: Optional[str] = None
+    min_network_score: Optional[int] = 0
+
+
+class UpdateJobRequest(BaseModel):
+    title: Optional[str] = None
+    company: Optional[str] = None
+    location: Optional[str] = None
+    employment_type: Optional[str] = None
+    salary: Optional[str] = None
+    description: Optional[str] = None
+    responsibilities: Optional[List[str]] = None
+    requirements: Optional[List[str]] = None
+    skills: Optional[List[str]] = None
+    application_steps: Optional[List[str]] = None
+    contact_email: Optional[str] = None
+    min_network_score: Optional[int] = None
+    status: Optional[str] = None  # "open" | "closed"
+
+
+class ApplyJobRequest(BaseModel):
+    # CV file is uploaded as base64 (small files only — full migration to S3/R2 is on the P2 backlog)
+    cv_filename: str
+    cv_data_url: str  # data:application/pdf;base64,... or word
+    cover_note: Optional[str] = ""
+
+
+class UpdateApplicationRequest(BaseModel):
+    status: str  # "new" | "shortlisted" | "interview" | "rejected" | "hired"
+    note: Optional[str] = None
+
+
+@api_router.post("/jobs/checkout")
+async def jobs_checkout(req: Request, current_user: dict = Depends(get_current_user)):
+    """Generate a Stripe Checkout session for the $50 once-off employer unlock.
+    Idempotent: if already unlocked, returns 400 to prevent double-charging."""
+    if current_user.get("job_post_unlocked"):
+        raise HTTPException(status_code=400, detail="Job posting is already unlocked for your account.")
+
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Payments are not configured.")
+
+    origin = req.headers.get("origin") or req.headers.get("referer", "").rstrip("/") or "https://networkcapitalapp.co.za"
+    success_url = f"{origin}/jobs?checkout_status=success&session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/jobs?checkout_status=cancel"
+
+    webhook_url = f"{(os.environ.get('REACT_APP_BACKEND_URL') or origin).rstrip('/')}/api/webhook/stripe"
+    checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+
+    metadata = {
+        "user_id": current_user["id"],
+        "purpose": "jobs_employer_unlock",
+        "fee_usd": str(JOB_POST_FEE_USD),
+    }
+    session_request = CheckoutSessionRequest(
+        amount=JOB_POST_FEE_USD,
+        currency="usd",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata=metadata,
+    )
+    session: CheckoutSessionResponse = await checkout.create_checkout_session(session_request)
+
+    await db.transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "type": "jobs_employer_unlock",
+        "amount": JOB_POST_FEE_USD,
+        "currency": "USD",
+        "status": "pending",
+        "stripe_session_id": session.session_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {"url": session.url, "session_id": session.session_id}
+
+
+@api_router.get("/jobs/checkout/status/{session_id}")
+async def jobs_checkout_status(session_id: str, current_user: dict = Depends(get_current_user)):
+    """Polled by frontend after redirect. Marks job_post_unlocked=true on success."""
+    api_key = os.environ.get("STRIPE_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Payments are not configured.")
+
+    webhook_url = (os.environ.get("REACT_APP_BACKEND_URL") or "https://networkcapitalapp.co.za").rstrip("/") + "/api/webhook/stripe"
+    checkout = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+    status: CheckoutStatusResponse = await checkout.get_checkout_status(session_id)
+
+    if status.payment_status == "paid":
+        # Idempotent unlock + transaction-status update
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {"job_post_unlocked": True, "job_post_unlocked_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await db.transactions.update_one(
+            {"stripe_session_id": session_id},
+            {"$set": {"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()}},
+        )
+
+    return {
+        "payment_status": status.payment_status,
+        "status": status.status,
+        "amount_total": status.amount_total,
+        "currency": status.currency,
+    }
+
+
+@api_router.post("/jobs", response_model=Dict[str, Any])
+async def create_job(req: CreateJobRequest, current_user: dict = Depends(get_current_user)):
+    """Create a job posting. Requires $50 once-off employer unlock OR seeded Network Capital admin."""
+    if not current_user.get("job_post_unlocked") and not current_user.get("is_admin"):
+        raise HTTPException(
+            status_code=402,
+            detail=f"Posting jobs requires a one-time ${int(JOB_POST_FEE_USD)} unlock. Tap 'Unlock Job Posting' on the Jobs page.",
+        )
+    if not (req.title or "").strip() or not (req.description or "").strip():
+        raise HTTPException(status_code=400, detail="Title and description are required.")
+
+    job_id = str(uuid.uuid4())
+    job = {
+        "id": job_id,
+        "employer_id": current_user["id"],
+        "employer_username": current_user.get("username"),
+        "company": (req.company or current_user.get("full_name") or current_user.get("username") or "").strip(),
+        "title": req.title.strip()[:140],
+        "location": (req.location or "Remote").strip()[:80],
+        "employment_type": (req.employment_type or "Full-time").strip()[:50],
+        "salary": (req.salary or "").strip()[:80],
+        "description": req.description.strip()[:6000],
+        "responsibilities": [s.strip() for s in (req.responsibilities or []) if s.strip()][:30],
+        "requirements": [s.strip() for s in (req.requirements or []) if s.strip()][:30],
+        "skills": [s.strip() for s in (req.skills or []) if s.strip()][:20],
+        "application_steps": [s.strip() for s in (req.application_steps or []) if s.strip()][:10],
+        "contact_email": (req.contact_email or "").strip().lower() or None,
+        "min_network_score": max(0, int(req.min_network_score or 0)),
+        "status": "open",
+        "applications_count": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.jobs.insert_one(job)
+    job.pop("_id", None)
+    return job
+
+
+@api_router.get("/jobs")
+async def list_jobs(q: Optional[str] = None, location: Optional[str] = None, limit: int = 30, skip: int = 0):
+    """Public list of open jobs, paginated. Supports text search on title/company/skills."""
+    query: Dict[str, Any] = {"status": "open"}
+    if q:
+        rx = {"$regex": q, "$options": "i"}
+        query["$or"] = [{"title": rx}, {"company": rx}, {"skills": rx}, {"description": rx}]
+    if location:
+        query["location"] = {"$regex": location, "$options": "i"}
+    cursor = db.jobs.find(query, {"_id": 0}).sort("created_at", -1).skip(max(0, skip)).limit(min(50, max(1, limit)))
+    return await cursor.to_list(length=limit)
+
+
+@api_router.get("/jobs/me/posted")
+async def my_posted_jobs(current_user: dict = Depends(get_current_user)):
+    cursor = db.jobs.find({"employer_id": current_user["id"]}, {"_id": 0}).sort("created_at", -1)
+    return await cursor.to_list(length=200)
+
+
+@api_router.get("/jobs/me/applied")
+async def my_applications(current_user: dict = Depends(get_current_user)):
+    """Applications the current user has submitted, joined with job summary."""
+    apps = await db.job_applications.find(
+        {"applicant_id": current_user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(length=200)
+    # Hydrate each application with its job (title/company/status)
+    job_ids = list({a["job_id"] for a in apps})
+    if job_ids:
+        jobs = await db.jobs.find({"id": {"$in": job_ids}}, {"_id": 0, "id": 1, "title": 1, "company": 1, "status": 1, "location": 1}).to_list(length=200)
+        job_map = {j["id"]: j for j in jobs}
+        for a in apps:
+            a["job"] = job_map.get(a["job_id"])
+    return apps
+
+
+@api_router.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@api_router.patch("/jobs/{job_id}")
+async def update_job(job_id: str, req: UpdateJobRequest, current_user: dict = Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["employer_id"] != current_user["id"] and not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="You can only edit your own jobs")
+    update = {k: v for k, v in req.dict(exclude_unset=True).items() if v is not None}
+    if "status" in update and update["status"] not in ("open", "closed"):
+        raise HTTPException(status_code=400, detail="status must be 'open' or 'closed'")
+    if update:
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.jobs.update_one({"id": job_id}, {"$set": update})
+    return await db.jobs.find_one({"id": job_id}, {"_id": 0})
+
+
+@api_router.delete("/jobs/{job_id}")
+async def delete_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["employer_id"] != current_user["id"] and not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="You can only delete your own jobs")
+    await db.jobs.delete_one({"id": job_id})
+    await db.job_applications.delete_many({"job_id": job_id})
+    return {"deleted": True}
+
+
+@api_router.post("/jobs/{job_id}/apply")
+async def apply_to_job(job_id: str, req: ApplyJobRequest, current_user: dict = Depends(get_current_user)):
+    """Submit an application. CV file (PDF or Word) uploaded as a data URL.
+    Anti-abuse: one application per user per job."""
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("status") != "open":
+        raise HTTPException(status_code=400, detail="This job is no longer accepting applications.")
+    if job["employer_id"] == current_user["id"]:
+        raise HTTPException(status_code=400, detail="You can't apply to your own job posting.")
+
+    # Network Score gate (e.g., Network Capital BD agent requires ≥2,000)
+    min_score = int(job.get("min_network_score") or 0)
+    if min_score > 0 and int(current_user.get("network_score") or 0) < min_score:
+        raise HTTPException(
+            status_code=403,
+            detail=f"This role requires a minimum Network Score of {min_score:,}. You currently have {int(current_user.get('network_score') or 0):,}.",
+        )
+
+    # CV format validation
+    fname = (req.cv_filename or "").strip().lower()
+    if not (fname.endswith(".pdf") or fname.endswith(".doc") or fname.endswith(".docx")):
+        raise HTTPException(status_code=400, detail="CV must be a PDF or Word document (.pdf, .doc, .docx).")
+    data_url = req.cv_data_url or ""
+    if not data_url.startswith("data:"):
+        raise HTTPException(status_code=400, detail="CV upload must be a base64 data URL.")
+    # Approximate size check on the b64 payload — keep CVs ≤ 5MB to avoid Mongo doc bloat
+    try:
+        b64part = data_url.split(",", 1)[1]
+        approx_bytes = (len(b64part) * 3) // 4
+        if approx_bytes > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="CV is too large. Max 5MB.")
+    except (IndexError, ValueError):
+        raise HTTPException(status_code=400, detail="Could not read CV data.")
+
+    # One application per (job, user)
+    existing = await db.job_applications.find_one({"job_id": job_id, "applicant_id": current_user["id"]})
+    if existing:
+        raise HTTPException(status_code=400, detail="You've already applied to this job.")
+
+    app_id = str(uuid.uuid4())
+    application = {
+        "id": app_id,
+        "job_id": job_id,
+        "applicant_id": current_user["id"],
+        "applicant_username": current_user.get("username"),
+        "applicant_full_name": current_user.get("full_name"),
+        "applicant_photo": current_user.get("photo"),
+        "applicant_network_score": int(current_user.get("network_score") or 0),
+        "cv_filename": req.cv_filename.strip(),
+        "cv_data_url": data_url,
+        "cover_note": (req.cover_note or "").strip()[:2000],
+        "status": "new",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.job_applications.insert_one(application)
+    await db.jobs.update_one({"id": job_id}, {"$inc": {"applications_count": 1}})
+
+    # Notify employer
+    try:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": job["employer_id"],
+            "type": "job_application",
+            "title": "New job application",
+            "message": f"@{current_user.get('username')} applied for {job.get('title')}",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "link": f"/jobs/{job_id}/applications",
+        })
+    except Exception:
+        pass
+
+    application.pop("_id", None)
+    return {"applied": True, "application_id": app_id}
+
+
+@api_router.get("/jobs/{job_id}/applications")
+async def list_job_applications(job_id: str, current_user: dict = Depends(get_current_user)):
+    """Employer-only: list all applicants for one of their jobs."""
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["employer_id"] != current_user["id"] and not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Only the employer can view applications.")
+    cursor = db.job_applications.find({"job_id": job_id}, {"_id": 0}).sort("created_at", -1)
+    return await cursor.to_list(length=500)
+
+
+@api_router.patch("/jobs/{job_id}/applications/{app_id}")
+async def update_application(job_id: str, app_id: str, req: UpdateApplicationRequest, current_user: dict = Depends(get_current_user)):
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["employer_id"] != current_user["id"] and not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Only the employer can update applications.")
+    if req.status not in ("new", "shortlisted", "interview", "rejected", "hired"):
+        raise HTTPException(status_code=400, detail="Invalid status.")
+    upd = {"status": req.status, "updated_at": datetime.now(timezone.utc).isoformat()}
+    if req.note is not None:
+        upd["employer_note"] = req.note[:1000]
+    res = await db.job_applications.update_one({"id": app_id, "job_id": job_id}, {"$set": upd})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return await db.job_applications.find_one({"id": app_id}, {"_id": 0})
+
+
+@app.on_event("startup")
+async def seed_network_capital_job():
+    """Idempotent: ensure the Network Capital Business Developer Agent listing exists."""
+    try:
+        existing = await db.jobs.find_one({"_seed_key": "nc_bd_agent_v1"})
+        if existing:
+            return
+        seed_id = str(uuid.uuid4())
+        await db.jobs.insert_one({
+            "id": seed_id,
+            "_seed_key": "nc_bd_agent_v1",
+            "employer_id": "_network_capital_official",
+            "employer_username": "networkcapital",
+            "company": "Network Capital App",
+            "title": "Business Developer Agent",
+            "location": "Remote / Hybrid",
+            "employment_type": "Performance & Growth Focused",
+            "salary": "R8,500 CTC + Performance Commission",
+            "description": (
+                "Network Capital is building a community-driven participation ecosystem focused on "
+                "connecting people to opportunities, shared experiences, group participation, and digital engagement. "
+                "We are looking for ambitious, energetic, and socially active individuals to join our growth team "
+                "as Business Developer Agents.\n\n"
+                "This role is ideal for someone who understands digital culture, enjoys engaging with people, "
+                "and wants to be part of building a fast-growing platform from the ground up.\n\n"
+                "As a Business Developer Agent, your main responsibility will be to help expand the Network Capital "
+                "user base, drive engagement, promote platform features, and onboard new users and communities onto the ecosystem."
+            ),
+            "responsibilities": [
+                "Promote and grow the Network Capital platform",
+                "Onboard new users and communities",
+                "Increase user engagement and participation",
+                "Assist users with registration and onboarding",
+                "Market platform features (Community Participation, Stokvel Groups, Activities, Jobs, Network Score system)",
+                "Build and maintain relationships with users and community groups",
+                "Drive referrals and user growth campaigns",
+                "Encourage consistent platform participation and activity",
+                "Represent the Network Capital brand professionally online and offline",
+            ],
+            "requirements": [
+                "Must be 18 years or older",
+                "Excellent communication skills (written and verbal)",
+                "Tech savvy and comfortable using digital platforms",
+                "Computer literate",
+                "Must own or have access to a smartphone or laptop",
+                "Strong social and networking ability",
+                "Active on social media platforms",
+                "Self-motivated and goal-driven",
+                "No previous work experience required",
+                "Students are welcome to apply",
+                "Minimum Network Score of 2,000 points before final consideration",
+            ],
+            "skills": ["Communication", "Sales", "Networking", "Social media", "Onboarding"],
+            "application_steps": [
+                "Submit your CV (PDF or Word)",
+                "Brief cover note explaining why you're a fit",
+                "Initial screening by the Network Capital team",
+                "Interview with the growth lead",
+            ],
+            "contact_email": "recruitment@networkcapitalapp.co.za",
+            "min_network_score": 2000,
+            "status": "open",
+            "applications_count": 0,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info(f"Seeded Network Capital BD Agent job ({seed_id}).")
+    except Exception as e:
+        logger.warning(f"seed_network_capital_job skipped: {e}")
+
+
+# Re-register router so all routes added below the original include_router are registered.
 app.include_router(api_router)

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings, Briefcase } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -31,6 +31,8 @@ const ProfilePage = ({ user, setUser }) => {
     city: user.city || '',
     profession: user.profession || '',
     birth_month: user.birth_month || '',
+    user_kind: user.user_kind || 'social',
+    skills: Array.isArray(user.skills) ? user.skills.join(', ') : '',
   });
   const [cities, setCities] = useState([]);
   const [photos, setPhotos] = useState([]);
@@ -149,6 +151,12 @@ const ProfilePage = ({ user, setUser }) => {
       };
       if (editData.birth_month) {
         payload.birth_month = parseInt(editData.birth_month, 10);
+      }
+      if (editData.user_kind) {
+        payload.user_kind = editData.user_kind;
+      }
+      if (typeof editData.skills === 'string') {
+        payload.skills = editData.skills.split(',').map((s) => s.trim()).filter(Boolean);
       }
       const response = await axiosInstance.put('/users/me', payload);
       setUser(response.data);
@@ -358,6 +366,39 @@ const ProfilePage = ({ user, setUser }) => {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Profile type</label>
+                <div className="grid grid-cols-2 gap-2" data-testid="user-kind-edit">
+                  {[{ v: 'social', label: 'Social' }, { v: 'professional', label: 'Professional' }].map((k) => (
+                    <button
+                      key={k.v}
+                      type="button"
+                      onClick={() => setEditData({ ...editData, user_kind: k.v })}
+                      className={`p-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                        editData.user_kind === k.v
+                          ? 'bg-primary text-white border-primary'
+                          : 'bg-background-subtle border-gray-200 text-text-primary hover:bg-gray-50'
+                      }`}
+                      data-testid={`user-kind-edit-${k.v}`}
+                    >
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {editData.user_kind === 'professional' && (
+                <div>
+                  <label className="block text-xs font-semibold text-text-secondary mb-1.5">Skills (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={editData.skills}
+                    onChange={(e) => setEditData({ ...editData, skills: e.target.value })}
+                    placeholder="React, Sales, Onboarding, …"
+                    className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    data-testid="skills-edit-input"
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <div className="mb-6">
@@ -380,6 +421,11 @@ const ProfilePage = ({ user, setUser }) => {
           )}
 
           <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 mb-6">
+            {profileUser.user_kind === 'professional' && (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-3 bg-primary text-white text-[10px] font-bold uppercase tracking-wider rounded-full" data-testid="professional-badge">
+                <Briefcase size={11} /> Professional
+              </div>
+            )}
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-text-secondary">Network Score · this month</span>
               <span className="text-xs text-text-muted">
@@ -400,6 +446,46 @@ const ProfilePage = ({ user, setUser }) => {
               <p className="text-sm text-text-secondary">Wallet Balance</p>
             </div>
           </div>
+
+          {/* Professional showcase — visible only when user_kind = 'professional' */}
+          {profileUser.user_kind === 'professional' && (
+            <div className="bg-white rounded-2xl border border-primary/20 p-5 mb-6" data-testid="professional-showcase">
+              <h3 className="font-heading font-bold text-primary mb-3 flex items-center gap-2">
+                <Briefcase size={16} /> Professional showcase
+              </h3>
+              {Array.isArray(profileUser.skills) && profileUser.skills.length > 0 ? (
+                <div className="mb-4">
+                  <p className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-2">Skills</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {profileUser.skills.map((s, i) => (
+                      <span key={i} className="px-2.5 py-1 bg-primary/8 text-primary text-xs font-semibold rounded-full border border-primary/15">{s}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : isOwnProfile ? (
+                <p className="text-xs text-text-muted italic mb-3">No skills yet — tap Edit to add some.</p>
+              ) : null}
+              {Array.isArray(profileUser.experience) && profileUser.experience.length > 0 && (
+                <div>
+                  <p className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-2">Experience</p>
+                  <div className="space-y-2">
+                    {profileUser.experience.map((x, i) => (
+                      <div key={i} className="text-sm">
+                        <p className="font-semibold text-text-primary">{x.role || x.title}</p>
+                        <p className="text-xs text-text-secondary">{x.company} {x.period ? `· ${x.period}` : ''}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {isOwnProfile && (
+                <button onClick={() => navigate('/jobs')}
+                  className="mt-4 w-full bg-primary text-white py-2 rounded-full text-xs font-semibold hover:bg-primary-hover">
+                  Browse jobs →
+                </button>
+              )}
+            </div>
+          )}
 
           {isOwnProfile && profileUser.share_code && (
             <div className="bg-secondary/8 rounded-xl p-4 border border-secondary/30 mb-6" data-testid="profile-share-code-card">
@@ -563,6 +649,7 @@ const ProfilePage = ({ user, setUser }) => {
                   { icon: Package, label: 'Products', path: '/products' },
                   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
                   { icon: Activity, label: 'Score Tracker', path: '/tracker' },
+                  { icon: Briefcase, label: 'Jobs', path: '/jobs' },
                   { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
                   { icon: Bell, label: 'Notifications', path: '/notifications' },
                   { icon: HelpCircle, label: 'Help', path: '/help' },
