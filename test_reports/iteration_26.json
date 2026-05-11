@@ -1,0 +1,77 @@
+{
+  "summary": "Iter25 retest — 21/23 backend tests PASS (up from 16/23 last run). The CRITICAL duplicate /connections/request bug is FIXED. Minor #2 (delete review revokes +40) FIXED — verified by new score-revoke assertion. Minor #3 (PATCH role requires admin, not moderator) FIXED. Founder 2× multiplier handled in tests by relaxing assertions to (delta >= base and delta % base == 0). REGRESSION on Places/Jobs/Admin/score/posts ALL PASS. FRONTEND smoke done: /network shows 3 category cards (Social/Professional/Financial), Feed post-author-avatar-N upgraded to w-12 h-12 + border-secondary/30 ring (20 avatars rendered), /admin/dashboard shows 'I am the owner' bootstrap CTA for non-admin. \n\nNEW CRITICAL FOUND (same pattern as last iter's /connections/request bug): the legacy POST /api/connections/{connection_id}/accept (server.py:2495-2508) and POST /api/connections/{connection_id}/reject (server.py:2510-2521) handlers are STILL present and SHADOW the iter25 versions at lines 6324 and 6345. Result: accept/reject return {'message': '...'} instead of {'ok': True, 'status': 'accepted|rejected'}, and the +25 connection_made score is NEVER awarded to either user. 2 Network tests fail on KeyError 'status'. Main agent missed deleting these two adjacent legacy handlers when removing the /connections/request one.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/connections/{id}/accept AND /api/connections/{id}/reject",
+        "issue": "DUPLICATE-HANDLER pattern repeats. server.py:2495-2508 (legacy accept) and 2510-2521 (legacy reject) still exist; iter25 versions at 6324 and 6345 are shadowed by FastAPI route ordering. The legacy accept returns {'message':'Connection accepted'} (no 'status' field) and does NOT call award_points(..., 'connection_made', ...) — so the iter25 spec '+25 to BOTH users idempotently' is silently violated. Legacy reject returns {'message':'Connection declined'} (no 'status'). Frontend NetworkPage parses response.status to render the new state; this likely surfaces as a stale UI until refresh. Repro: curl POST .../connections/<id>/accept with valid recipient JWT → 200 {'message':'Connection accepted'} (proves legacy wins). Spec requires {'ok':true,'id','status':'accepted'} + score award. FIX: delete server.py lines 2495-2521 (both legacy accept and reject route handlers).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "NetworkPage category cards",
+        "issue": "The three category cards on /network render correctly with counts but are missing data-testid='category-social|professional|financial' attributes that the spec implies. Cards work visually; only test-instrumentation gap. Selectors used in test plan ('request-connection-social','accept-<id>','reject-<id>') not yet present as data-testid on NetworkPage / NetworkUserPage — recommend adding for stable Playwright coverage.",
+        "selector": "data-testid='category-social' (missing)",
+        "priority": "LOW"
+      },
+      {
+        "component": "FeatureIntroModal",
+        "issue": "First-render modal on /feed still appears (Welcome to your Feed). LocalStorage flags I tried (feature_intro_v1, feature_intro_iter25, intro_modal_dismissed) do not suppress it. Main agent should expose the actual storage key (or add a query-param bypass) so test agents can dismiss in pre-seed. Not blocking — modal has a clear 'Got it' button. Avatars render behind the modal (20× post-author-avatar-N test-ids confirmed).",
+        "selector": "[role=dialog] text='Welcome to your Feed'",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "My Network — accept/reject",
+        "issue": "Accept/Reject API calls succeed (status 200) but return response shape mismatch (no 'status' field, no score award). UI state may not refresh correctly because the frontend likely reads d.status from the response.",
+        "affected_selectors": ["accept-<id>","reject-<id>"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "/network (authenticated)",
+        "issues": ["Three category cards (Social blue / Professional orange / Financial green) render with good contrast and clear counts. Tab strip (Social / Professional / Financial / Requests) visible. Empty state 'No connections yet. Start by following users from the Feed.' clear."]
+      },
+      {
+        "screen": "/feed avatar size",
+        "issues": ["Confirmed post-author-avatar-N now has classes `w-12 h-12 cursor-pointer ring-2 ring-white shadow-md border-2 border-secondary/30 hover:scale-105` — matches spec (12×12 with secondary ring). PASS."]
+      },
+      {
+        "screen": "/admin/dashboard (non-admin)",
+        "issues": ["Renders 'Admin access required' card with shield icon + 'I am the owner' CTA button. Clean, accessible. PASS."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_features.py",
+    "/app/test_reports/pytest/iter25_retest_results.xml"
+  ],
+  "action_items": [
+    "[CRITICAL] Delete legacy duplicate handlers at server.py lines 2495-2521 (POST /connections/{connection_id}/accept and /reject). Same root cause as the now-deleted /connections/request duplicate. After deletion the iter25 handlers at lines 6324 and 6345 will start serving — score awards (+25 idempotent both sides) will work, and the response will gain the expected 'status' field. The 2 failing tests (test_accept_awards_25_both_sides, test_reject_path) will flip to PASS.",
+    "[LOW] Add data-testid='category-social|professional|financial' to the 3 NetworkPage cards, and 'request-connection-<kind>' to the Connect buttons in NetworkUserPage, plus 'accept-<id>' / 'reject-<id>' to the action buttons in the Requests tab. Needed for stable Playwright coverage; not a user-facing bug.",
+    "[LOW] Expose / standardise the FeatureIntroModal dismissal localStorage key (or accept ?dismiss_intro=1 query param) so testing agents can pre-seed dismissal."
+  ],
+  "critical_code_review_comments": [
+    "server.py still has the SAME duplicate-handler anti-pattern with 2 more endpoints (accept/reject). Recommend a one-time sweep: grep for every @api_router.<method>('/connections/...') and assert each path appears exactly once. The duplicate app.include_router(api_router) at line 6521 amplifies this risk for every newly added route.",
+    "Founder 2× multiplier is silently applied with no visible indicator on /score/summary — keep this in mind for all future score tests; tests should use base * {1,2} or query the user's founder_multiplier_until before computing expected delta.",
+    "server.py is now 6522 lines (was 6549 before legacy /connections/request removal). Still well over the 700-line guideline; module split overdue (flagged iter23, iter24, iter25)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_features.py (relaxed +40 / +20 assertions to base * k where k>=1; added explicit score-revoke check for review delete)"
+  ],
+  "success_rate": {
+    "backend": "91% pass (21/23). The remaining 2 failures share ONE root cause (duplicate accept/reject handlers).",
+    "frontend": "Smoke OK — /network 3-card layout, /feed avatar upgrade, /admin/dashboard bootstrap CTA all verified visually. Authenticated full end-to-end connection request → accept → +25 was not exercised because the backend accept route is broken (legacy handler wins)."
+  },
+  "test_credentials": "Dynamic via /auth/progressive-signup → /auth/send-otp (_mock_code) → /auth/verify-otp → /auth/complete-profile. Admin bootstrap: NetworkCapital2025! via X-Admin-Password header.",
+  "seed_data_creation": "Per-module TEST_iter25_A/B/ADMIN users + 1 place + reviews + connections; one UI smoke TEST_uismoke_A user.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter25_features.py -v --junitxml=/app/test_reports/pytest/iter25_results.xml. After main agent deletes server.py:2495-2521 (legacy accept+reject duplicates), the 2 remaining Network failures will flip to PASS — no test edits needed. UI smoke pieces still to add to Playwright once data-testid attrs are added: (a) /network → /network/<otherUserId> → click 'Connect — Social' → switch user → /network → Requests tab → Accept → confirm Social count went 0→1, (b) /places/new publish → 5-star review on /places/<id>, (c) /jobs/<id> like + share clipboard verify no 'emergent' substring, (d) admin bootstrap modal happy-path + metrics cards.",
+  "rca_of_the_issue": "Same anti-pattern as last iter — legacy /connections/* handlers were added in iter21 around server.py:2451-2521 (3 handlers: request, accept, reject). Iter25 added new handlers at lines 6292, 6324, 6345 with the new schema/scoring. Main agent's first fix correctly deleted the duplicate /connections/request at 2451, but the adjacent duplicate accept (2495) and reject (2510) handlers were missed. Because FastAPI routes are matched first-registered-first, the legacy versions silently shadow the iter25 ones. Verified by direct curl: POST /api/connections/<id>/accept with recipient JWT returns 200 {'message':'Connection accepted'} (legacy shape — no 'status' field) instead of the iter25 {'ok':true,'id','status':'accepted'} with +25 awards. Pure deletion of lines 2495-2521 fixes both failing tests with zero behavior change to other endpoints."
+}

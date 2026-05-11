@@ -2447,43 +2447,11 @@ async def list_hub_users(city: Optional[str] = None, current_user: dict = Depend
     return {"users": users, "city": target_city, "total": len(users)}
 
 # ============== CONNECTIONS ==============
-
-@api_router.post("/connections/request")
-async def send_connection_request(payload: ConnectionRequestPayload, current_user: dict = Depends(get_current_user)):
-    if payload.type not in ["social", "financial", "professional"]:
-        raise HTTPException(status_code=400, detail="Invalid connection type")
-    if payload.to_user_id == current_user["id"]:
-        raise HTTPException(status_code=400, detail="Cannot connect with yourself")
-    target = await db.users.find_one({"id": payload.to_user_id}, {"_id": 0, "id": 1, "username": 1})
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
-    # Idempotency: only one pending request per (pair, type)
-    existing = await db.connections.find_one({
-        "from_user_id": current_user["id"],
-        "to_user_id": payload.to_user_id,
-        "type": payload.type,
-    })
-    if existing and existing.get("status") in ("pending", "accepted"):
-        raise HTTPException(status_code=400, detail=f"Already {existing['status']}")
-    conn_id = str(uuid.uuid4())
-    conn = {
-        "id": conn_id,
-        "from_user_id": current_user["id"],
-        "from_username": current_user["username"],
-        "from_photo": current_user.get("photo", ""),
-        "to_user_id": payload.to_user_id,
-        "to_username": target["username"],
-        "type": payload.type,
-        "status": "pending",
-        "message": payload.message or "",
-        "stokvel_id": payload.stokvel_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "responded_at": None,
-    }
-    await db.connections.insert_one(conn)
-    if "_id" in conn:
-        del conn["_id"]
-    return {"connection": conn}
+# (Legacy POST /api/connections/request handler removed in iter 25 — the iter25
+#  handler at the bottom of this file using {target_user_id, kind} is now the
+#  single canonical entrypoint. The legacy inbox/respond endpoints below are
+#  kept for back-compat — they continue to operate on the same `connections`
+#  collection.)
 
 @api_router.get("/connections/inbox")
 async def connection_inbox(type: Optional[str] = None, current_user: dict = Depends(get_current_user)):
@@ -5975,6 +5943,9 @@ async def admin_set_user_role(
     payload: PromoteUserRequest,
     admin: dict = Depends(require_admin_user),
 ):
+    # Only admin (not moderator) can change roles.
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can change user roles")
     if payload.role not in ("admin", "moderator", "user"):
         raise HTTPException(status_code=400, detail="Invalid role")
     target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "role": 1})
@@ -6223,6 +6194,8 @@ async def delete_place_review(
     if review["user_id"] != current_user["id"] and current_user.get("role") not in ("admin", "moderator"):
         raise HTTPException(status_code=403, detail="You can only delete your own review")
     await db.place_reviews.delete_one({"id": review_id})
+    # Revoke the +40 score event (clamps monthly_score at 0)
+    await revoke_score_event(review["user_id"], "place_review_create", f"place_review:{review_id}")
     cur = db.place_reviews.find({"place_id": place_id}, {"_id": 0, "rating": 1})
     ratings = [r["rating"] async for r in cur]
     avg = round(sum(ratings) / len(ratings), 2) if ratings else 0.0

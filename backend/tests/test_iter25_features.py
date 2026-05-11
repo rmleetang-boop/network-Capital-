@@ -94,7 +94,9 @@ class TestPlaces:
         rev = r.json()
         pytest.shared_review_id = rev["id"]
         score_after = _score(user_b["headers"])
-        assert score_after - score_before == 40, f"expected +40 got {score_after - score_before}"
+        delta = score_after - score_before
+        # Base +40, founder 2× window may yield +80 — accept either (per agent context note)
+        assert delta >= 40 and delta % 40 == 0, f"expected +40 (or 2× +80) got {delta}"
         # average updated
         place = requests.get(f"{API}/places/{pid}", timeout=20).json()
         assert place["review_count"] == 1
@@ -107,11 +109,19 @@ class TestPlaces:
     def test_delete_review_recomputes(self, user_b):
         pid = pytest.shared_place_id
         rid = pytest.shared_review_id
+        # Capture score before delete (after review +40 or +80 due to founder 2×)
+        score_before_delete = _score(user_b["headers"])
         r = requests.delete(f"{API}/places/{pid}/reviews/{rid}", headers=user_b["headers"], timeout=20)
         assert r.status_code == 200
         place = requests.get(f"{API}/places/{pid}", timeout=20).json()
         assert place["review_count"] == 0
         assert place["average_rating"] == 0.0
+        # iter25 minor #2: delete must revoke the +40 (or +80) score event
+        score_after_delete = _score(user_b["headers"])
+        revoked = score_before_delete - score_after_delete
+        assert revoked >= 40 and revoked % 40 == 0, (
+            f"expected score revoke of -40 (or 2× -80) on review delete, got {revoked}"
+        )
 
     def test_claim_flow(self, user_a, user_b, admin_user):
         pid = pytest.shared_place_id
@@ -261,7 +271,9 @@ class TestJobReactions:
         assert "emergent" not in d["url"].lower()
         assert "preview" not in d["url"].lower()
         after = _score(user_a["headers"])
-        assert after - before == 20, f"expected +20 got {after - before}"
+        delta = after - before
+        # Base +20, founder 2× window may yield +40 — accept either
+        assert delta >= 20 and delta % 20 == 0, f"expected +20 (or 2× +40) got {delta}"
 
     def test_share_404_for_bad_job(self, user_a):
         r = requests.post(f"{API}/jobs/nonexistent-job-id/share", headers=user_a["headers"], timeout=20)
