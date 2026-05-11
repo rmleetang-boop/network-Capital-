@@ -1,90 +1,97 @@
 # Network Capital — PRD
 
 ## Original problem statement
-Network Capital is a mobile-first **Community Resource Ecosystem** (formerly known as a reward-based Stokvel). Users build a Network Score representing their community engagement, participate in group savings circles, and access premium tiers. Compliance phrasing: never "investing", "returns", or "profit"; instead "shared access", "collective participation".
+Mobile-first **Community Resource Ecosystem**. Network Score = community engagement signal. Stokvel circles + premium tiers. Compliance: never "investing/returns/profit"; use "support/backing/shared access".
 
-## Compliance Rules (DO NOT BREAK)
-- Never use: "investing", "returns", "profit"
-- Use instead: "support", "backing", "contribution", "shared access", "collective participation"
-- ZAR (Stripe $10 Premium) unlocks **features** (Wallet ops, multi-sig)
-- Network Score (Merit) unlocks **reputation** (Hub leaderboard, verified badges)
+## Compliance Rules
+- Forbidden: investing / returns / profit
+- Use: support · backing · contribution · shared access · collective participation
+- ZAR Premium $10 → features (Wallet, multi-sig); Network Score → reputation (Hub leaderboard, badges).
 
-## Score architecture
-- **Monthly cap = 10,000** points. Resets at the start of every calendar month.
-- `monthly_score` and `network_score` mirrored.
-- Premium / Founder window = 2× multiplier (max 2×).
-- Three-tier engine: T1 Ads (`ad_watch_engage` 500/day cap 5; `ad_watch_share` diminishing 300→50), T2 Referrals (`referral_qualified` 400 once at 1k score), T3 Standard (`post_create` 50, `comment_quality` 30 ≥0.6 AI, `post_like` 5, `post_share` 20, `video_watched` 10).
-- Founders: first 1,000 signups, 30 days, 2×.
+## Score architecture (iter 25)
+- Monthly cap 10,000, resets monthly.
+- Premium / Founder window = 2× (max 2×).
+- T1 Ads: `ad_watch_engage` 500 (5/d), `ad_watch_share` 300→150→50→50→50.
+- T2 Referrals: `referral_qualified` 400, `referral_feature_unlock` 200, `referral_first_post` 150.
+- T3 Standard: post 50, share 20, comment 30 (AI≥0.6), like 5, video 10, daily_checkin 10, profile_completed 250.
+- **NEW iter 25**: `place_review_create` 40 (10/d), `connection_made` 25 (20/d, both sides), `job_share` 20 (10/d).
+- All new actions in COOLDOWN_ACTIONS (24h same source_id).
+- Founders: first 1000 signups, 30d, 2×.
 
 ## Cumulative implementation
-- Stokvel groups + banking (independent partner)
-- DMs, stories, explore, hashtags, mentions
+- Stokvel groups + bank, DMs, stories, explore, hashtags, mentions
 - 13 African Regional Hubs (Country→Province→City)
-- Activities discovery/creation
-- Stripe Premium $10 + confetti, premium splash
-- Brand palette + transparent Logo Mark (navy favicon)
-- Stokvel+ purpose grid, Product/Service toggle, currency auto-default, availability enum
-- Hub clarity + category filter chip-bar
-- Anti-abuse referrals (verified email + completed profile required, idempotent, day-cap 10)
-- Friendly share code: `networkcapitalapp.<username>.<MM>.<##>` + `/join/:slug` route
-- Stokvel invite by username/share_code
-- Account deactivate (reversible) / delete (30-day grace, auto-cancels Stripe sub)
-- Feed post edit/delete with score revocation cascades; un-like also revokes points
-- Comment delete (author or post-owner) revokes commenter's points
-- Score events: 24h same-source cooldown, daily soft-cap 60, monthly cap 10,000, auto-flag if >80% from one action
+- Activities, Stripe Premium $10, Founder counter
+- Brand palette + transparent Logo Mark, favicon
+- Stokvel+ purpose grid + Product/Service toggle (multi-currency)
+- Anti-abuse referrals + share-code `networkcapitalapp.<username>.<MM>.<##>`
+- Account deactivate (reversible) / delete (30-day grace)
+- Feed post edit/delete with cascading score revoke
+- Friendly share URLs on `https://networkcapitalapp.co.za` (no preview/emergent)
+- Jobs feature (Social/Professional toggle, $50 Stripe unlock, /api/jobs CRUD, apply, seeded BD Agent)
+- Resend transactional emails with graceful fallback to `_mock_code`
+- LandingPage Careers footer link with sign-in modal
 
-## NEW iter 24 (Feb 10, 2026) — Jobs feature + Resend email + Careers footer
-### Jobs feature
-- New `user_kind` ('social' | 'professional') + `job_post_unlocked` boolean fields on user.
-- `GET /api/jobs` (list), `POST /api/jobs` (gated by job_post_unlocked), `GET /api/jobs/{id}`, `POST /api/jobs/{id}/apply` (409 on duplicate), `GET /api/jobs/{id}/applications` (employer only).
-- `POST /api/jobs/checkout` — Stripe $50 once-off unlock for posting jobs.
-- `PUT /api/users/me` accepts `user_kind` switch (Social ↔ Professional).
-- Seeded "Business Developer Agent" job at Network Capital (R8,500 CTC + commission, min_network_score 2000).
-- Frontend: `/jobs` list (mine, applications, all), `/jobs/:id` detail with apply, `/jobs/new` create form gated by inline Stripe $50 unlock CTA.
-- ProfilePage: always-visible user_kind pill toggle (`data-testid='user-kind-toggle'`).
-- AuthPage: Social / Professional choice during signup.
-- LandingPage Footer: Careers link → opens sign-in-required modal for guests, routes to `/jobs` for authenticated users.
+## NEW iter 25 (Feb 11, 2026) — My Places, My Network, Job reactions, Admin dashboard
+### My Places (Trustpilot-style)
+- Collections: `places`, `place_reviews`, `place_claims`.
+- Endpoints: `GET/POST /api/places`, `GET /api/places/:id`, `POST /api/places/:id/reviews` (+40, one per user), `DELETE /api/places/:id/reviews/:rid` (revokes points), `POST /api/places/:id/claim`, `POST /api/admin/places/claims/:cid/approve`, `POST /api/places/:id/reviews/:rid/reply` (owner only).
+- Frontend: `/places` (Leaflet+OSM map + list + category chips + search), `/places/new` (create form with geolocation), `/places/:id` (detail + reviews + review modal + claim modal + owner-reply form).
 
-### Real email integration (Resend)
-- Replaced mock OTP with Resend SDK (`resend>=2.0.0`).
-- `POST /api/auth/send-otp` returns `{delivered: bool, ttl_minutes, message, _mock_code?}`.
-  - `delivered=true` (Resend success) — code never exposed.
-  - `delivered=false` (test-mode rejection / SDK error) — graceful fallback exposes `_mock_code` so QA & non-verified domains keep flowing.
-- HTML email template (table-based, inline-styled, brand colours).
-- Async non-blocking via `asyncio.to_thread(resend.Emails.send, params)`.
-- Env: `RESEND_API_KEY`, `SENDER_EMAIL=onboarding@resend.dev` (Resend test mode — only account owner can receive; use a verified domain in production).
+### My Network (3-category connection graph)
+- Collection: `connections` with deterministic `id = sorted(a,b) + "__" + kind` so duplicate requests are idempotent.
+- Endpoints: `POST /api/connections/request {target_user_id, kind}` (kind ∈ social|professional|financial), `POST /api/connections/:id/accept` (awards +25 to BOTH parties, idempotent via source_id), `POST /api/connections/:id/reject`, `DELETE /api/connections/:id`, `GET /api/connections/me/summary`, `GET /api/users/:id/network-summary`, `GET /api/connections/me?kind=&status_filter=`.
+- Legacy `/connections/request|accept|reject` handlers DELETED (were shadowing the iter25 versions).
+- Frontend: `/network` (3 gradient cards + tabs Social/Professional/Financial/Requests), `/network/:userId` (other user's network + request-connection buttons).
+
+### Job reactions + share
+- Collections: `job_reactions` (one row per user×job, toggle), `job_shares`.
+- Endpoints: `POST /api/jobs/:id/react {reaction: like|dislike}` (toggles), `GET /api/jobs/:id/reactions`, `POST /api/jobs/:id/share` (awards +20, returns clean URL).
+- `SHARE_BASE_URL = 'https://networkcapitalapp.co.za'` constant — share URLs NEVER contain `emergent` or `preview`.
+- Frontend: like/dislike/share bar on JobDetailPage with Web-Share API + clipboard fallback.
+
+### Role-based admin
+- New `user.role` field: `user` | `moderator` | `admin`.
+- `POST /api/admin/bootstrap` (header `X-Admin-Password`) — one-time owner promotion.
+- `GET /api/admin/dashboard/metrics` — single-payload metrics (users 7d/30d, stokvels, posts, jobs, places, reviews, connections, top contributors).
+- `GET /api/admin/users-list?q=&role=` — searchable user list.
+- `PATCH /api/admin/users/:id/role` — admin-only (NOT moderator).
+- Frontend: `/admin/dashboard` (metrics + bootstrap CTA for non-admin), `/admin/users` (role-mgmt with dropdown per row).
+
+### Feed polish
+- Post-author avatar upgraded to 48×48 with secondary-ring border, hover scale, gradient fallback (data-testid `post-author-avatar-<idx>`).
 
 ## Code architecture
 ```
-/app/
-├── backend/
-│   ├── server.py (~5,930 lines — splitting overdue)
-│   │   ├── EMAIL OTP via Resend (line ~4803): _send_otp_email + _otp_email_html
-│   │   ├── Jobs routes & seed (~last 200 lines)
-│   │   └── Three @app.on_event('startup') handlers (purge / share-codes / seed-job)
-│   └── tests/ (test_iter20…test_iter24_retest.py)
-├── frontend/src/
-│   ├── pages/ (JobsPage, JobDetailPage, CreateJobPage, AuthPage, ProfilePage, …)
-│   ├── components/Footer.js (Careers modal)
-│   ├── constants/share.js
-│   └── components/FeatureIntroModal.js
-└── memory/PRD.md, test_credentials.md
+/app/backend/server.py (~6,496 lines — split overdue, flagged 5+ iters)
+  ├── SCORE_TABLE: +place_review_create/connection_made/job_share (lines 558-562)
+  ├── revoke_score_event helper (used by post and review deletes)
+  ├── iter25 module appended after line 5934 (admin role, places, network, job reactions)
+  └── 2× app.include_router(api_router) [iter25 routes register via 2nd call]
+
+/app/frontend/src/pages/
+  ├── PlacesPage, PlaceDetailPage, CreatePlacePage (NEW)
+  ├── NetworkPage, NetworkUserPage (NEW)
+  ├── AdminMetricsDashboardPage, AdminUsersPage (NEW)
+  ├── JobDetailPage (+react/share bar)
+  └── FeedPage (avatar upgrade)
 ```
 
-## Backlog (priority-ordered)
-- **P1** Real Paystack integration (NGN/GHS/KES/ZAR) — pending user test keys.
-- **P1** Verify a real domain on Resend (e.g., `mail.networkcapitalapp.co.za`) so production OTP emails reach all users (current `onboarding@resend.dev` is test-only).
-- **P1** Carousel posts + Reels-style vertical video feed.
-- **P2** Modularise `server.py` into routers (`/app/backend/routes/`) — every iter adds ~600 lines.
-- **P2** Migrate base64 media → S3/R2 (16MB Mongo doc cap).
-- **P2** Live FX rates + creator-currency pricing.
-- **P2** Consolidate `@app.on_event('startup')` into FastAPI lifespan handler (deprecation).
+## Backlog
+- **P1** Real domain on Resend (replace `onboarding@resend.dev`).
+- **P1** Paystack (NGN/GHS/KES/ZAR) — needs user test keys.
+- **P1** Carousel + Reels.
+- **P2** Modularise `server.py` (>6,500 lines, blocked 5 iters).
+- **P2** CI lint to fail builds on duplicate `@api_router.<method>(<path>)` strings (would have caught 3 dup-handler regressions in iter25 alone).
+- **P2** Migrate base64 media to S3/R2.
+- **P2** Lifespan handler replacing `@app.on_event`.
 - **P2** TTL index on `db.otps.expires_at`.
-- **P2** Add a UX-friendly auto-dismiss / click-outside on `FeatureIntroModal` (currently blocks underlying clicks until "Got it").
-- **P3** Capacitor wrap (iOS/Android).
-- **P3** Driver Pool extension.
+- **P2** Auto-dismiss / click-outside on FeatureIntroModal.
+- **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend) — covered separately.
+- **P3** Capacitor wrap, Driver Pool.
 
 ## Testing
-- iter_22.json: 38/40 cumulative regressions PASS.
-- iter_23.json: 18/18 backend (Jobs + Resend OTP fallback + user_kind PUT) PASS; 5/8 frontend at first sweep.
-- iter_24.json: ALL 4 frontend & backend fixes verified — 100% on both.
+- iter22: 38/40 cumulative regressions.
+- iter23: 18/18 Jobs+Resend.
+- iter24: 4/4 retest fixes.
+- iter25 / iter26 / iter27: 23/23 backend tests (Places + Network + Job-reactions + Admin + regressions) — FRONTEND smoke verified for avatar upgrade, /network 3-card layout, /admin bootstrap CTA. Full Playwright e2e on UI authenticated flows deferred (data-testid coverage now complete).
