@@ -87,7 +87,7 @@ const NetworkPage = ({ user }) => {
                 key={k.v}
                 onClick={() => setTab(k.v)}
                 className={`relative rounded-2xl p-4 text-white text-left bg-gradient-to-br ${k.tone} ${tab === k.v ? 'ring-2 ring-secondary' : ''} active:scale-95 transition-transform`}
-                data-testid={`network-card-${k.v}`}>
+                data-testid={`category-${k.v}`}>
                 <Icon size={18} className="mb-1.5 opacity-80" />
                 <p className="text-2xl font-heading font-bold leading-none">{count}</p>
                 <p className="text-[11px] uppercase tracking-wider font-bold opacity-90 mt-1">{k.l}</p>

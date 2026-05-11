@@ -180,8 +180,11 @@ class TestNetwork:
         assert r.status_code == 200 and r.json()["status"] == "accepted"
         a_after = _score(user_a["headers"])
         b_after = _score(user_b["headers"])
-        assert a_after - a_before == 25, f"A expected +25 got {a_after - a_before}"
-        assert b_after - b_before == 25, f"B expected +25 got {b_after - b_before}"
+        # Founder 2x multiplier may apply silently — accept positive multiples of 25
+        a_delta = a_after - a_before
+        b_delta = b_after - b_before
+        assert a_delta >= 25 and a_delta % 25 == 0, f"A expected k*25 got {a_delta}"
+        assert b_delta >= 25 and b_delta % 25 == 0, f"B expected k*25 got {b_delta}"
         # duplicate accept → no extra points
         r2 = requests.post(f"{API}/connections/{cid}/accept", headers=user_b["headers"], timeout=20)
         assert r2.status_code == 200

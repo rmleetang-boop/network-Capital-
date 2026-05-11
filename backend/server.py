@@ -2492,33 +2492,10 @@ async def list_my_connections(type: Optional[str] = None, current_user: dict = D
         })
     return {"connections": out, "total": len(out)}
 
-@api_router.post("/connections/{connection_id}/accept")
-async def accept_connection(connection_id: str, current_user: dict = Depends(get_current_user)):
-    conn = await db.connections.find_one({"id": connection_id})
-    if not conn:
-        raise HTTPException(status_code=404, detail="Request not found")
-    if conn["to_user_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if conn["status"] != "pending":
-        raise HTTPException(status_code=400, detail=f"Already {conn['status']}")
-    await db.connections.update_one(
-        {"id": connection_id},
-        {"$set": {"status": "accepted", "responded_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    return {"message": "Connection accepted"}
-
-@api_router.post("/connections/{connection_id}/reject")
-async def reject_connection(connection_id: str, current_user: dict = Depends(get_current_user)):
-    conn = await db.connections.find_one({"id": connection_id})
-    if not conn:
-        raise HTTPException(status_code=404, detail="Request not found")
-    if conn["to_user_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    await db.connections.update_one(
-        {"id": connection_id},
-        {"$set": {"status": "rejected", "responded_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    return {"message": "Connection declined"}
+# Legacy /connections/{id}/accept and /connections/{id}/reject handlers removed
+# in iter 25 — see new handlers near end of file (request_connection /
+# accept_connection / reject_connection use {target_user_id, kind} schema and
+# award +25 connection_made to both sides).
 
 
 # ============== PROFILE MEDIA: Photos / Videos / Articles ==============
