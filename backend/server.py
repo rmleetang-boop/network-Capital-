@@ -4816,6 +4816,137 @@ async def _send_otp_email(email: str, code: str) -> bool:
         return False
 
 
+# ─── Generic branded transactional email helper ────────────────────────────
+def _branded_email_html(*, headline: str, body_html: str, cta_label: Optional[str] = None,
+                        cta_url: Optional[str] = None, kicker: str = "Network Capital") -> str:
+    """Reusable inline-styled branded template. Body is raw HTML (trusted, server-built)."""
+    cta_block = ""
+    if cta_label and cta_url:
+        cta_block = f"""
+          <tr><td align="center" style="padding:24px 0 8px;">
+            <a href="{cta_url}" style="display:inline-block;padding:12px 24px;background:#f5d76e;color:#0a1628;font-weight:bold;border-radius:999px;text-decoration:none;font-size:14px;">{cta_label}</a>
+          </td></tr>
+        """
+    return f"""
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a1628;padding:32px 0;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
+      <tr><td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#0f1d35;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:32px;">
+          <tr><td style="text-align:center;padding-bottom:16px;">
+            <span style="font-size:14px;color:#f5d76e;letter-spacing:2px;text-transform:uppercase;">{kicker}</span>
+          </td></tr>
+          <tr><td style="text-align:center;padding-bottom:8px;">
+            <h1 style="margin:0;font-size:22px;color:#ffffff;line-height:28px;">{headline}</h1>
+          </td></tr>
+          <tr><td style="color:#cbd5e1;font-size:14px;line-height:22px;padding:12px 0 0;">
+            {body_html}
+          </td></tr>
+          {cta_block}
+          <tr><td style="text-align:center;color:#94a3b8;font-size:11px;line-height:18px;padding-top:24px;border-top:1px solid rgba(255,255,255,0.08);margin-top:16px;">
+            You're receiving this because you have a Network Capital account.<br/>
+            <a href="https://networkcapitalapp.co.za/settings" style="color:#94a3b8;text-decoration:underline;">Manage notifications</a> · © Network Capital · Powered by Mici Business pty ltd
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+    """
+
+
+async def _send_branded_email(*, to: str, subject: str, html: str, kind: str = "transactional") -> bool:
+    """Fire-and-forget Resend send. Never raises; logs success/failure with kind tag."""
+    if not to or not _RESEND_API_KEY:
+        _otp_logging.info(f"[MAIL-SKIP:{kind}] No recipient or RESEND_API_KEY missing")
+        return False
+    params = {
+        "from": f"Network Capital <{_SENDER_EMAIL}>",
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "reply_to": "noreply@mail.networkcapitalapp.co.za",
+    }
+    try:
+        result = await _otp_asyncio.to_thread(_resend.Emails.send, params)
+        _otp_logging.info(f"[MAIL-SENT:{kind}] to={to} id={result.get('id') if isinstance(result, dict) else result}")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _otp_logging.warning(f"[MAIL-FAIL:{kind}] to={to} err={exc}")
+        return False
+
+
+# ─── Specific transactional templates ──────────────────────────────────────
+def _welcome_email_html(name: str) -> str:
+    return _branded_email_html(
+        headline=f"Welcome, {name}!",
+        body_html=(
+            "<p>You're officially part of the Network Capital community. Here's what to do next to start building your Network Score:</p>"
+            "<ul style='padding-left:18px;margin:8px 0;'>"
+            "<li>Write your first post and earn <strong style='color:#f5d76e;'>+50 pts</strong></li>"
+            "<li>Connect with 3 people (social, professional, financial) — <strong style='color:#f5d76e;'>+25</strong> each</li>"
+            "<li>Discover or review a place — <strong style='color:#f5d76e;'>+40 pts</strong> per review</li>"
+            "<li>Join a Stokvel — <strong style='color:#f5d76e;'>+250 pts</strong> on first join</li>"
+            "</ul>"
+            "<p style='font-size:13px;color:#94a3b8;'>Monthly cap is 10,000 pts. Founder members earn 2× until day 30.</p>"
+        ),
+        cta_label="Open the app",
+        cta_url="https://networkcapitalapp.co.za/",
+    )
+
+
+def _connection_request_email_html(*, requester_name: str, kind: str) -> str:
+    return _branded_email_html(
+        headline=f"{requester_name} wants to connect",
+        body_html=(
+            f"<p>You have a new <strong>{kind}</strong> connection request waiting for your response.</p>"
+            "<p>Accepting earns <strong style='color:#f5d76e;'>+25 Network Score</strong> for both of you.</p>"
+        ),
+        cta_label="Review request",
+        cta_url="https://networkcapitalapp.co.za/network",
+    )
+
+
+def _connection_accepted_email_html(*, acceptor_name: str, kind: str) -> str:
+    return _branded_email_html(
+        headline=f"{acceptor_name} accepted your request",
+        body_html=(
+            f"<p>You're now connected on Network Capital — <strong>{kind}</strong>.</p>"
+            "<p>You both earned <strong style='color:#f5d76e;'>+25 Network Score</strong>. Say hello via Messages.</p>"
+        ),
+        cta_label="Open My Network",
+        cta_url="https://networkcapitalapp.co.za/network",
+    )
+
+
+def _job_application_received_email_html(*, applicant_name: str, job_title: str, job_id: str) -> str:
+    return _branded_email_html(
+        headline=f"New application: {job_title}",
+        body_html=(
+            f"<p><strong>{applicant_name}</strong> just applied for your role.</p>"
+            "<p>Review their CV and cover note, then shortlist, schedule an interview, or send a rejection — all from the applicants tab.</p>"
+        ),
+        cta_label="Review applicant",
+        cta_url=f"https://networkcapitalapp.co.za/jobs/{job_id}",
+    )
+
+
+def _job_application_status_email_html(*, job_title: str, new_status: str, job_id: str) -> str:
+    label_map = {
+        "new": "received",
+        "shortlisted": "shortlisted",
+        "interview": "moved to interview stage",
+        "rejected": "not progressing further at this time",
+        "hired": "hired — congratulations!",
+    }
+    pretty = label_map.get(new_status, new_status)
+    return _branded_email_html(
+        headline=f"Update on your application — {job_title}",
+        body_html=(
+            f"<p>Your application status has been updated to: <strong>{pretty}</strong>.</p>"
+            "<p>Open the job page for next steps from the employer.</p>"
+        ),
+        cta_label="View job",
+        cta_url=f"https://networkcapitalapp.co.za/jobs/{job_id}",
+    )
+
+
 OTP_TTL_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
 OTP_RESEND_COOLDOWN_SECONDS = 30
@@ -5065,6 +5196,16 @@ async def complete_profile(request: CompleteProfileRequest, current_user: dict =
     # +250 once for completing the profile
     if not current_user.get("profile_completed"):
         await award_points(current_user["id"], "profile_completed", 0, source_id=current_user["id"], message="Profile completed — welcome bonus")
+        # Welcome email (fire-and-forget)
+        try:
+            await _send_branded_email(
+                to=(current_user.get("email") or "").strip().lower(),
+                subject="Welcome to Network Capital",
+                html=_welcome_email_html(name=(request.full_name or current_user.get("username") or "there")),
+                kind="welcome",
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     # Anti-abuse referral payout — only fires if invitee has BOTH verified email AND completed profile
     await _maybe_reward_referrer(updated_user)
@@ -5765,6 +5906,23 @@ async def apply_to_job(job_id: str, req: ApplyJobRequest, current_user: dict = D
     except Exception:
         pass
 
+    # Email the employer
+    try:
+        employer = await db.users.find_one({"id": job["employer_id"]}, {"_id": 0, "email": 1})
+        if employer and employer.get("email"):
+            await _send_branded_email(
+                to=employer["email"].strip().lower(),
+                subject=f"New application: {job.get('title','your job')}",
+                html=_job_application_received_email_html(
+                    applicant_name=current_user.get("full_name") or current_user.get("username") or "An applicant",
+                    job_title=job.get("title") or "your role",
+                    job_id=job_id,
+                ),
+                kind="job_application_received",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
     application.pop("_id", None)
     return {"applied": True, "application_id": app_id}
 
@@ -5796,7 +5954,26 @@ async def update_application(job_id: str, app_id: str, req: UpdateApplicationReq
     res = await db.job_applications.update_one({"id": app_id, "job_id": job_id}, {"$set": upd})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Application not found")
-    return await db.job_applications.find_one({"id": app_id}, {"_id": 0})
+    updated = await db.job_applications.find_one({"id": app_id}, {"_id": 0})
+
+    # Email the applicant about their status change
+    try:
+        applicant = await db.users.find_one({"id": updated["applicant_id"]}, {"_id": 0, "email": 1})
+        if applicant and applicant.get("email"):
+            await _send_branded_email(
+                to=applicant["email"].strip().lower(),
+                subject=f"Application update — {job.get('title','your application')}",
+                html=_job_application_status_email_html(
+                    job_title=job.get("title") or "your application",
+                    new_status=req.status,
+                    job_id=job_id,
+                ),
+                kind="job_application_status",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    return updated
 
 
 @app.on_event("startup")
@@ -6295,6 +6472,19 @@ async def request_connection(payload: ConnectionRequestBody, current_user: dict 
         "accepted_at": None,
     }
     await db.connections.update_one({"id": conn_id}, {"$set": record}, upsert=True)
+    # Notify recipient by email (fire-and-forget)
+    try:
+        recipient = await db.users.find_one({"id": payload.target_user_id}, {"_id": 0, "email": 1})
+        if recipient and recipient.get("email"):
+            requester_name = current_user.get("full_name") or current_user.get("username") or "Someone"
+            await _send_branded_email(
+                to=recipient["email"].strip().lower(),
+                subject=f"New {payload.kind} connection request",
+                html=_connection_request_email_html(requester_name=requester_name, kind=payload.kind),
+                kind="connection_request",
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True, "status": "pending", "id": conn_id}
 
 
@@ -6316,6 +6506,19 @@ async def accept_connection(conn_id: str, current_user: dict = Depends(get_curre
             source_id=f"connection:{conn_id}",
             message=f"New {conn['kind']} connection",
         )
+    # Email the original requester that their request was accepted
+    try:
+        requester = await db.users.find_one({"id": conn["from_user_id"]}, {"_id": 0, "email": 1})
+        if requester and requester.get("email"):
+            acceptor_name = current_user.get("full_name") or current_user.get("username") or "Someone"
+            await _send_branded_email(
+                to=requester["email"].strip().lower(),
+                subject="Your connection request was accepted",
+                html=_connection_accepted_email_html(acceptor_name=acceptor_name, kind=conn["kind"]),
+                kind="connection_accepted",
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True, "id": conn_id, "status": "accepted"}
 
 
