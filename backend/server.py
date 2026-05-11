@@ -557,6 +557,10 @@ SCORE_TABLE = {
     "creator_engagement":{"points": 500, "daily_cap": None},
     "premium_welcome_bonus": {"points": 500, "daily_cap": None},
     "manual_admin_grant":{"points": 0,  "daily_cap": None},
+    # ── NEW (iter 25) — My Places, My Network, Job reactions ───────────────────
+    "place_review_create": {"points": 40, "daily_cap": 10},   # genuine review with rating
+    "connection_made":     {"points": 25, "daily_cap": 20},   # mutual accept (both sides earn)
+    "job_share":           {"points": 20, "daily_cap": 10},   # share a job
 }
 
 # Ad share diminishing returns — per unique ad (key = ad_id)
@@ -568,6 +572,7 @@ AD_SHARE_LADDER = [300, 150, 50, 50, 50]   # 1st→5th share; >5 returns 0
 COOLDOWN_ACTIONS = {
     "post_like", "post_share", "post_create", "comment_quality",
     "ad_watch_engage", "video_watched",
+    "place_review_create", "job_share",
 }
 
 # Auto-flag user for review when >80% of monthly points come from a single action type
@@ -5919,5 +5924,625 @@ async def seed_network_capital_job():
         logger.warning(f"seed_network_capital_job skipped: {e}")
 
 
-# Re-register router so all routes added below the original include_router are registered.
+
+# ============================================================================
+# ITER 25 — My Places, My Network, Job reactions, Role-based admin dashboard
+# ============================================================================
+
+# ---- ROLE-BASED ADMIN ------------------------------------------------------
+async def require_admin_user(current_user: dict = Depends(get_current_user)):
+    """JWT-based admin check (role ∈ {admin, moderator}). Replaces password-only gate."""
+    role = current_user.get("role") or "user"
+    if role not in ("admin", "moderator"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+async def require_admin_or_password(
+    current_user: Optional[dict] = None,
+    x_admin_password: Optional[str] = Header(None),
+):
+    """Compat: either role-based admin OR the legacy X-Admin-Password header."""
+    expected = os.environ.get('ADMIN_PASSWORD')
+    if x_admin_password and expected and x_admin_password == expected:
+        return True
+    if current_user and (current_user.get("role") in ("admin", "moderator")):
+        return True
+    raise HTTPException(status_code=403, detail="Admin access required")
+
+
+class PromoteUserRequest(BaseModel):
+    role: str  # admin | moderator | user
+
+
+@api_router.post("/admin/bootstrap")
+async def admin_bootstrap(
+    current_user: dict = Depends(get_current_user),
+    x_admin_password: str = Header(None),
+):
+    """One-time bootstrap: any user can promote THEMSELVES to admin by providing
+    the legacy ADMIN_PASSWORD header. Idempotent."""
+    expected = os.environ.get('ADMIN_PASSWORD')
+    if not expected or x_admin_password != expected:
+        raise HTTPException(status_code=403, detail="Invalid admin password")
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"role": "admin"}})
+    return {"ok": True, "user_id": current_user["id"], "role": "admin"}
+
+
+@api_router.patch("/admin/users/{user_id}/role")
+async def admin_set_user_role(
+    user_id: str,
+    payload: PromoteUserRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    if payload.role not in ("admin", "moderator", "user"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "role": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role}})
+    return {"ok": True, "user_id": user_id, "role": payload.role}
+
+
+@api_router.get("/admin/users-list")
+async def admin_list_users(
+    q: Optional[str] = None,
+    role: Optional[str] = None,
+    limit: int = 100,
+    admin: dict = Depends(require_admin_user),
+):
+    """Paginated user list for the admin User-Management page."""
+    query: Dict[str, Any] = {}
+    if role:
+        query["role"] = role
+    if q:
+        query["$or"] = [
+            {"email": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q, "$options": "i"}},
+            {"full_name": {"$regex": q, "$options": "i"}},
+        ]
+    cursor = db.users.find(query, {
+        "_id": 0, "password": 0,
+    }).limit(min(limit, 500))
+    return await cursor.to_list(length=None)
+
+
+# ---- ADMIN DASHBOARD METRICS ----------------------------------------------
+@api_router.get("/admin/dashboard/metrics")
+async def admin_dashboard_metrics(admin: dict = Depends(require_admin_user)):
+    """Single-payload metrics for the admin dashboard."""
+    now = datetime.now(timezone.utc)
+    seven_d = (now - timedelta(days=7)).isoformat()
+    thirty_d = (now - timedelta(days=30)).isoformat()
+
+    async def _count(coll, **q):
+        return await db[coll].count_documents(q) if q else await db[coll].count_documents({})
+
+    total_users = await db.users.count_documents({})
+    new_users_7d = await db.users.count_documents({"created_at": {"$gte": seven_d}})
+    new_users_30d = await db.users.count_documents({"created_at": {"$gte": thirty_d}})
+    premium_users = await db.users.count_documents({"is_premium": True})
+
+    total_stokvels = await db.stokvels.count_documents({})
+    new_stokvels_30d = await db.stokvels.count_documents({"created_at": {"$gte": thirty_d}})
+
+    total_posts = await db.posts.count_documents({})
+    posts_7d = await db.posts.count_documents({"created_at": {"$gte": seven_d}})
+
+    total_jobs = await db.jobs.count_documents({})
+    total_applications = await db.job_applications.count_documents({})
+
+    total_places = await db.places.count_documents({})
+    total_reviews = await db.place_reviews.count_documents({})
+    reviews_30d = await db.place_reviews.count_documents({"created_at": {"$gte": thirty_d}})
+
+    total_connections = await db.connections.count_documents({"status": "accepted"})
+    connections_30d = await db.connections.count_documents({"status": "accepted", "accepted_at": {"$gte": thirty_d}})
+
+    # Top contributors this month
+    month_key = _month_key()
+    top_contrib = await db.users.find(
+        {},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "monthly_score": 1}
+    ).sort("monthly_score", -1).limit(5).to_list(length=None)
+
+    return {
+        "generated_at": now.isoformat(),
+        "users": {
+            "total": total_users,
+            "new_7d": new_users_7d,
+            "new_30d": new_users_30d,
+            "premium": premium_users,
+            "growth_30d_pct": round((new_users_30d / max(total_users - new_users_30d, 1)) * 100, 1),
+        },
+        "stokvels": {"total": total_stokvels, "new_30d": new_stokvels_30d},
+        "feed":     {"total_posts": total_posts, "posts_7d": posts_7d},
+        "jobs":     {"total": total_jobs, "applications": total_applications},
+        "places":   {"total": total_places, "reviews": total_reviews, "reviews_30d": reviews_30d},
+        "network":  {"connections": total_connections, "connections_30d": connections_30d},
+        "top_contributors": top_contrib,
+        "month_key": month_key,
+    }
+
+
+# ---- MY PLACES -------------------------------------------------------------
+class PlaceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    category: str  # restaurant | store | guesthouse | salon | service | other
+    description: Optional[str] = ""
+    address: Optional[str] = ""
+    city: Optional[str] = ""
+    country: Optional[str] = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    photo: Optional[str] = ""   # base64 or URL
+    phone: Optional[str] = ""
+    website: Optional[str] = ""
+
+
+class PlaceReviewCreate(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    title: Optional[str] = ""
+    body: str = Field(min_length=4, max_length=2000)
+    photos: Optional[List[str]] = []   # base64 strings or URLs
+
+
+class PlaceClaimRequest(BaseModel):
+    proof: Optional[str] = ""           # short description / link to proof
+    contact_email: Optional[str] = ""
+
+
+PLACE_CATEGORIES = ["restaurant", "store", "guesthouse", "salon", "service", "other"]
+
+
+def _place_public(place: dict) -> dict:
+    """Strip private fields and add computed values."""
+    place.pop("_id", None)
+    return place
+
+
+@api_router.post("/places")
+async def create_place(payload: PlaceCreate, current_user: dict = Depends(get_current_user)):
+    if payload.category not in PLACE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Category must be one of {PLACE_CATEGORIES}")
+    place = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name.strip(),
+        "category": payload.category,
+        "description": (payload.description or "").strip(),
+        "address": (payload.address or "").strip(),
+        "city": (payload.city or "").strip(),
+        "country": (payload.country or "").strip(),
+        "lat": payload.lat,
+        "lng": payload.lng,
+        "photo": payload.photo or "",
+        "phone": payload.phone or "",
+        "website": payload.website or "",
+        "created_by": current_user["id"],
+        "owner_id": None,           # populated when an owner claim is approved
+        "claim_status": "unclaimed",  # unclaimed | pending | claimed
+        "review_count": 0,
+        "average_rating": 0.0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.places.insert_one(place)
+    return _place_public(place)
+
+
+@api_router.get("/places")
+async def list_places(
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    city: Optional[str] = None,
+    limit: int = 50,
+):
+    query: Dict[str, Any] = {}
+    if category and category in PLACE_CATEGORIES:
+        query["category"] = category
+    if city:
+        query["city"] = {"$regex": f"^{city}", "$options": "i"}
+    if q:
+        query["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"description": {"$regex": q, "$options": "i"}},
+            {"address": {"$regex": q, "$options": "i"}},
+        ]
+    cur = db.places.find(query, {"_id": 0}).sort("average_rating", -1).limit(min(limit, 200))
+    return await cur.to_list(length=None)
+
+
+@api_router.get("/places/{place_id}")
+async def get_place(place_id: str):
+    place = await db.places.find_one({"id": place_id}, {"_id": 0})
+    if not place:
+        raise HTTPException(status_code=404, detail="Place not found")
+    return place
+
+
+@api_router.post("/places/{place_id}/reviews")
+async def review_place(
+    place_id: str,
+    payload: PlaceReviewCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    place = await db.places.find_one({"id": place_id}, {"_id": 0})
+    if not place:
+        raise HTTPException(status_code=404, detail="Place not found")
+    # One review per user per place
+    existing = await db.place_reviews.find_one({"place_id": place_id, "user_id": current_user["id"]})
+    if existing:
+        raise HTTPException(status_code=409, detail="You already reviewed this place. Edit your review instead.")
+
+    review = {
+        "id": str(uuid.uuid4()),
+        "place_id": place_id,
+        "user_id": current_user["id"],
+        "username": current_user.get("username") or "member",
+        "photo": current_user.get("photo") or "",
+        "rating": int(payload.rating),
+        "title": (payload.title or "").strip(),
+        "body": payload.body.strip(),
+        "photos": payload.photos or [],
+        "owner_reply": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.place_reviews.insert_one(review)
+
+    # Refresh aggregates
+    cur = db.place_reviews.find({"place_id": place_id}, {"_id": 0, "rating": 1})
+    ratings = [r["rating"] async for r in cur]
+    avg = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+    await db.places.update_one(
+        {"id": place_id},
+        {"$set": {"average_rating": avg, "review_count": len(ratings)}},
+    )
+
+    await award_points(
+        current_user["id"], "place_review_create", 0,
+        source_id=f"place_review:{review['id']}",
+        message=f"Reviewed {place['name']}",
+    )
+    review.pop("_id", None)
+    return review
+
+
+@api_router.get("/places/{place_id}/reviews")
+async def list_place_reviews(place_id: str, limit: int = 100):
+    cur = db.place_reviews.find({"place_id": place_id}, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
+@api_router.delete("/places/{place_id}/reviews/{review_id}")
+async def delete_place_review(
+    place_id: str, review_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    review = await db.place_reviews.find_one({"id": review_id, "place_id": place_id}, {"_id": 0})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if review["user_id"] != current_user["id"] and current_user.get("role") not in ("admin", "moderator"):
+        raise HTTPException(status_code=403, detail="You can only delete your own review")
+    await db.place_reviews.delete_one({"id": review_id})
+    cur = db.place_reviews.find({"place_id": place_id}, {"_id": 0, "rating": 1})
+    ratings = [r["rating"] async for r in cur]
+    avg = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+    await db.places.update_one(
+        {"id": place_id},
+        {"$set": {"average_rating": avg, "review_count": len(ratings)}},
+    )
+    return {"ok": True}
+
+
+@api_router.post("/places/{place_id}/claim")
+async def claim_place(
+    place_id: str,
+    payload: PlaceClaimRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    place = await db.places.find_one({"id": place_id}, {"_id": 0})
+    if not place:
+        raise HTTPException(status_code=404, detail="Place not found")
+    if place.get("claim_status") == "claimed":
+        raise HTTPException(status_code=409, detail="This place is already claimed")
+    claim = {
+        "id": str(uuid.uuid4()),
+        "place_id": place_id,
+        "user_id": current_user["id"],
+        "proof": (payload.proof or "").strip(),
+        "contact_email": (payload.contact_email or current_user.get("email") or "").strip(),
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.place_claims.insert_one(claim)
+    await db.places.update_one({"id": place_id}, {"$set": {"claim_status": "pending"}})
+    claim.pop("_id", None)
+    return claim
+
+
+@api_router.post("/admin/places/claims/{claim_id}/approve")
+async def admin_approve_claim(claim_id: str, admin: dict = Depends(require_admin_user)):
+    claim = await db.place_claims.find_one({"id": claim_id}, {"_id": 0})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    await db.place_claims.update_one({"id": claim_id}, {"$set": {"status": "approved", "approved_at": datetime.now(timezone.utc).isoformat()}})
+    await db.places.update_one(
+        {"id": claim["place_id"]},
+        {"$set": {"owner_id": claim["user_id"], "claim_status": "claimed"}},
+    )
+    return {"ok": True}
+
+
+class OwnerReplyRequest(BaseModel):
+    reply: str = Field(min_length=2, max_length=1000)
+
+
+@api_router.post("/places/{place_id}/reviews/{review_id}/reply")
+async def owner_reply_review(
+    place_id: str, review_id: str,
+    payload: OwnerReplyRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    place = await db.places.find_one({"id": place_id}, {"_id": 0})
+    if not place:
+        raise HTTPException(status_code=404, detail="Place not found")
+    if place.get("owner_id") != current_user["id"] and current_user.get("role") not in ("admin", "moderator"):
+        raise HTTPException(status_code=403, detail="Only the claimed owner can reply to reviews")
+    review = await db.place_reviews.find_one({"id": review_id, "place_id": place_id}, {"_id": 0})
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    reply = {
+        "body": payload.reply.strip(),
+        "by_user_id": current_user["id"],
+        "by_username": current_user.get("username") or "owner",
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.place_reviews.update_one({"id": review_id}, {"$set": {"owner_reply": reply}})
+    return {"ok": True, "owner_reply": reply}
+
+
+# ---- MY NETWORK ------------------------------------------------------------
+CONNECTION_KINDS = ("social", "professional", "financial")
+
+
+class ConnectionRequestBody(BaseModel):
+    target_user_id: str
+    kind: str  # social | professional | financial
+    note: Optional[str] = ""
+
+
+def _conn_id(user_a: str, user_b: str, kind: str) -> str:
+    """Deterministic connection ID so dupe-requests collide."""
+    a, b = sorted([user_a, user_b])
+    return f"{a}__{b}__{kind}"
+
+
+@api_router.post("/connections/request")
+async def request_connection(payload: ConnectionRequestBody, current_user: dict = Depends(get_current_user)):
+    if payload.kind not in CONNECTION_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {CONNECTION_KINDS}")
+    if payload.target_user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot connect with yourself")
+    target = await db.users.find_one({"id": payload.target_user_id}, {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    conn_id = _conn_id(current_user["id"], payload.target_user_id, payload.kind)
+    existing = await db.connections.find_one({"id": conn_id}, {"_id": 0})
+    if existing:
+        if existing["status"] == "accepted":
+            return {"ok": True, "status": "accepted", "id": conn_id}
+        if existing["status"] == "pending":
+            return {"ok": True, "status": "pending", "id": conn_id}
+        # rejected or cancelled — allow re-request by resetting
+    record = {
+        "id": conn_id,
+        "kind": payload.kind,
+        "from_user_id": current_user["id"],
+        "to_user_id": payload.target_user_id,
+        "status": "pending",
+        "note": (payload.note or "").strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "accepted_at": None,
+    }
+    await db.connections.update_one({"id": conn_id}, {"$set": record}, upsert=True)
+    return {"ok": True, "status": "pending", "id": conn_id}
+
+
+@api_router.post("/connections/{conn_id}/accept")
+async def accept_connection(conn_id: str, current_user: dict = Depends(get_current_user)):
+    conn = await db.connections.find_one({"id": conn_id}, {"_id": 0})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection request not found")
+    if conn["to_user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the recipient can accept this request")
+    if conn["status"] == "accepted":
+        return {"ok": True, "id": conn_id, "status": "accepted"}
+    now = datetime.now(timezone.utc).isoformat()
+    await db.connections.update_one({"id": conn_id}, {"$set": {"status": "accepted", "accepted_at": now}})
+    # Award both sides
+    for uid in (conn["from_user_id"], conn["to_user_id"]):
+        await award_points(
+            uid, "connection_made", 0,
+            source_id=f"connection:{conn_id}",
+            message=f"New {conn['kind']} connection",
+        )
+    return {"ok": True, "id": conn_id, "status": "accepted"}
+
+
+@api_router.post("/connections/{conn_id}/reject")
+async def reject_connection(conn_id: str, current_user: dict = Depends(get_current_user)):
+    conn = await db.connections.find_one({"id": conn_id}, {"_id": 0})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection request not found")
+    if conn["to_user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the recipient can reject this request")
+    await db.connections.update_one({"id": conn_id}, {"$set": {"status": "rejected"}})
+    return {"ok": True, "id": conn_id, "status": "rejected"}
+
+
+@api_router.delete("/connections/{conn_id}")
+async def remove_connection(conn_id: str, current_user: dict = Depends(get_current_user)):
+    conn = await db.connections.find_one({"id": conn_id}, {"_id": 0})
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    if current_user["id"] not in (conn["from_user_id"], conn["to_user_id"]):
+        raise HTTPException(status_code=403, detail="Not your connection")
+    await db.connections.delete_one({"id": conn_id})
+    return {"ok": True}
+
+
+async def _network_summary_for(user_id: str) -> Dict[str, Any]:
+    """Return social/professional/financial accepted-counts + pending-incoming-count."""
+    counts = {k: 0 for k in CONNECTION_KINDS}
+    pending_incoming = 0
+    cur = db.connections.find(
+        {"$or": [{"from_user_id": user_id}, {"to_user_id": user_id}]},
+        {"_id": 0, "kind": 1, "status": 1, "to_user_id": 1, "from_user_id": 1},
+    )
+    async for c in cur:
+        if c["status"] == "accepted":
+            counts[c["kind"]] = counts.get(c["kind"], 0) + 1
+        elif c["status"] == "pending" and c["to_user_id"] == user_id:
+            pending_incoming += 1
+    return {
+        "user_id": user_id,
+        "counts": counts,
+        "total": sum(counts.values()),
+        "pending_incoming": pending_incoming,
+    }
+
+
+@api_router.get("/connections/me/summary")
+async def my_network_summary(current_user: dict = Depends(get_current_user)):
+    return await _network_summary_for(current_user["id"])
+
+
+@api_router.get("/users/{user_id}/network-summary")
+async def user_network_summary(user_id: str, current_user: dict = Depends(get_current_user)):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await _network_summary_for(user_id)
+
+
+@api_router.get("/connections/me")
+async def list_my_connections(
+    kind: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """List my connections (and pending requests). `status_filter` ∈ {accepted, pending, incoming}."""
+    query: Dict[str, Any] = {
+        "$or": [{"from_user_id": current_user["id"]}, {"to_user_id": current_user["id"]}],
+    }
+    if kind and kind in CONNECTION_KINDS:
+        query["kind"] = kind
+    if status_filter == "accepted":
+        query["status"] = "accepted"
+    elif status_filter == "pending":
+        query["status"] = "pending"
+    elif status_filter == "incoming":
+        query["status"] = "pending"
+        query.pop("$or", None)
+        query["to_user_id"] = current_user["id"]
+    cur = db.connections.find(query, {"_id": 0}).sort("created_at", -1).limit(500)
+    rows = await cur.to_list(length=None)
+    # Enrich with the OTHER user's basic info
+    other_ids = list({
+        c["to_user_id"] if c["from_user_id"] == current_user["id"] else c["from_user_id"]
+        for c in rows
+    })
+    users = {}
+    if other_ids:
+        async for u in db.users.find(
+            {"id": {"$in": other_ids}},
+            {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "monthly_score": 1, "user_kind": 1, "city": 1},
+        ):
+            users[u["id"]] = u
+    for c in rows:
+        other_id = c["to_user_id"] if c["from_user_id"] == current_user["id"] else c["from_user_id"]
+        c["other_user"] = users.get(other_id, {"id": other_id})
+        c["direction"] = "outgoing" if c["from_user_id"] == current_user["id"] else "incoming"
+    return rows
+
+
+# ---- JOB LIKE / DISLIKE / SHARE -------------------------------------------
+class JobReactionBody(BaseModel):
+    reaction: str  # like | dislike
+
+
+# Public production base URL — used for share links so they NEVER include preview/emergent hosts.
+SHARE_BASE_URL = "https://networkcapitalapp.co.za"
+
+
+@api_router.post("/jobs/{job_id}/react")
+async def react_job(
+    job_id: str,
+    payload: JobReactionBody,
+    current_user: dict = Depends(get_current_user),
+):
+    if payload.reaction not in ("like", "dislike"):
+        raise HTTPException(status_code=400, detail="reaction must be 'like' or 'dislike'")
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0, "id": 1, "title": 1})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    rid = f"{current_user['id']}__{job_id}"
+    existing = await db.job_reactions.find_one({"id": rid}, {"_id": 0})
+    if existing and existing.get("reaction") == payload.reaction:
+        # Toggle off
+        await db.job_reactions.delete_one({"id": rid})
+        return await _job_reaction_counts(job_id, mine=None)
+    await db.job_reactions.update_one(
+        {"id": rid},
+        {"$set": {
+            "id": rid,
+            "job_id": job_id,
+            "user_id": current_user["id"],
+            "reaction": payload.reaction,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return await _job_reaction_counts(job_id, mine=payload.reaction)
+
+
+async def _job_reaction_counts(job_id: str, mine: Optional[str]) -> Dict[str, Any]:
+    likes = await db.job_reactions.count_documents({"job_id": job_id, "reaction": "like"})
+    dislikes = await db.job_reactions.count_documents({"job_id": job_id, "reaction": "dislike"})
+    return {"job_id": job_id, "likes": likes, "dislikes": dislikes, "mine": mine}
+
+
+@api_router.get("/jobs/{job_id}/reactions")
+async def get_job_reactions(job_id: str, current_user: dict = Depends(get_current_user)):
+    rid = f"{current_user['id']}__{job_id}"
+    mine_row = await db.job_reactions.find_one({"id": rid}, {"_id": 0, "reaction": 1})
+    return await _job_reaction_counts(job_id, mine=(mine_row or {}).get("reaction"))
+
+
+@api_router.post("/jobs/{job_id}/share")
+async def share_job(job_id: str, current_user: dict = Depends(get_current_user)):
+    """Log a job-share and return a clean public URL (no preview/emergent hosts)."""
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0, "id": 1, "title": 1})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await db.job_shares.insert_one({
+        "id": str(uuid.uuid4()),
+        "job_id": job_id,
+        "user_id": current_user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await award_points(
+        current_user["id"], "job_share", 0,
+        source_id=f"job_share:{job_id}",
+        message=f"Shared job: {job.get('title','a job')}",
+    )
+    return {
+        "ok": True,
+        "url": f"{SHARE_BASE_URL}/jobs/{job_id}",
+        "title": job.get("title"),
+    }
+
+
+# Re-register router so all routes added above are picked up (must come AFTER the
+# pre-existing seed `app.include_router(api_router)` block immediately below this).
 app.include_router(api_router)

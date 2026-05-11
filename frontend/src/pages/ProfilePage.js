@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings, Briefcase } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings, Briefcase, Shield } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -674,7 +674,8 @@ const ProfilePage = ({ user, setUser }) => {
               {/* Quick Access grid (formerly in floating menu) */}
               <div className="grid grid-cols-3 gap-3 mb-5" data-testid="quick-access-grid">
                 {[
-                  { icon: Inbox, label: 'Connections', path: '/connections' },
+                  { icon: Users, label: 'My Network', path: '/network' },
+                  { icon: MapPin, label: 'My Places', path: '/places' },
                   { icon: MessageCircle, label: 'Messages', path: '/messages' },
                   { icon: Sparkles, label: 'Activities', path: '/activities' },
                   { icon: Wallet, label: 'Wallet', path: '/wallet' },
@@ -686,6 +687,9 @@ const ProfilePage = ({ user, setUser }) => {
                   { icon: Bell, label: 'Notifications', path: '/notifications' },
                   { icon: HelpCircle, label: 'Help', path: '/help' },
                   { icon: Settings, label: 'Settings', path: '/settings' },
+                  ...(profileUser?.role === 'admin' || profileUser?.role === 'moderator'
+                    ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard' }]
+                    : []),
                 ].map((q) => {
                   const QIcon = q.icon;
                   return (

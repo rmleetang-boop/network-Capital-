@@ -262,17 +262,33 @@ const ActivityTrackerPage = ({ user }) => {
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
           className="bg-white/5 rounded-2xl p-5 border border-white/10"
         >
-          <h2 className="text-white font-bold mb-3 text-sm">How to earn points</h2>
-          <ul className="space-y-1.5 text-white/70 text-xs">
-            <li>• Posting content: <strong className="text-white">+20</strong></li>
-            <li>• Sharing content: <strong className="text-white">+10</strong></li>
-            <li>• Every 50 likes received: <strong className="text-white">+10</strong></li>
-            <li>• Every 10 comments: <strong className="text-white">+20</strong></li>
-            <li>• 3 hours active: <strong className="text-white">+10</strong></li>
-            <li>• Watch ad + share: <strong className="text-white">+100</strong></li>
-            <li>• Watch ad + engage with product: <strong className="text-white">+500</strong></li>
+          <h2 className="text-white font-bold mb-3 text-sm">How to earn points · monthly cap 10,000</h2>
+          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Tier 1 · Ad engagement</p>
+          <ul className="space-y-1 text-white/70 text-xs mb-3">
+            <li>• Watch ad + engage with product: <strong className="text-white">+500</strong> <span className="opacity-60">(5/day)</span></li>
+            <li>• Share an ad (diminishing): <strong className="text-white">300 / 150 / 50 / 50 / 50</strong> per unique ad</li>
+          </ul>
+          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Tier 2 · Referrals</p>
+          <ul className="space-y-1 text-white/70 text-xs mb-3">
+            <li>• Referred member hits 1,000 same month: <strong className="text-white">+400</strong></li>
+            <li>• Referred friend activates a feature: <strong className="text-white">+200</strong></li>
+            <li>• Referred friend posts in 7 days: <strong className="text-white">+150</strong></li>
+          </ul>
+          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Tier 3 · Standard activity</p>
+          <ul className="space-y-1 text-white/70 text-xs mb-3">
+            <li>• Create a post: <strong className="text-white">+50</strong> <span className="opacity-60">(5/day)</span></li>
+            <li>• Share a post: <strong className="text-white">+20</strong> <span className="opacity-60">(10/day)</span></li>
+            <li>• Quality comment (AI ≥ 0.6): <strong className="text-white">+30</strong> <span className="opacity-60">(10/day)</span></li>
+            <li>• Like a post: <strong className="text-white">+5</strong> <span className="opacity-60">(20/day)</span></li>
+            <li>• Watch a video: <strong className="text-white">+10</strong> <span className="opacity-60">(10/day)</span></li>
+          </ul>
+          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">New · iter 25</p>
+          <ul className="space-y-1 text-white/70 text-xs">
+            <li>• Post a Place review: <strong className="text-secondary">+40</strong> <span className="opacity-60">(10/day)</span></li>
+            <li>• Make a new connection (each side): <strong className="text-secondary">+25</strong></li>
+            <li>• Share a Job: <strong className="text-secondary">+20</strong> <span className="opacity-60">(10/day)</span></li>
             <li className="pt-2 border-t border-white/10 mt-2 text-secondary">
-              <Sparkles size={12} className="inline mr-1" /> Premium accounts: all points × 2
+              <Sparkles size={12} className="inline mr-1" /> Premium & Founder windows double all gains (max 2×)
             </li>
           </ul>
         </motion.div>

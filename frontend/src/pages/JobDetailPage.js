@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MapPin, DollarSign, Briefcase, Mail, FileText, Send, Loader2, Star, Users, Trash2, X, Check } from 'lucide-react';
+import { ArrowLeft, MapPin, DollarSign, Briefcase, Mail, FileText, Send, Loader2, Star, Users, Trash2, X, Check, ThumbsUp, ThumbsDown, Share2 } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 
@@ -15,6 +15,8 @@ const JobDetailPage = ({ user }) => {
   const [showApplicants, setShowApplicants] = useState(false);
   const [applicants, setApplicants] = useState([]);
   const [loadingApplicants, setLoadingApplicants] = useState(false);
+  const [reactions, setReactions] = useState({ likes: 0, dislikes: 0, mine: null });
+  const [sharing, setSharing] = useState(false);
 
   const isOwner = job && user && job.employer_id === user.id;
   const meetsScore = job ? (Number(user?.network_score || 0) >= Number(job.min_network_score || 0)) : true;
@@ -23,7 +25,38 @@ const JobDetailPage = ({ user }) => {
     axiosInstance.get(`/jobs/${jobId}`)
       .then((r) => setJob(r.data))
       .catch(() => toast.error('Job not found'));
+    axiosInstance.get(`/jobs/${jobId}/reactions`)
+      .then((r) => setReactions(r.data))
+      .catch(() => {});
   }, [jobId]);
+
+  const react = async (kind) => {
+    try {
+      const r = await axiosInstance.post(`/jobs/${jobId}/react`, { reaction: kind });
+      setReactions(r.data);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not react');
+    }
+  };
+
+  const shareJob = async () => {
+    setSharing(true);
+    try {
+      const r = await axiosInstance.post(`/jobs/${jobId}/share`, {});
+      const url = r.data.url;
+      const text = `${r.data.title} · Network Capital Jobs`;
+      if (navigator.share) {
+        try { await navigator.share({ title: text, url }); } catch { /* user cancelled */ }
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast.success('Job link copied to clipboard');
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not share');
+    } finally {
+      setSharing(false);
+    }
+  };
 
   const loadApplicants = async () => {
     setLoadingApplicants(true);
@@ -118,6 +151,40 @@ const JobDetailPage = ({ user }) => {
             </a>
           </Section>
         )}
+
+        {/* Reactions + Share bar (everyone) */}
+        <div className="bg-white border border-gray-100 rounded-2xl p-3 flex items-center gap-2" data-testid="job-reactions-bar">
+          <button
+            onClick={() => react('like')}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold transition-all ${
+              reactions.mine === 'like'
+                ? 'bg-primary text-white'
+                : 'bg-gray-50 text-text-primary hover:bg-gray-100'
+            }`}
+            data-testid="job-like-button"
+          >
+            <ThumbsUp size={14} /> {reactions.likes || 0}
+          </button>
+          <button
+            onClick={() => react('dislike')}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold transition-all ${
+              reactions.mine === 'dislike'
+                ? 'bg-red-100 text-red-700'
+                : 'bg-gray-50 text-text-primary hover:bg-gray-100'
+            }`}
+            data-testid="job-dislike-button"
+          >
+            <ThumbsDown size={14} /> {reactions.dislikes || 0}
+          </button>
+          <button
+            onClick={shareJob}
+            disabled={sharing}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-full text-sm font-semibold bg-secondary/15 text-primary hover:bg-secondary/25 disabled:opacity-60"
+            data-testid="job-share-button"
+          >
+            {sharing ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />} Share
+          </button>
+        </div>
 
         {/* Apply / employer actions */}
         {!isOwner && job.status === 'open' && (

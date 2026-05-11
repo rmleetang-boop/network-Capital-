@@ -405,10 +405,23 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
     >
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
-        <Avatar className="w-10 h-10 cursor-pointer ring-2 ring-white" onClick={() => onUserClick(post.user_id)}>
-          <AvatarImage src={post.user_photo} />
-          <AvatarFallback>{post.username[0].toUpperCase()}</AvatarFallback>
-        </Avatar>
+        <div className="relative">
+          <Avatar
+            className="w-12 h-12 cursor-pointer ring-2 ring-white shadow-md border-2 border-secondary/30 hover:scale-105 transition-transform"
+            onClick={() => onUserClick(post.user_id)}
+            data-testid={`post-author-avatar-${index}`}
+          >
+            <AvatarImage src={post.user_photo} alt={post.username} className="object-cover" />
+            <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-white font-bold">
+              {post.username[0].toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          {isAuto && (
+            <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-secondary rounded-full ring-2 ring-white flex items-center justify-center">
+              <Sparkles size={9} className="text-primary" />
+            </span>
+          )}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-text-primary text-sm truncate cursor-pointer hover:text-primary transition-colors" onClick={() => onUserClick(post.user_id)}>

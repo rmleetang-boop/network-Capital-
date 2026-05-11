@@ -44,6 +44,13 @@ import AccountSettingsPage from './pages/AccountSettingsPage';
 import JobsPage from './pages/JobsPage';
 import JobDetailPage from './pages/JobDetailPage';
 import CreateJobPage from './pages/CreateJobPage';
+import PlacesPage from './pages/PlacesPage';
+import PlaceDetailPage from './pages/PlaceDetailPage';
+import CreatePlacePage from './pages/CreatePlacePage';
+import NetworkPage from './pages/NetworkPage';
+import NetworkUserPage from './pages/NetworkUserPage';
+import AdminMetricsDashboardPage from './pages/AdminMetricsDashboardPage';
+import AdminUsersPage from './pages/AdminUsersPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -242,6 +249,13 @@ function App() {
             <Route path="/jobs" element={<JobsPage user={user} />} />
             <Route path="/jobs/new" element={<CreateJobPage user={user} />} />
             <Route path="/jobs/:jobId" element={<JobDetailPage user={user} />} />
+            <Route path="/places" element={<PlacesPage user={user} />} />
+            <Route path="/places/new" element={<CreatePlacePage user={user} />} />
+            <Route path="/places/:placeId" element={<PlaceDetailPage user={user} />} />
+            <Route path="/network" element={<NetworkPage user={user} />} />
+            <Route path="/network/:userId" element={<NetworkUserPage user={user} />} />
+            <Route path="/admin/dashboard" element={<AdminMetricsDashboardPage user={user} setUser={setUser} />} />
+            <Route path="/admin/users" element={<AdminUsersPage user={user} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<Navigate to="/" replace />} />

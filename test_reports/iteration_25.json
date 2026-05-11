@@ -1,0 +1,66 @@
+{
+  "summary": "Iter25 backend testing complete (23 tests, 16 PASS / 7 FAIL). MAJOR CRITICAL BUG FOUND: duplicate POST /api/connections/request endpoint — the legacy iter21 handler at server.py:2451 (expects {to_user_id, type}) shadows the new iter25 handler at server.py:6319 (expects {target_user_id, kind}). FastAPI routes-in-order means the legacy endpoint always wins, returning 422 on every iter25 frontend call. This breaks the ENTIRE My Network feature (request, accept, reject, summary counts, list-with-filter, /network/:userId). Verified by inspecting app.routes: ['send_connection_request', 'send_connection_request', 'request_connection']. PASS scope: Places CRUD + reviews + 409 dup + claim flow + admin approve + owner-reply ✓, Job reactions like/dislike toggle + switch + 404s ✓, Job share clean URL ('https://networkcapitalapp.co.za/jobs/<id>' — no emergent/preview) ✓, Admin bootstrap + wrong-password 403 + metrics + role PATCH + users-list + non-admin 403 ✓. Score awards verified: place_review_create base 40 / connection_made base 25 / job_share base 20 — test users hit 2× founder multiplier so observed values are 80 / 50 / 40 (NOT a bug — 'First 1000 members get a 2× Network Score'). Regression iter24: jobs list, /score/summary, user_kind PUT, posts CRUD all PASS.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/connections/request",
+        "issue": "DUPLICATE ROUTE REGISTRATION. server.py defines this endpoint TWICE — once at line 2451 (legacy schema {to_user_id, type}) and again at line 6319 (iter25 schema {target_user_id, kind}). Plus app.include_router(api_router) is called BOTH after the original block and again at line 6548, so the route table contains ['send_connection_request', 'send_connection_request', 'request_connection']. FastAPI matches the FIRST registration → the legacy handler wins → every iter25 frontend payload returns HTTP 422 'missing field to_user_id/type'. Repro: curl -X POST $API/api/connections/request -H 'Authorization: Bearer <jwt>' -H 'Content-Type: application/json' -d '{\"target_user_id\":\"<uid>\",\"kind\":\"social\"}' → 422. This cascades into: /connections/me/summary always returns 0 counts, /connections/me returns [], accept/reject 404, /network/:userId connect buttons silently fail. ENTIRE MY NETWORK FEATURE IS BROKEN.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "DELETE /api/places/{place_id}/reviews/{review_id}",
+        "issue": "Spec says 'DELETE own review removes points'. Implementation at server.py:6215-6233 only recomputes average_rating + review_count; it does NOT revoke the +40 place_review_create score event (no db.score_events.delete_one for source_id=place_review:<id>). Self-delete to game points is possible (limited by daily_cap 10). Recommend deleting the matching score_event."
+      },
+      {
+        "endpoint": "PATCH /api/admin/users/{user_id}/role",
+        "issue": "Spec says 'requires admin'. Implementation uses require_admin_user which accepts moderator too. Minor — moderators can promote other users to admin."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "My Network / NetworkUserPage connect-request buttons",
+        "issue": "Will silently fail with 422 because of the duplicate-endpoint backend bug. /network counts will stay 0, accept/reject buttons unusable (no pending records get created). Not a frontend code bug — the FE payload is correct.",
+        "affected_selectors": ["request-connection-social","request-connection-professional","request-connection-financial","accept-<id>","reject-<id>"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "/places, /network, /admin (anonymous)", "issues": ["All redirect to /landing when no JWT — expected. Verified /places landing page renders cleanly (founder banner shows '2× Network Score' confirming the multiplier behavior)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter25_features.py",
+    "/app/test_reports/pytest/iter25_results.xml"
+  ],
+  "action_items": [
+    "[CRITICAL] Delete the legacy POST /api/connections/request handler at server.py:2451-2486 (model ConnectionRequestPayload with to_user_id/type). The iter25 handler at line 6319 has the correct contract and is what the frontend calls. Re-run /app/backend/tests/test_iter25_features.py — the 5 Network test failures will then convert to PASS.",
+    "[CRITICAL] Remove the duplicate app.include_router(api_router) call at line 6548 — the router has already been included earlier in the file, so calling it again duplicates EVERY route (including iter25 ones that were added after the first include but are now registered twice). This is a separate issue from the connections/request duplicate handler.",
+    "[MINOR] In delete_place_review (server.py:6215), also delete the matching score_event so points are revoked: await db.score_events.delete_one({'user_id': review['user_id'], 'action':'place_review_create', 'source_id': f'place_review:{review_id}'}) and refund monthly_score if not crossing the cap.",
+    "[INFO] Score award doubling observed in tests (80 vs 40, 40 vs 20) is the founder 2× multiplier window working as designed — NOT a bug. Update score tests if needed to accept both base and 2× values."
+  ],
+  "critical_code_review_comments": [
+    "server.py duplicate include_router(api_router) at line 6548 doubles EVERY route registered between the first include and the end of file, meaning all iter25 endpoints (admin/places/network/jobs share) are registered twice. FastAPI tolerates this but the first registration wins. For routes ONLY defined in the iter25 block (e.g., /admin/bootstrap, /places, /connections/{id}/accept) it accidentally works; for any path that was ALREADY defined earlier (only /connections/request currently) the legacy version masks the new one.",
+    "server.py is now 6549 lines — splitting overdue (flagged iter23/24, still no action).",
+    "Score test results show the founder 2× multiplier is silently applied to all new test users — make this explicit in /score/summary and test docs so future agents don't chase phantom doubling bugs.",
+    "/admin/dashboard/metrics response is solid (all 7 sections present, top_contributors sorted by monthly_score). Good.",
+    "Place reviews and job reactions have proper 404 on bad job_id/place_id and 409 on duplicate review — defensive coding well done.",
+    "SHARE_BASE_URL is hardcoded — consider moving to env var SHARE_BASE_URL so the production host can be changed without code edits (current value 'https://networkcapitalapp.co.za' is correct and verified to never include 'emergent' or 'preview' in the response.)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_features.py (NEW — 23 cases, 16 PASS, 7 FAIL: 5 cascade from the duplicate-endpoint bug, 2 strictness on +40/+20 that are actually +80/+40 due to founder 2× — those 2 will pass once test asserts ≥40 / ≥20 or test users opt out of founder.)"
+  ],
+  "success_rate": {
+    "backend": "70% pass (16/23). 100% of Places + Jobs + Admin + Regression scope passes. 0% of Network scope passes — all 5 Network failures share the SAME root cause (duplicate /connections/request route).",
+    "frontend": "Not exhaustively tested — limited to unauthenticated /places smoke check (renders landing, no console errors). Authenticated UI flows depend on the Network bug fix; deferred to next iteration."
+  },
+  "test_credentials": "Dynamic users via /auth/progressive-signup → /auth/send-otp (_mock_code) → /auth/verify-otp → /auth/complete-profile. Admin: any fresh user + POST /api/admin/bootstrap with X-Admin-Password=NetworkCapital2025! header.",
+  "seed_data_creation": "Per-module fresh TEST_iter25_A/B/ADMIN users + 1 TEST_iter25_Cafe place + a handful of place_reviews + 2 connection rows. No cleanup fixture (matches prior iters).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter25_features.py -v --junitxml=/app/test_reports/pytest/iter25_results.xml. After main agent removes the duplicate /connections/request handler at server.py:2451-2486 AND the duplicate app.include_router(api_router) at line 6548, the 5 Network tests should flip to PASS without code changes. The 2 score-assertion failures (review +80 / share +40) can be relaxed in the test to `>= 40` / `>= 20` OR you can disable the founder window for test users (set founder_multiplier_until=None directly in mongo for the test fixtures). UI flows (places/network/admin/job-reactions) were not exercised — please add Playwright coverage in next iter once the Network bug is fixed. FeatureIntroModal overlays may still block first-render clicks; pre-seed localStorage flags as documented in iter24 context.",
+  "rca_of_the_issue": "ROOT CAUSE: server.py has TWO POST /api/connections/request handlers (line 2451 'send_connection_request' with payload ConnectionRequestPayload{to_user_id,type,message,stokvel_id} AND line 6319 'request_connection' with payload ConnectionRequestBody{target_user_id,kind,note}). FastAPI's APIRouter keeps both entries in its routes list and the matcher iterates first-to-last, so the legacy handler always wins. Python inspection of app.routes confirms 3 entries: ['send_connection_request', 'send_connection_request', 'request_connection'] (the legacy one duplicated because app.include_router(api_router) is called twice — once originally and once at line 6548). The frontend NetworkUserPage.js:38 calls with {target_user_id, kind} → legacy handler rejects with 422 'Field required: to_user_id, type'. FIX: delete the legacy handler block 2451-2486 OR rename the iter25 path (e.g., /connections/v2/request) AND remove the redundant include_router at line 6548. Reproduction: curl with correct iter25 payload → 422; with legacy payload {to_user_id,type} → 200 (proves the wrong handler wins)."
+}
