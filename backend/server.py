@@ -135,6 +135,8 @@ class User(BaseModel):
     is_founder: Optional[bool] = False
     founder_signup_rank: Optional[int] = None
     founder_multiplier_until: Optional[str] = None
+    # Role-based admin (iter 25)
+    role: Optional[str] = "user"  # "user" | "moderator" | "admin"
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
