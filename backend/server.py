@@ -6748,7 +6748,18 @@ async def my_referrals(current_user: dict = Depends(get_current_user)):
         {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1,
          "created_at": 1, "profile_completed": 1, "monthly_score": 1, "city": 1},
     ).sort("created_at", -1).limit(500)
-    joined = await cursor.to_list(length=None)
+    joined_raw = await cursor.to_list(length=None)
+    # Normalise so all fields are present (frontend uses optional chaining either way)
+    joined = [{
+        "id": u.get("id"),
+        "username": u.get("username"),
+        "full_name": u.get("full_name"),
+        "photo": u.get("photo") or "",
+        "city": u.get("city") or "",
+        "created_at": u.get("created_at"),
+        "profile_completed": bool(u.get("profile_completed")),
+        "monthly_score": int(u.get("monthly_score") or 0),
+    } for u in joined_raw]
 
     # Mark each invitee as completed (profile_completed=True) or still pending
     now = datetime.now(timezone.utc)
