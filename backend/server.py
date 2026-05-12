@@ -6134,8 +6134,20 @@ async def admin_list_users(
 
 # ---- ADMIN DASHBOARD METRICS ----------------------------------------------
 @api_router.get("/admin/dashboard/metrics")
-async def admin_dashboard_metrics(admin: dict = Depends(require_admin_user)):
-    """Single-payload metrics for the admin dashboard."""
+async def admin_dashboard_metrics(
+    current_user: dict = Depends(get_current_user),
+    x_admin_password: Optional[str] = Header(None),
+):
+    """Single-payload metrics for the admin dashboard.
+    Access: role=admin/moderator OR valid X-Admin-Password header."""
+    role = current_user.get("role") or "user"
+    expected = os.environ.get('ADMIN_PASSWORD')
+    pw_ok = bool(expected) and (x_admin_password == expected)
+    if role not in ("admin", "moderator") and not pw_ok:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    # If admin password matches, also auto-promote the current user to admin
+    if pw_ok and role == "user":
+        await db.users.update_one({"id": current_user["id"]}, {"$set": {"role": "admin"}})
     now = datetime.now(timezone.utc)
     seven_d = (now - timedelta(days=7)).isoformat()
     thirty_d = (now - timedelta(days=30)).isoformat()
@@ -6693,6 +6705,62 @@ async def share_job(job_id: str, current_user: dict = Depends(get_current_user))
         "ok": True,
         "url": f"{SHARE_BASE_URL}/jobs/{job_id}",
         "title": job.get("title"),
+    }
+
+
+# ─── Referral tracking (iter 26) ────────────────────────────────────────────
+@api_router.post("/referrals/track-click")
+async def track_referral_click(payload: Dict[str, Any]):
+    """Public endpoint — called by the JoinHandler when someone visits /join/<code>.
+    Stores one row per visit so the owner can see real reach."""
+    ref = (payload.get("ref") or "").strip()
+    if not ref:
+        raise HTTPException(status_code=400, detail="ref is required")
+    # Find the referring user by either share_code or legacy referral_code
+    owner = await db.users.find_one(
+        {"$or": [{"share_code": ref}, {"referral_code": ref}]},
+        {"_id": 0, "id": 1},
+    )
+    await db.referral_clicks.insert_one({
+        "id": str(uuid.uuid4()),
+        "ref": ref,
+        "owner_id": owner["id"] if owner else None,
+        "user_agent": (payload.get("user_agent") or "")[:200],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True, "tracked": True}
+
+
+@api_router.get("/referrals/me")
+async def my_referrals(current_user: dict = Depends(get_current_user)):
+    """Returns {clicks_count, joined_count, joined_users:[]} for the current user.
+    Counts BOTH new friendly share_code and legacy referral_code visits."""
+    my_codes = [c for c in (current_user.get("share_code"), current_user.get("referral_code")) if c]
+    clicks_count = 0
+    if my_codes:
+        clicks_count = await db.referral_clicks.count_documents({"ref": {"$in": my_codes}})
+
+    # People who joined via this user
+    cursor = db.users.find(
+        {"referred_by": current_user["id"]},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1,
+         "created_at": 1, "profile_completed": 1, "monthly_score": 1, "city": 1},
+    ).sort("created_at", -1).limit(500)
+    joined = await cursor.to_list(length=None)
+
+    # Mark each invitee as completed (profile_completed=True) or still pending
+    now = datetime.now(timezone.utc)
+    seven_d = (now - timedelta(days=7)).isoformat()
+    joined_7d = sum(1 for u in joined if u.get("created_at", "") >= seven_d)
+
+    return {
+        "clicks_count": clicks_count,
+        "joined_count": len(joined),
+        "joined_7d": joined_7d,
+        "completed_count": sum(1 for u in joined if u.get("profile_completed")),
+        "joined_users": joined,
+        "share_code": current_user.get("share_code"),
+        "share_url": f"{SHARE_BASE_URL}/join/{current_user.get('share_code')}" if current_user.get("share_code") else None,
     }
 
 

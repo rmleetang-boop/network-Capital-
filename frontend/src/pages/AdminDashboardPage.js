@@ -63,7 +63,7 @@ const AdminDashboardPage = () => {
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
-    if (passwordInput === ADMIN_PASSWORD) {
+    if (passwordInput.trim() === ADMIN_PASSWORD) {
       sessionStorage.setItem('adminAuthenticated', 'true');
       setIsAuthenticated(true);
       setPasswordError('');

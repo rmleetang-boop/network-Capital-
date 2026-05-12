@@ -82,6 +82,15 @@ const JoinHandler = () => {
         ref, joined: joined || null, bm: bm || null,
         captured_at: new Date().toISOString(),
       }));
+      // Fire-and-forget click-tracking (no auth required)
+      try {
+        fetch(`${BACKEND_URL}/api/referrals/track-click`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ref, user_agent: navigator.userAgent }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {}
     }
   } catch {}
   const token = localStorage.getItem('token');
