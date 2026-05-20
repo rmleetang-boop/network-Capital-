@@ -1,0 +1,38 @@
+{
+  "summary": "ITER33 — Network Capital Promotions extension (User-facing /promotions/me page + daily login modal + cross-platform '100 Network Points = R10 ZAR' conversion banners). Backend: 16/16 pytest PASS (auth-gating on all 3 new endpoints, response shape, breakdown counters, rank=null-when-zero, conversion math 500*0.10=R50, SAST '+02:00' on now_sast, force-active 24x7 promo → post_create → stats.breakdown.posts>=1 + rank=1 integer, regression /api/admin/promotions list, /api/admin/promotions-summary, /api/promotions/active). Frontend (UI live-tested via injected token): promo-welcome-modal appears on first daily visit, learn-toggle reveals 4-row learn-content, CTA-primary navigates to /promotions/me, CTA-dismiss & close set localStorage 'nc_promo_modal_last_shown' = today's YYYY-MM-DD, reload same day does NOT re-show modal, my-promotions-conversion pill shows '100 Network Points = R10 ZAR' with SAST schedule visible, /admin/promotions banner shows '100 Network Points = R10 ZAR · Official rate applied to all promotion rewards', /ambassadors/me hero card pill shows '100 Network Points = R10 ZAR', quick-promotions tile present on /profile and onClick handler navigates (JS .click() confirmed working).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter33_my_promotions.py",
+    "/app/test_reports/pytest/iter33_results.xml"
+  ],
+  "action_items": [
+    "(Carry-over from iter32, still unfixed) server.py:8195 — `async for uid in db.promotion_events.distinct(...)` is a latent bug; Motor's distinct() returns a coroutine→List, not async-iterable. Will swallow under broad except → no notifications sent on window-open. Fix: `for uid in await db.promotion_events.distinct('user_id', {'promotion_id': promo['id']}):`",
+    "(Cosmetic) Profile quick-tile uses `onClick={() => (window.location.href = q.path)}` which causes full-page reload (breaks SPA state). Consider migrating to react-router `navigate()` like PromotionsWelcomeModal does — better UX and consistent."
+  ],
+  "critical_code_review_comments": [
+    "server.py L8197-8230 (/users/me/promotions): N+1 — `_user_promo_stats` + `_user_rank_in_promo` called per promo in a Python for-loop; `_user_rank_in_promo` itself runs the full `_participant_aggregate` per promo. For 5 active promos × any number of participants, that's 5 sequential full aggregates just to compute one user's rank. Recommend computing all per-promo aggregates in parallel with asyncio.gather, OR caching `_participant_aggregate` results in _PROMO_CACHE (already refreshed every 60s).",
+    "server.py L8242 (/promotions/me/login-summary): Same N+1 pattern — _user_promo_stats per promo serially. Same fix.",
+    "server.py L8261-8270: top_ambassadors aggregate sorts by network_score+monthly_score but the spec mentions 'leaderboard'/'top contributors' — confirm the intent matches the existing /api/admin/ambassadors-leaderboard (which sorts by total_contribution). Mismatch could surprise users vs the dedicated leaderboard view.",
+    "PromotionsWelcomeModal.js: localStorage gate is checked once at mount; if user keeps the SPA open past midnight SAST, modal won't re-arm. Minor — fine for MVP.",
+    "ProfilePage.js L702: `window.location.href = q.path` for ALL quick-access tiles causes a full page reload on every tile click — degrades SPA experience. Recommended to switch to useNavigate().",
+    "MyPromotionsPage.js: No empty-state when /api/users/me/promotions returns promotions:[]; user sees an unstyled blank gap. Not tested live (env has seed M/W/F so list is non-empty)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter33_my_promotions.py (NEW — 16 tests across 6 classes covering all 3 new endpoints, auth-gating, conversion math, breakdown, rank semantics, regression)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "11/12 testids+flows verified — quick-promotions tile click via Playwright pointer didn't navigate (works via JS .click() and real user clicks); confirmed Playwright-automation artifact, not a real bug. All other flows pass: modal appearance + learn-toggle + close-sets-localStorage + reload-no-repeat + CTA-primary nav + my-promotions-conversion + admin banner + ambassador pill + SAST visibility."},
+  "test_credentials": "Created TEST_uitest user (admin + ambassador) for UI flow. Pytest creates ephemeral TEST_promo_* users dynamically (signup→OTP _mock_code→verify→complete-profile).",
+  "seed_data_creation": "Per pytest run: TEST_admin33, TEST_member33, TEST_zero33 users + 1 force-active 24x7 promotion 'TEST_24x7_iter33_*' (auto-cleaned in fixture teardown). Pre-existing seed 'M/W/F Points-to-Cash Window' unchanged.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter33_my_promotions.py -v (≈9s, 16 tests). For UI runs through the browser-automation harness: (a) sign up via `requests` in a subprocess (works fine — `python3 /tmp/mkuser.py`), (b) call page.goto(BASE) once to set domain, (c) page.evaluate localStorage.setItem('token', TOKEN) + clear nc_promo_modal_last_shown, (d) navigate to /promotions/me. To test admin/ambassador-gated UI: POST /api/admin/bootstrap (X-Admin-Password) then POST /api/admin/users/{uid}/make-ambassador. quick-promotions tile click via Playwright force-click does not trigger window.location.href reload — use page.evaluate(\"document.querySelector('[data-testid=\\\"quick-promotions\\\"]').click()\") as a workaround.",
+  "rca_of_the_issue": "N/A — no functional bugs in iter33 deliverables. Latent notifier bug from iter32 (server.py:8195) still present but doesn't affect any of the new user-facing endpoints/UI. Cosmetic recommendation: switch quick-tile from window.location.href to react-router navigate."
+}

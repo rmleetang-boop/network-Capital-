@@ -8100,6 +8100,16 @@ async def admin_all_promotions_summary(admin: dict = Depends(require_admin_user)
 
 
 # ---- Public: active promotions (for the user-facing banner) ---------------
+# Canonical conversion rate published across the platform.
+# 100 Network Points = R10 ZAR  →  R0.10/pt
+NETWORK_POINTS_PER_ZAR = 100
+ZAR_PER_NETWORK_POINT = 0.10
+
+
+def _points_to_zar(points: int) -> float:
+    return round(int(points or 0) * ZAR_PER_NETWORK_POINT, 2)
+
+
 @api_router.get("/promotions/active")
 async def public_active_promotions():
     """Read-only view used by the frontend to show 'window is open' banners."""
@@ -8121,6 +8131,160 @@ async def public_active_promotions():
             "now_sast": sast_now.isoformat(),
         })
     return out
+
+
+# ============================================================================
+# USER-FACING promotions endpoints (Profile tab + Login modal)
+# ============================================================================
+async def _user_promo_stats(user_id: str, promotion_id: str) -> Dict[str, Any]:
+    """Per-user aggregated stats for one promotion (points, zar, breakdown, streak, rank)."""
+    pipeline = [
+        {"$match": {"promotion_id": promotion_id, "user_id": user_id}},
+        {"$group": {
+            "_id": "$user_id",
+            "points": {"$sum": "$points"},
+            "events": {"$sum": 1},
+            "last_activity": {"$max": "$created_at_sast"},
+            "days_active": {"$addToSet": "$day_key"},
+            "posts": {"$sum": {"$cond": [{"$eq": ["$action", "post_create"]}, 1, 0]}},
+            "shares": {"$sum": {"$cond": [{"$eq": ["$action", "post_share"]}, 1, 0]}},
+            "comments": {"$sum": {"$cond": [{"$eq": ["$action", "comment_quality"]}, 1, 0]}},
+            "likes": {"$sum": {"$cond": [{"$eq": ["$action", "post_like"]}, 1, 0]}},
+            "referrals": {"$sum": {"$cond": [{"$in": ["$action", ["referral_qualified", "referral_feature_unlock", "referral_first_post"]]}, 1, 0]}},
+            "place_reviews": {"$sum": {"$cond": [{"$eq": ["$action", "place_review_create"]}, 1, 0]}},
+            "connections": {"$sum": {"$cond": [{"$eq": ["$action", "connection_made"]}, 1, 0]}},
+        }},
+    ]
+    rows = await db.promotion_events.aggregate(pipeline).to_list(length=1)
+    base = rows[0] if rows else {}
+    pts = int(base.get("points") or 0)
+    # Today's contribution in SAST
+    today_key = _now_sast().strftime("%Y-%m-%d")
+    today_pts = await db.promotion_events.aggregate([
+        {"$match": {"promotion_id": promotion_id, "user_id": user_id, "day_key": today_key}},
+        {"$group": {"_id": None, "pts": {"$sum": "$points"}}},
+    ]).to_list(length=1)
+    today_total = int((today_pts[0]["pts"] if today_pts else 0) or 0)
+    return {
+        "points": pts,
+        "zar_estimate": _points_to_zar(pts),
+        "events": int(base.get("events") or 0),
+        "last_activity": base.get("last_activity"),
+        "streak_days": len(base.get("days_active") or []),
+        "today_points": today_total,
+        "today_zar": _points_to_zar(today_total),
+        "breakdown": {
+            "posts": int(base.get("posts") or 0),
+            "shares": int(base.get("shares") or 0),
+            "comments": int(base.get("comments") or 0),
+            "likes": int(base.get("likes") or 0),
+            "referrals": int(base.get("referrals") or 0),
+            "place_reviews": int(base.get("place_reviews") or 0),
+            "connections": int(base.get("connections") or 0),
+        },
+    }
+
+
+async def _user_rank_in_promo(user_id: str, promotion_id: str) -> Optional[int]:
+    """1-based rank of this user in the promotion (by total points)."""
+    rows = await _participant_aggregate(promotion_id)
+    for i, r in enumerate(rows):
+        if r["user_id"] == user_id:
+            return i + 1
+    return None
+
+
+@api_router.get("/users/me/promotions")
+async def my_promotions(current_user: dict = Depends(get_current_user)):
+    """Return every active promotion enriched with this user's participation stats."""
+    await _refresh_promo_cache(force=True)
+    sast_now = _now_sast()
+    out = []
+    for p in _PROMO_CACHE["items"]:
+        stats = await _user_promo_stats(current_user["id"], p["id"])
+        rank = await _user_rank_in_promo(current_user["id"], p["id"]) if stats["points"] > 0 else None
+        out.append({
+            "promotion": {
+                "id": p["id"], "name": p["name"], "description": p.get("description") or "",
+                "schedule": p.get("schedule"),
+                "is_window_active": _is_window_active(p, sast_now),
+                "minutes_until_window": _minutes_until_window(p, sast_now),
+                "eligible_actions": p.get("eligible_actions") or [],
+                "zar_per_point": p.get("zar_per_point") or ZAR_PER_NETWORK_POINT,
+                "min_network_score": p.get("min_network_score") or 0,
+            },
+            "stats": stats,
+            "rank": rank,
+        })
+    total_points = sum(o["stats"]["points"] for o in out)
+    return {
+        "promotions": out,
+        "user_summary": {
+            "monthly_score": int(current_user.get("monthly_score") or 0),
+            "network_score": int(current_user.get("network_score") or 0),
+            "total_points_in_promotions": total_points,
+            "total_zar_estimate": _points_to_zar(total_points),
+            "conversion": {"points": NETWORK_POINTS_PER_ZAR, "zar": 10, "rate_per_point": ZAR_PER_NETWORK_POINT, "label": "100 Network Points = R10 ZAR"},
+        },
+        "now_sast": sast_now.isoformat(),
+    }
+
+
+@api_router.get("/users/me/promotion-events")
+async def my_promotion_events(promotion_id: Optional[str] = None, limit: int = 50, current_user: dict = Depends(get_current_user)):
+    q: Dict[str, Any] = {"user_id": current_user["id"]}
+    if promotion_id:
+        q["promotion_id"] = promotion_id
+    cur = db.promotion_events.find(q, {"_id": 0}).sort("created_at", -1).limit(min(int(limit or 50), 200))
+    return await cur.to_list(length=None)
+
+
+@api_router.get("/promotions/me/login-summary")
+async def my_login_summary(current_user: dict = Depends(get_current_user)):
+    """Single payload for the daily login modal."""
+    await _refresh_promo_cache(force=True)
+    sast_now = _now_sast()
+    active_promos = []
+    for p in _PROMO_CACHE["items"]:
+        stats = await _user_promo_stats(current_user["id"], p["id"])
+        active_promos.append({
+            "id": p["id"], "name": p["name"], "description": p.get("description") or "",
+            "schedule": p.get("schedule"),
+            "is_window_active": _is_window_active(p, sast_now),
+            "minutes_until_window": _minutes_until_window(p, sast_now),
+            "user_points": stats["points"],
+            "user_zar_estimate": stats["zar_estimate"],
+            "user_today_points": stats["today_points"],
+            "user_today_zar": stats["today_zar"],
+            "user_streak_days": stats["streak_days"],
+        })
+    # Top 3 ambassadors (reuse existing leaderboard logic — by total_contribution)
+    top_amb_pipeline = [
+        {"$match": {"is_ambassador": True, "deactivated": {"$ne": True}}},
+        {"$project": {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "ambassador_rank": 1,
+                      "network_score": {"$ifNull": ["$network_score", 0]},
+                      "monthly_score": {"$ifNull": ["$monthly_score", 0]}}},
+        {"$sort": {"network_score": -1, "monthly_score": -1}},
+        {"$limit": 3},
+    ]
+    top_ambassadors = await db.users.aggregate(top_amb_pipeline).to_list(length=3)
+    user_mscore = int(current_user.get("monthly_score") or 0)
+    return {
+        "user": {
+            "id": current_user["id"],
+            "username": current_user.get("username"),
+            "full_name": current_user.get("full_name"),
+            "photo": current_user.get("photo"),
+            "monthly_score": user_mscore,
+            "network_score": int(current_user.get("network_score") or 0),
+            "estimated_zar_value": _points_to_zar(user_mscore),
+        },
+        "active_promotions": active_promos,
+        "top_ambassadors": top_ambassadors,
+        "conversion": {"points": NETWORK_POINTS_PER_ZAR, "zar": 10, "rate_per_point": ZAR_PER_NETWORK_POINT, "label": "100 Network Points = R10 ZAR"},
+        "now_sast": sast_now.isoformat(),
+        "philosophy": "Network Capital is built on community participation, contribution, and shared growth. Every action you take strengthens your network and unlocks collective benefits.",
+    }
 
 
 # ---- Background scheduler: window open/close notifications ----------------

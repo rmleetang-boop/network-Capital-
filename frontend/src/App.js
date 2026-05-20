@@ -60,6 +60,8 @@ import AmbassadorDashboardPage from './pages/AmbassadorDashboardPage';
 import AmbassadorLeaderboardPage from './pages/AmbassadorLeaderboardPage';
 import PromotionsListPage from './pages/PromotionsListPage';
 import PromotionDetailPage from './pages/PromotionDetailPage';
+import MyPromotionsPage from './pages/MyPromotionsPage';
+import PromotionsWelcomeModal from './components/PromotionsWelcomeModal';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -231,6 +233,7 @@ function App() {
       <BrowserRouter>
         <CurrencyProvider user={user} setUser={setUser}>
           <Layout user={user} onLogout={handleLogout}>
+          <PromotionsWelcomeModal user={user} />
           <Routes>
             <Route path="/" element={<FeedPage user={user} />} />
             <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} />} />
@@ -283,6 +286,7 @@ function App() {
             <Route path="/admin/announce" element={<AdminAnnouncePage user={user} />} />
             <Route path="/admin/promotions" element={<PromotionsListPage user={user} />} />
             <Route path="/admin/promotions/:promotionId" element={<PromotionDetailPage user={user} />} />
+            <Route path="/promotions/me" element={<MyPromotionsPage user={user} />} />
             <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
             <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />

@@ -683,6 +683,7 @@ const ProfilePage = ({ user, setUser }) => {
                   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
                   { icon: Activity, label: 'Score Tracker', path: '/tracker' },
                   { icon: Briefcase, label: 'Jobs', path: '/jobs' },
+                  { icon: Sparkles, label: 'Promotions', path: '/promotions/me' },
                   { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
                   { icon: Bell, label: 'Notifications', path: '/notifications' },
                   { icon: HelpCircle, label: 'Help', path: '/help' },

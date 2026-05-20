@@ -64,6 +64,11 @@ const PromotionsListPage = ({ user }) => {
       </div>
 
       <div className="max-w-5xl mx-auto p-4 space-y-4">
+        {/* Conversion banner */}
+        <div className="bg-gradient-to-r from-secondary/20 to-primary/10 border border-secondary/30 rounded-2xl px-4 py-2.5 flex items-center gap-2" data-testid="promotions-conversion-banner">
+          <Sparkles size={14} className="text-secondary flex-shrink-0" />
+          <p className="text-xs font-semibold text-primary">100 Network Points = R10 ZAR <span className="text-text-muted font-normal">· Official rate applied to all promotion rewards</span></p>
+        </div>
         {/* Summary panel */}
         {summary && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2" data-testid="promotions-summary">
