@@ -1,0 +1,65 @@
+{
+  "summary": "Iter27 backend testing — 25/25 new tests PASS + 33/33 iter25+iter26 regression PASS. Verified the entire Admin Moderation Suite + Credit Grants module. Coverage: audit-log admin-gating + actor_id/target_id/action filters + newest-first ordering; user single-delete (self-delete blocked with 400, soft-delete sets deactivated+deletion_pending_at+deletion_purge_at, purge_content=true blanks posts/messages, hard-delete cascades + writes user.hard_delete audit row); suspend toggle (suspend→unsuspend with audit rows); bulk-user-delete preview returns would_delete+sample[≤20]+confirm_token_required:'DELETE N', mode=soft without matching token → 400 with required token leaked in detail, mode=soft with matching token → ok+deleted_users>=2, admins NEVER appear in sweep sample (role $nin verified by searching admin's own email prefix); content single-delete (posts + messages, 404 path); content bulk-delete preview→execute by user_id; credit grants — reason<10 → 400, amount=0 → 400, bad currency → 400 'Unsupported currency', bad target_type → 400, positive USD grant increments wallet_balance by exact USD, negative grant decrements, ZAR 182 grant converts to ~10 USD via SUPPORTED_CURRENCIES rate=18.20, $5001 grant returns status=pending_co_approval with wallet UNCHANGED, same admin co-approve → 403, different admin → 200 + wallet credited + credit.grant_applied audit row; positive stokvel grant increments stokvels.total_pool by USD equivalent; admin/stokvels search by regex; notification emitted on user grant (with admin_credit type, accessed via /api/notifications which returns {notifications, unread_count}).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/notifications",
+        "issue": "Duplicate route registration — handler at server.py L2157 (returns {notifications, unread_count}, no response_model) shadows the second one at L3057 (response_model=List[NotificationModel], requires `points: int`). Whichever handler wins is determined by registration order — FastAPI keeps the FIRST. The L3057 dead-handler is misleading and would 500 if it ever became active because credit-grant notifications insert no `points` field. Recommend deleting the L3057 handler and the duplicate `app.include_router(api_router)` at L6769."
+      },
+      {
+        "endpoint": "POST /api/admin/credit-grants",
+        "issue": "Notifications inserted by _apply_credit_grant omit a `points` field. If the strict `List[NotificationModel]` route at L3057 ever wins routing (e.g., during a refactor), retrieval will 500 because `points: int` is required. Safe-guard by adding `\"points\": 0` to the credit-grant notification insert."
+      },
+      {
+        "endpoint": "DELETE /api/admin/users/{id}?mode=hard",
+        "issue": "_hard_delete_user_content swallows every per-collection exception and silently sets count=0 — a cascade failure on one collection (e.g., schema drift) would never surface. Consider returning an `errors` array alongside `counts` so the admin sees partial-failure feedback."
+      },
+      {
+        "endpoint": "POST /api/admin/credit-grants",
+        "issue": "Currency code is upper-cased on storage but `_to_usd` is called with the original `payload.currency` (line 7108 → `_to_usd(abs(amount), payload.currency)`); inside _to_usd it does `.upper()` so it works, but the order is brittle — pass `payload.currency.upper()` once and reuse."
+      },
+      {
+        "endpoint": "POST /api/admin/users/bulk-delete",
+        "issue": "The `confirm_token_required` value is computed from `count` at preview time. If users matching the filter change between preview and execute (e.g., new signup), the token mismatches with 400. This is intentional safety but the error detail does not return the new expected token — a UX gap. Recommend returning the new expected token in the 400 detail JSON."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter27_admin_moderation.py",
+    "/app/test_reports/pytest/iter27_results.xml",
+    "/app/test_reports/pytest/iter27_regression.xml"
+  ],
+  "action_items": [
+    "Remove the duplicate `/notifications` GET handler at server.py L3057 — currently dead because L2157 is registered first; misleading for future contributors.",
+    "Add `\"points\": 0` to the notification insert in `_apply_credit_grant` (server.py ~L7160) for forward-compatibility with the strict NotificationModel response shape.",
+    "Surface partial-failure errors from `_hard_delete_user_content` to the admin response (currently `except` blocks zero-out the count and only log).",
+    "Return the freshly-computed expected `confirm_token` in the 400 detail when the user count changes between preview and execute on /admin/users/bulk-delete."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 7239 lines — module split flagged in iters 23-28 is still outstanding; iter27 alone added ~460 lines under the `ITER 27 — Admin Moderation + Credit Grants + Audit Log` banner. Recommend extracting into /app/backend/routers/admin_moderation.py and /admin_credit_grants.py.",
+    "Two `app.include_router(api_router)` calls (L6769 and L7238) — fragile pattern. Adding new routes between them will silently 404. Collapse to a single include at the bottom.",
+    "`require_admin_user` admits both `admin` AND `moderator` but the credit-grant endpoint has no extra role-gating — moderators can therefore mint credit too. The spec says co-approval is required only above the cap; below-cap grants by a single moderator may not be the intended privilege boundary.",
+    "Bulk-delete confirm_token leak in the 400 detail is by-design but the token format `\"DELETE N\"` is trivially guessable once N is known via preview. Consider a one-time random token bound to the filter hash + admin id.",
+    "_apply_credit_grant writes the audit row at end but does NOT roll back the wallet increment if the audit insert fails. Wrap in a try/except or rely on idempotent retry — currently a partial write produces money without an audit trail.",
+    "Audit-log `metadata.filter` for bulk delete dumps the full request including `confirm_token` — leaks the active token into a long-lived log. Strip `confirm_token` from the metadata dump."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter27_admin_moderation.py (new — 25 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (25/25 iter27 + 33/33 iter25+iter26 regression = 58/58)",
+    "frontend": "N/A — backend-only iteration per request"
+  },
+  "test_credentials": "Dynamic users via /auth/progressive-signup → /auth/send-otp (_mock_code) → /auth/verify-otp → /auth/complete-profile. Admin gating: NetworkCapital2025! via X-Admin-Password header on /admin/bootstrap. Co-approval test creates TWO admin sessions: admin1 self-bootstraps; admin2 is promoted by admin1 via PATCH /admin/users/{id}/role.",
+  "seed_data_creation": "All TEST_iter27_* users + posts + stokvels created fresh per test. Hard-delete + bulk-soft-delete tests clean up most fixtures inline. Stokvel-pool test seeds the owner wallet with a $20 credit grant first (since stokvel creation costs $10).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter27 scope fully closed at 25/25 + 33/33 regression. Re-run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter27_admin_moderation.py -v. Suite ~105s (network-bound via REACT_APP_BACKEND_URL). Key gotchas for next agent: (1) /notifications has TWO route handlers — only the L2157 one (no response_model) is live; (2) stokvel creation requires wallet_balance >= $10, seed via admin credit-grant first; (3) CreateStokvelRequest schema is {name,description,target_amount,payout_cycle,purpose} — NOT country/monthly_contribution/currency/frequency/type; (4) bulk-delete `role $nin: ['admin','moderator']` correctly excludes the calling admin from sweeps; (5) `_to_usd` divides by `rate` (USD→cur), so 182 ZAR ÷ 18.20 = 10 USD.",
+  "rca_of_the_issue": "First run had 1 failure + 2 skips. (a) Notification test failed because the test code assumed `/notifications` returns a list-or-{items:...} shape, but the live handler at L2157 returns `{notifications, unread_count}`. Fix was test-side. While investigating, found the dead duplicate handler at L3057 with a stricter response_model that would 500 on credit-grant notifications (missing `points` field) — flagged as a backend code-review issue. (b) Stokvel tests skipped because the test payload used wrong field names (country/monthly_contribution/currency/frequency/type) and didn't seed the $10 creator-fee wallet. Fixed both: use correct schema {target_amount, payout_cycle, purpose} and seed wallet via admin credit-grant before stokvel creation. All 25 tests now pass cleanly."
+}

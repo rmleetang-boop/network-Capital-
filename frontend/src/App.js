@@ -51,6 +51,8 @@ import NetworkPage from './pages/NetworkPage';
 import NetworkUserPage from './pages/NetworkUserPage';
 import AdminMetricsDashboardPage from './pages/AdminMetricsDashboardPage';
 import AdminUsersPage from './pages/AdminUsersPage';
+import AdminAuditLogPage from './pages/AdminAuditLogPage';
+import AdminStokvelsPage from './pages/AdminStokvelsPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -265,6 +267,8 @@ function App() {
             <Route path="/network/:userId" element={<NetworkUserPage user={user} />} />
             <Route path="/admin/dashboard" element={<AdminMetricsDashboardPage user={user} setUser={setUser} />} />
             <Route path="/admin/users" element={<AdminUsersPage user={user} />} />
+            <Route path="/admin/audit-log" element={<AdminAuditLogPage user={user} />} />
+            <Route path="/admin/stokvels" element={<AdminStokvelsPage user={user} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<Navigate to="/" replace />} />

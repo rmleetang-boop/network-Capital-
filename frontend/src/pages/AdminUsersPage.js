@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Search, Loader2, ArrowLeft } from 'lucide-react';
+import { Shield, Search, Loader2, ArrowLeft, MoreVertical, Ban, Trash2, Flame, DollarSign, FileBarChart, Filter, X, AlertTriangle } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import CreditGrantModal from '../components/CreditGrantModal';
 
 const ROLE_OPTIONS = ['user', 'moderator', 'admin'];
 
@@ -12,6 +13,9 @@ const AdminUsersPage = ({ user }) => {
   const [roleFilter, setRoleFilter] = useState('');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [openMenu, setOpenMenu] = useState(null);
+  const [creditTarget, setCreditTarget] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const isAdmin = user && user.role === 'admin';
 
@@ -36,10 +40,37 @@ const AdminUsersPage = ({ user }) => {
     if (!window.confirm(`Set this user's role to ${role.toUpperCase()}?`)) return;
     try {
       await axiosInstance.patch(`/admin/users/${uid}/role`, { role });
-      toast.success(`Role updated to ${role}`);
+      toast.success(`Role → ${role}`);
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Could not update role');
+    }
+  };
+
+  const suspendUser = async (uid, currentlySuspended) => {
+    if (!window.confirm(currentlySuspended ? 'Unsuspend this user?' : 'Suspend this user? They will not be able to log in.')) return;
+    try {
+      const r = await axiosInstance.post(`/admin/users/${uid}/suspend`, { reason: 'admin_panel' });
+      toast.success(r.data.suspended ? 'User suspended' : 'User unsuspended');
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not suspend');
+    }
+  };
+
+  const deleteUser = async (uid, label, mode) => {
+    const reason = window.prompt(`${mode === 'hard' ? '🔥 HARD-DELETE' : '🗑 Soft-delete (30-day grace)'} user "${label}". Enter a reason (min 4 chars):`);
+    if (!reason || reason.trim().length < 4) return;
+    if (mode === 'hard' && !window.confirm(`⚠️ FINAL CONFIRM: This will WIPE ${label} and ALL their posts, messages, places, jobs, applications, reviews. There is no undo. Proceed?`)) return;
+    try {
+      const r = await axiosInstance.delete(`/admin/users/${uid}`, {
+        params: { mode, reason: reason.trim(), purge_content: mode === 'soft' ? false : true },
+      });
+      toast.success(`${label} ${mode === 'hard' ? 'hard-deleted' : 'soft-deleted'}`);
+      console.log('delete result', r.data);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not delete');
     }
   };
 
@@ -56,12 +87,24 @@ const AdminUsersPage = ({ user }) => {
   }
 
   return (
-    <div className="min-h-screen bg-background-DEFAULT pb-24" data-testid="admin-users-page">
+    <div className="min-h-screen bg-background-DEFAULT pb-24" data-testid="admin-users-page" onClick={() => setOpenMenu(null)}>
       <div className="sticky top-0 z-10 bg-white/85 backdrop-blur-lg border-b border-gray-200 px-4 py-3 flex items-center gap-2">
         <button onClick={() => navigate('/admin/dashboard')} className="p-2 -ml-2 rounded-full hover:bg-gray-100">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-base font-heading font-bold text-primary flex-1">User management</h1>
+        <button
+          onClick={() => navigate('/admin/audit-log')}
+          className="text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-text-secondary px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+          data-testid="admin-go-audit">
+          <FileBarChart size={12} /> Audit log
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); setBulkOpen(true); }}
+          className="text-xs font-semibold bg-secondary text-primary px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+          data-testid="admin-bulk-button">
+          <Filter size={12} /> Bulk
+        </button>
       </div>
 
       <div className="max-w-5xl mx-auto p-4 space-y-4">
@@ -91,31 +134,202 @@ const AdminUsersPage = ({ user }) => {
         {loading ? (
           <div className="p-8 text-center text-text-muted"><Loader2 className="mx-auto animate-spin" /></div>
         ) : (
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-visible">
             {users.length === 0 ? (
               <p className="p-6 text-center text-text-muted text-sm">No users match these filters.</p>
-            ) : users.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0" data-testid={`admin-user-row-${u.id}`}>
-                {u.photo ? (
-                  <img src={u.photo} alt="" className="w-9 h-9 rounded-full object-cover" />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-secondary text-white text-xs font-bold flex items-center justify-center">
-                    {(u.username || u.email || '?')[0].toUpperCase()}
+            ) : users.map((u) => {
+              const label = u.full_name || u.username || u.email;
+              return (
+                <div key={u.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 relative" data-testid={`admin-user-row-${u.id}`}>
+                  {u.photo ? (
+                    <img src={u.photo} alt="" className="w-9 h-9 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-secondary text-white text-xs font-bold flex items-center justify-center">
+                      {(u.username || u.email || '?')[0].toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold truncate">{label}</p>
+                      {u.suspended && <span className="bg-red-100 text-red-700 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">Suspended</span>}
+                      {u.deactivated && <span className="bg-amber-100 text-amber-700 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">Pending purge</span>}
+                    </div>
+                    <p className="text-[11px] text-text-muted truncate">
+                      {u.email} · ${(u.wallet_balance || 0).toFixed(2)} · {u.monthly_score || 0} pts
+                    </p>
                   </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{u.full_name || u.username || u.email}</p>
-                  <p className="text-[11px] text-text-muted truncate">{u.email}</p>
+                  <select
+                    value={u.role || 'user'}
+                    onChange={(e) => setRole(u.id, e.target.value)}
+                    className="text-xs font-semibold px-2 py-1.5 border border-gray-200 rounded-full bg-white outline-none focus:border-primary"
+                    data-testid={`admin-user-role-${u.id}`}>
+                    {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+                  </select>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === u.id ? null : u.id); }}
+                    className="p-1.5 rounded-full hover:bg-gray-100"
+                    data-testid={`admin-user-actions-${u.id}`}>
+                    <MoreVertical size={16} />
+                  </button>
+                  {openMenu === u.id && (
+                    <div onClick={(e) => e.stopPropagation()} className="absolute right-3 top-12 z-20 bg-white border border-gray-100 shadow-lg rounded-xl py-1 min-w-[180px]" data-testid={`admin-user-menu-${u.id}`}>
+                      <button onClick={() => { setOpenMenu(null); setCreditTarget({ id: u.id, label }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 inline-flex items-center gap-2" data-testid={`menu-credit-${u.id}`}>
+                        <DollarSign size={12} /> Adjust balance
+                      </button>
+                      <button onClick={() => { setOpenMenu(null); suspendUser(u.id, u.suspended); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 inline-flex items-center gap-2" data-testid={`menu-suspend-${u.id}`}>
+                        <Ban size={12} /> {u.suspended ? 'Unsuspend' : 'Suspend'}
+                      </button>
+                      <div className="border-t border-gray-50 my-1" />
+                      <button onClick={() => { setOpenMenu(null); deleteUser(u.id, label, 'soft'); }} className="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 text-amber-700 inline-flex items-center gap-2" data-testid={`menu-soft-${u.id}`}>
+                        <Trash2 size={12} /> Soft-delete (30d)
+                      </button>
+                      <button onClick={() => { setOpenMenu(null); deleteUser(u.id, label, 'hard'); }} className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-700 inline-flex items-center gap-2" data-testid={`menu-hard-${u.id}`}>
+                        <Flame size={12} /> Hard-delete + content
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <select
-                  value={u.role || 'user'}
-                  onChange={(e) => setRole(u.id, e.target.value)}
-                  className="text-xs font-semibold px-2 py-1.5 border border-gray-200 rounded-full bg-white outline-none focus:border-primary"
-                  data-testid={`admin-user-role-${u.id}`}>
-                  {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r.toUpperCase()}</option>)}
-                </select>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {creditTarget && (
+        <CreditGrantModal
+          targetType="user"
+          targetId={creditTarget.id}
+          targetLabel={creditTarget.label}
+          onClose={() => setCreditTarget(null)}
+          onApplied={load}
+        />
+      )}
+      {bulkOpen && <BulkDeleteModal onClose={() => setBulkOpen(false)} onDone={load} />}
+    </div>
+  );
+};
+
+const BulkDeleteModal = ({ onClose, onDone }) => {
+  const [filters, setFilters] = useState({
+    score_min: '', score_max: '', inactive_days: '',
+    profile_incomplete: false, email_unverified: false,
+    country: '', city: '', search: '',
+  });
+  const [preview, setPreview] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmToken, setConfirmToken] = useState('');
+  const [mode, setMode] = useState('soft');
+
+  const buildPayload = (m) => {
+    const p = { mode: m, reason: 'admin_panel_bulk' };
+    if (filters.score_min !== '') p.score_min = Number(filters.score_min);
+    if (filters.score_max !== '') p.score_max = Number(filters.score_max);
+    if (filters.inactive_days !== '') p.inactive_days = Number(filters.inactive_days);
+    if (filters.profile_incomplete) p.profile_incomplete = true;
+    if (filters.email_unverified) p.email_unverified = true;
+    if (filters.country.trim()) p.country = filters.country.trim();
+    if (filters.city.trim()) p.city = filters.city.trim();
+    if (filters.search.trim()) p.search = filters.search.trim();
+    return p;
+  };
+
+  const runPreview = async () => {
+    setSubmitting(true);
+    try {
+      const r = await axiosInstance.post('/admin/users/bulk-delete', buildPayload('preview'));
+      setPreview(r.data);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Preview failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const execute = async () => {
+    if (!preview) return;
+    if (confirmToken !== preview.confirm_token_required) {
+      toast.error(`Type exactly: ${preview.confirm_token_required}`);
+      return;
+    }
+    if (!window.confirm(`Final: ${mode.toUpperCase()}-delete ${preview.would_delete} users?`)) return;
+    setSubmitting(true);
+    try {
+      const r = await axiosInstance.post('/admin/users/bulk-delete', { ...buildPayload(mode), confirm_token: confirmToken });
+      toast.success(`Deleted ${r.data.deleted?.users || 0} users`);
+      onClose(); onDone && onDone();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Bulk delete failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose} data-testid="bulk-delete-modal">
+      <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl max-w-lg w-full p-5 relative max-h-[90vh] overflow-y-auto">
+        <button onClick={onClose} className="absolute top-3 right-3 p-1 rounded-full hover:bg-gray-100"><X size={18} /></button>
+        <div className="flex items-center gap-2 mb-3">
+          <Filter size={18} className="text-primary" />
+          <h3 className="font-heading font-bold text-lg text-primary">Bulk delete users</h3>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <input placeholder="Score min" type="number" value={filters.score_min} onChange={(e) => setFilters({ ...filters, score_min: e.target.value })} className="px-3 py-2 border border-gray-200 rounded-xl text-xs" data-testid="bulk-score-min" />
+          <input placeholder="Score max" type="number" value={filters.score_max} onChange={(e) => setFilters({ ...filters, score_max: e.target.value })} className="px-3 py-2 border border-gray-200 rounded-xl text-xs" data-testid="bulk-score-max" />
+          <input placeholder="Inactive for N days" type="number" value={filters.inactive_days} onChange={(e) => setFilters({ ...filters, inactive_days: e.target.value })} className="col-span-2 px-3 py-2 border border-gray-200 rounded-xl text-xs" data-testid="bulk-inactive-days" />
+          <input placeholder="Country" value={filters.country} onChange={(e) => setFilters({ ...filters, country: e.target.value })} className="px-3 py-2 border border-gray-200 rounded-xl text-xs" data-testid="bulk-country" />
+          <input placeholder="City" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })} className="px-3 py-2 border border-gray-200 rounded-xl text-xs" data-testid="bulk-city" />
+          <input placeholder="Username/email contains…" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className="col-span-2 px-3 py-2 border border-gray-200 rounded-xl text-xs" data-testid="bulk-search" />
+        </div>
+
+        <label className="inline-flex items-center gap-1.5 text-xs text-text-secondary mr-3">
+          <input type="checkbox" checked={filters.profile_incomplete} onChange={(e) => setFilters({ ...filters, profile_incomplete: e.target.checked })} data-testid="bulk-profile-incomplete" />
+          Profile not complete
+        </label>
+        <label className="inline-flex items-center gap-1.5 text-xs text-text-secondary">
+          <input type="checkbox" checked={filters.email_unverified} onChange={(e) => setFilters({ ...filters, email_unverified: e.target.checked })} data-testid="bulk-email-unverified" />
+          Email unverified
+        </label>
+
+        <div className="flex items-center gap-2 mt-4 mb-2">
+          <button onClick={runPreview} disabled={submitting} className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-primary font-semibold py-2.5 rounded-full text-xs disabled:opacity-50" data-testid="bulk-preview-button">
+            {submitting && !preview ? <Loader2 size={12} className="inline animate-spin mr-1" /> : null}
+            Preview matches
+          </button>
+          <select value={mode} onChange={(e) => setMode(e.target.value)} className="px-3 py-2.5 border border-gray-200 rounded-full text-xs" data-testid="bulk-mode-select">
+            <option value="soft">Soft (30d)</option>
+            <option value="hard">Hard (irreversible)</option>
+          </select>
+        </div>
+
+        {preview && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <p className="text-xs text-amber-800 mb-2 inline-flex items-center gap-1">
+              <AlertTriangle size={12} /> <strong>{preview.would_delete}</strong> users match. Sample of up to 20:
+            </p>
+            <div className="max-h-32 overflow-y-auto text-[10px] text-amber-900 bg-white/50 rounded-lg p-2 mb-2">
+              {(preview.sample || []).map((s) => (
+                <div key={s.id} className="flex justify-between border-b border-amber-100 py-0.5">
+                  <span className="truncate">{s.username || s.email}</span>
+                  <span>{s.monthly_score || 0} pts</span>
+                </div>
+              ))}
+            </div>
+            <input
+              value={confirmToken}
+              onChange={(e) => setConfirmToken(e.target.value)}
+              placeholder={`Type: ${preview.confirm_token_required}`}
+              className="w-full px-3 py-2 border border-amber-300 rounded-xl text-xs font-mono mb-2"
+              data-testid="bulk-confirm-token"
+            />
+            <button
+              onClick={execute}
+              disabled={submitting || confirmToken !== preview.confirm_token_required}
+              className="w-full bg-red-600 text-white font-bold py-2.5 rounded-full text-xs disabled:opacity-30"
+              data-testid="bulk-execute-button">
+              {submitting && preview ? <Loader2 size={12} className="inline animate-spin mr-1" /> : null}
+              {mode === 'hard' ? '🔥 ' : '🗑 '} {mode.toUpperCase()}-delete {preview.would_delete} users
+            </button>
           </div>
         )}
       </div>

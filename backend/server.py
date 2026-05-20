@@ -6777,6 +6777,462 @@ async def my_referrals(current_user: dict = Depends(get_current_user)):
     }
 
 
+# ============================================================================
+# ITER 27 — Admin Moderation + Credit Grants + Audit Log
+# ============================================================================
+
+CREDIT_GRANT_HARD_CAP_USD = 5000.0   # > requires co-approval
+
+class AuditLog:
+    """Helper to append a structured audit-log row."""
+    @staticmethod
+    async def write(*, actor_id: str, actor_username: str, action: str,
+                    target_type: str, target_id: str,
+                    reason: Optional[str] = None,
+                    metadata: Optional[Dict[str, Any]] = None) -> None:
+        try:
+            await db.audit_log.insert_one({
+                "id": str(uuid.uuid4()),
+                "actor_id": actor_id,
+                "actor_username": actor_username or "admin",
+                "action": action,
+                "target_type": target_type,
+                "target_id": target_id,
+                "reason": (reason or "")[:500],
+                "metadata": metadata or {},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"audit_log write failed: {exc}")
+
+
+# ---- DELETION: USER (soft / hard) + CONTENT --------------------------------
+async def _hard_delete_user_content(user_id: str) -> Dict[str, int]:
+    """Remove every artefact owned by user_id. Returns per-collection counts."""
+    counts = {}
+    for coll in (
+        "posts", "comments", "messages", "stories", "activities",
+        "place_reviews", "place_claims", "jobs", "job_applications",
+        "job_reactions", "job_shares", "score_events", "connections",
+        "stokvel_members", "products", "notifications", "follows",
+        "referral_clicks", "otps", "deposits",
+    ):
+        try:
+            if coll in ("messages",):
+                r = await db[coll].delete_many({"$or": [{"sender_id": user_id}, {"recipient_id": user_id}]})
+            elif coll in ("connections",):
+                r = await db[coll].delete_many({"$or": [{"from_user_id": user_id}, {"to_user_id": user_id}]})
+            elif coll in ("follows",):
+                r = await db[coll].delete_many({"$or": [{"follower_id": user_id}, {"followed_id": user_id}]})
+            elif coll in ("notifications",):
+                r = await db[coll].delete_many({"user_id": user_id})
+            elif coll in ("job_applications",):
+                r = await db[coll].delete_many({"applicant_id": user_id})
+            elif coll in ("place_reviews", "place_claims", "stokvel_members"):
+                r = await db[coll].delete_many({"user_id": user_id})
+            elif coll in ("jobs",):
+                r = await db[coll].delete_many({"employer_id": user_id})
+            elif coll in ("referral_clicks",):
+                r = await db[coll].delete_many({"owner_id": user_id})
+            elif coll in ("otps",):
+                r = await db[coll].delete_many({"user_id": user_id})
+            else:
+                r = await db[coll].delete_many({"$or": [{"user_id": user_id}, {"author_id": user_id}, {"creator_id": user_id}]})
+            counts[coll] = r.deleted_count
+        except Exception as exc:  # noqa: BLE001
+            counts[coll] = 0
+            logger.warning(f"hard_delete {coll} failed for {user_id}: {exc}")
+    return counts
+
+
+class AdminDeleteRequest(BaseModel):
+    mode: str = "soft"   # soft | hard
+    reason: Optional[str] = ""
+    purge_content: Optional[bool] = False   # for soft-delete: also blank posts/messages
+
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(
+    user_id: str,
+    mode: str = "soft",
+    reason: Optional[str] = "",
+    purge_content: bool = False,
+    admin: dict = Depends(require_admin_user),
+):
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account from here. Use Account Settings.")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "username": 1, "email": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if mode == "hard":
+        counts = await _hard_delete_user_content(user_id)
+        await db.users.delete_one({"id": user_id})
+        await AuditLog.write(
+            actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+            action="user.hard_delete", target_type="user", target_id=user_id,
+            reason=reason, metadata={"counts": counts, "email": target.get("email")},
+        )
+        return {"ok": True, "mode": "hard", "deleted_counts": counts}
+
+    # Soft-delete (reversible 30d)
+    purge_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    update = {
+        "deactivated": True,
+        "deletion_pending_at": datetime.now(timezone.utc).isoformat(),
+        "deletion_purge_at": purge_at,
+        "deletion_reason": reason or "admin",
+    }
+    await db.users.update_one({"id": user_id}, {"$set": update})
+    if purge_content:
+        # Blank posts and messages so they show as "[deleted]" in feed/threads
+        await db.posts.update_many({"user_id": user_id}, {"$set": {"deleted": True, "content": "[deleted]"}})
+        await db.messages.update_many({"sender_id": user_id}, {"$set": {"deleted": True, "content": "[deleted]"}})
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="user.soft_delete", target_type="user", target_id=user_id,
+        reason=reason, metadata={"purge_at": purge_at, "purge_content": purge_content},
+    )
+    return {"ok": True, "mode": "soft", "purge_at": purge_at}
+
+
+@api_router.post("/admin/users/{user_id}/suspend")
+async def admin_suspend_user(
+    user_id: str,
+    payload: Dict[str, Any] = None,
+    admin: dict = Depends(require_admin_user),
+):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "suspended": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_state = not bool(target.get("suspended"))
+    await db.users.update_one({"id": user_id}, {"$set": {"suspended": new_state}})
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="user.suspend" if new_state else "user.unsuspend",
+        target_type="user", target_id=user_id,
+        reason=(payload or {}).get("reason"),
+    )
+    return {"ok": True, "suspended": new_state}
+
+
+# ---- BULK USER DELETE ------------------------------------------------------
+class BulkUserDeleteRequest(BaseModel):
+    score_min: Optional[int] = None
+    score_max: Optional[int] = None
+    inactive_days: Optional[int] = None
+    profile_incomplete: Optional[bool] = None
+    email_unverified: Optional[bool] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    signup_after: Optional[str] = None
+    signup_before: Optional[str] = None
+    flagged_for_review: Optional[bool] = None
+    search: Optional[str] = None
+    mode: str = "preview"    # preview | hard | soft
+    confirm_token: Optional[str] = None
+    reason: Optional[str] = ""
+
+
+def _build_bulk_filter(p: BulkUserDeleteRequest) -> Dict[str, Any]:
+    q: Dict[str, Any] = {}
+    if p.score_min is not None or p.score_max is not None:
+        rng: Dict[str, Any] = {}
+        if p.score_min is not None: rng["$gte"] = int(p.score_min)
+        if p.score_max is not None: rng["$lte"] = int(p.score_max)
+        q["monthly_score"] = rng
+    if p.profile_incomplete is True:
+        q["profile_completed"] = {"$ne": True}
+    if p.email_unverified is True:
+        q["email_verified"] = {"$ne": True}
+    if p.country:
+        q["country"] = {"$regex": f"^{p.country}", "$options": "i"}
+    if p.city:
+        q["city"] = {"$regex": f"^{p.city}", "$options": "i"}
+    if p.signup_after:
+        q.setdefault("created_at", {})["$gte"] = p.signup_after
+    if p.signup_before:
+        q.setdefault("created_at", {})["$lte"] = p.signup_before
+    if p.flagged_for_review is True:
+        q["flagged_for_review"] = True
+    if p.inactive_days and p.inactive_days > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=p.inactive_days)).isoformat()
+        q["last_active_at"] = {"$lt": cutoff}
+    if p.search:
+        q["$or"] = [
+            {"email": {"$regex": p.search, "$options": "i"}},
+            {"username": {"$regex": p.search, "$options": "i"}},
+            {"full_name": {"$regex": p.search, "$options": "i"}},
+        ]
+    # Never sweep admins / moderators in a bulk action
+    q["role"] = {"$nin": ["admin", "moderator"]}
+    return q
+
+
+@api_router.post("/admin/users/bulk-delete")
+async def admin_bulk_delete_users(
+    payload: BulkUserDeleteRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    q = _build_bulk_filter(payload)
+    count = await db.users.count_documents(q)
+
+    if payload.mode == "preview":
+        sample_cursor = db.users.find(q, {"_id": 0, "id": 1, "username": 1, "email": 1, "monthly_score": 1, "created_at": 1}).limit(20)
+        sample = await sample_cursor.to_list(length=None)
+        return {"would_delete": count, "sample": sample, "confirm_token_required": f"DELETE {count}"}
+
+    expected_token = f"DELETE {count}"
+    if payload.confirm_token != expected_token:
+        raise HTTPException(status_code=400, detail=f"Confirm token must be exactly '{expected_token}'")
+
+    # Execute
+    ids_cursor = db.users.find(q, {"_id": 0, "id": 1}).limit(2000)
+    ids = [u["id"] async for u in ids_cursor]
+    deleted = {"users": 0, "content_counts": {}}
+    for uid in ids:
+        if payload.mode == "hard":
+            counts = await _hard_delete_user_content(uid)
+            await db.users.delete_one({"id": uid})
+            deleted["users"] += 1
+            for k, v in counts.items():
+                deleted["content_counts"][k] = deleted["content_counts"].get(k, 0) + v
+        else:  # soft
+            await db.users.update_one({"id": uid}, {"$set": {
+                "deactivated": True,
+                "deletion_pending_at": datetime.now(timezone.utc).isoformat(),
+                "deletion_purge_at": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+                "deletion_reason": payload.reason or "admin_bulk",
+            }})
+            deleted["users"] += 1
+
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action=f"user.bulk_{payload.mode}_delete", target_type="user_group", target_id="bulk",
+        reason=payload.reason, metadata={"filter": payload.model_dump(), "deleted": deleted},
+    )
+    return {"ok": True, "deleted": deleted}
+
+
+# ---- CONTENT DELETE (admin overrides) -------------------------------------
+@api_router.delete("/admin/posts/{post_id}")
+async def admin_delete_post(post_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    res = await db.posts.delete_one({"id": post_id})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Post not found")
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="post.delete", target_type="post", target_id=post_id, reason=reason,
+    )
+    return {"ok": True}
+
+
+@api_router.delete("/admin/messages/{message_id}")
+async def admin_delete_message(message_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    res = await db.messages.delete_one({"id": message_id})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Message not found")
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="message.delete", target_type="message", target_id=message_id, reason=reason,
+    )
+    return {"ok": True}
+
+
+class BulkContentRequest(BaseModel):
+    kind: str            # posts | messages
+    older_than_days: Optional[int] = None
+    user_id: Optional[str] = None
+    after: Optional[str] = None
+    before: Optional[str] = None
+    mode: str = "preview"  # preview | execute
+    reason: Optional[str] = ""
+
+
+@api_router.post("/admin/content/bulk-delete")
+async def admin_bulk_delete_content(payload: BulkContentRequest, admin: dict = Depends(require_admin_user)):
+    if payload.kind not in ("posts", "messages"):
+        raise HTTPException(status_code=400, detail="kind must be 'posts' or 'messages'")
+    q: Dict[str, Any] = {}
+    if payload.older_than_days and payload.older_than_days > 0:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=payload.older_than_days)).isoformat()
+        q["created_at"] = {"$lt": cutoff}
+    if payload.after:  q.setdefault("created_at", {})["$gte"] = payload.after
+    if payload.before: q.setdefault("created_at", {})["$lte"] = payload.before
+    if payload.user_id:
+        if payload.kind == "messages":
+            q["$or"] = [{"sender_id": payload.user_id}, {"recipient_id": payload.user_id}]
+        else:
+            q["user_id"] = payload.user_id
+
+    coll = db[payload.kind]
+    count = await coll.count_documents(q)
+    if payload.mode == "preview":
+        return {"would_delete": count}
+    r = await coll.delete_many(q)
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action=f"{payload.kind}.bulk_delete", target_type=payload.kind, target_id="bulk",
+        reason=payload.reason, metadata={"filter": payload.model_dump(), "deleted": r.deleted_count},
+    )
+    return {"ok": True, "deleted": r.deleted_count}
+
+
+# ---- CREDIT GRANTS (user wallet + stokvel pool) ---------------------------
+class CreditGrantRequest(BaseModel):
+    amount: float
+    currency: str = "USD"
+    reason: str
+    target_type: str       # user | stokvel
+    target_id: str
+
+
+def _to_usd(amount: float, currency: str) -> float:
+    """Convert an arbitrary currency amount to USD using the in-memory FX table."""
+    info = SUPPORTED_CURRENCIES.get(currency.upper())
+    if not info:
+        raise HTTPException(status_code=400, detail=f"Unsupported currency {currency}")
+    rate = info["rate"] or 1.0  # USD→cur rate (1 USD = `rate` units of cur)
+    return amount / rate if rate else amount
+
+
+@api_router.post("/admin/credit-grants")
+async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = Depends(require_admin_user)):
+    if not payload.reason or len(payload.reason.strip()) < 10:
+        raise HTTPException(status_code=400, detail="Reason must be at least 10 characters.")
+    if payload.target_type not in ("user", "stokvel"):
+        raise HTTPException(status_code=400, detail="target_type must be 'user' or 'stokvel'")
+    amount = float(payload.amount or 0)
+    if amount == 0:
+        raise HTTPException(status_code=400, detail="Amount must be non-zero")
+    usd_equiv = _to_usd(abs(amount), payload.currency)
+    requires_co_approve = usd_equiv > CREDIT_GRANT_HARD_CAP_USD
+
+    grant_id = str(uuid.uuid4())
+    record = {
+        "id": grant_id,
+        "amount": amount,            # signed: + credit, - deduct
+        "currency": payload.currency.upper(),
+        "usd_equiv": round(usd_equiv * (1 if amount >= 0 else -1), 2),
+        "reason": payload.reason.strip(),
+        "target_type": payload.target_type,
+        "target_id": payload.target_id,
+        "created_by": admin["id"],
+        "created_by_username": admin.get("username"),
+        "co_approver_id": None,
+        "status": "pending_co_approval" if requires_co_approve else "applied",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "applied_at": None,
+    }
+    await db.credit_grants.insert_one(record)
+
+    if not requires_co_approve:
+        await _apply_credit_grant(record, admin)
+
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="credit.grant_created", target_type=payload.target_type, target_id=payload.target_id,
+        reason=payload.reason, metadata={"grant_id": grant_id, "amount": amount, "currency": payload.currency, "usd_equiv": record["usd_equiv"]},
+    )
+    record.pop("_id", None)
+    return record
+
+
+@api_router.post("/admin/credit-grants/{grant_id}/co-approve")
+async def admin_co_approve_grant(grant_id: str, admin: dict = Depends(require_admin_user)):
+    grant = await db.credit_grants.find_one({"id": grant_id}, {"_id": 0})
+    if not grant:
+        raise HTTPException(status_code=404, detail="Grant not found")
+    if grant["status"] != "pending_co_approval":
+        raise HTTPException(status_code=400, detail="Grant is not pending")
+    if grant["created_by"] == admin["id"]:
+        raise HTTPException(status_code=403, detail="Co-approver must be a different admin")
+    await _apply_credit_grant(grant, admin)
+    return {"ok": True, "id": grant_id, "status": "applied"}
+
+
+async def _apply_credit_grant(grant: dict, admin: dict) -> None:
+    """Apply the signed delta to user.wallet_balance or stokvel.total_pool."""
+    amount_usd = grant["usd_equiv"]
+    if grant["target_type"] == "user":
+        await db.users.update_one({"id": grant["target_id"]}, {"$inc": {"wallet_balance": amount_usd}})
+        # In-app notification
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": grant["target_id"],
+            "type": "admin_credit",
+            "title": "Admin balance update",
+            "message": f"{('+' if amount_usd >= 0 else '')}{amount_usd:.2f} USD · {grant['reason'][:80]}",
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    else:  # stokvel
+        await db.stokvels.update_one({"id": grant["target_id"]}, {"$inc": {"total_pool": amount_usd}})
+
+    await db.credit_grants.update_one(
+        {"id": grant["id"]},
+        {"$set": {
+            "status": "applied",
+            "applied_at": datetime.now(timezone.utc).isoformat(),
+            "co_approver_id": admin["id"] if grant["status"] == "pending_co_approval" else None,
+        }},
+    )
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="credit.grant_applied", target_type=grant["target_type"], target_id=grant["target_id"],
+        reason=grant["reason"], metadata={"grant_id": grant["id"], "usd_equiv": amount_usd},
+    )
+
+
+@api_router.get("/admin/credit-grants")
+async def admin_list_grants(
+    status_filter: Optional[str] = None,
+    limit: int = 100,
+    admin: dict = Depends(require_admin_user),
+):
+    q: Dict[str, Any] = {}
+    if status_filter:
+        q["status"] = status_filter
+    cur = db.credit_grants.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
+# ---- AUDIT LOG -------------------------------------------------------------
+@api_router.get("/admin/audit-log")
+async def admin_audit_log(
+    actor_id: Optional[str] = None,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 200,
+    admin: dict = Depends(require_admin_user),
+):
+    q: Dict[str, Any] = {}
+    if actor_id:     q["actor_id"] = actor_id
+    if target_type:  q["target_type"] = target_type
+    if target_id:    q["target_id"] = target_id
+    if action:       q["action"] = action
+    cur = db.audit_log.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 1000))
+    return await cur.to_list(length=None)
+
+
+# ---- ADMIN STOKVELS LIST ---------------------------------------------------
+@api_router.get("/admin/stokvels")
+async def admin_list_stokvels(
+    q: Optional[str] = None,
+    limit: int = 100,
+    admin: dict = Depends(require_admin_user),
+):
+    query: Dict[str, Any] = {}
+    if q:
+        query["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"description": {"$regex": q, "$options": "i"}},
+        ]
+    cur = db.stokvels.find(query, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
 # Re-register router so all routes added above are picked up (must come AFTER the
 # pre-existing seed `app.include_router(api_router)` block immediately below this).
 app.include_router(api_router)
