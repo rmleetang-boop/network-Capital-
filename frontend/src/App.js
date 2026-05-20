@@ -281,6 +281,8 @@ function App() {
             <Route path="/admin/places" element={<AdminPlacesPage user={user} />} />
             <Route path="/admin/activities" element={<AdminActivitiesPage user={user} />} />
             <Route path="/admin/announce" element={<AdminAnnouncePage user={user} />} />
+            <Route path="/admin/promotions" element={<PromotionsListPage user={user} />} />
+            <Route path="/admin/promotions/:promotionId" element={<PromotionDetailPage user={user} />} />
             <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
             <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />

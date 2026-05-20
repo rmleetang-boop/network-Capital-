@@ -124,6 +124,7 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
         <button onClick={() => navigate('/admin/places')} className="text-xs font-semibold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full" data-testid="admin-go-places">Places</button>
         <button onClick={() => navigate('/admin/activities')} className="text-xs font-semibold bg-pink-100 text-pink-700 px-3 py-1.5 rounded-full" data-testid="admin-go-activities">Activities</button>
         <button onClick={() => navigate('/admin/announce')} className="text-xs font-semibold bg-primary text-white px-3 py-1.5 rounded-full" data-testid="admin-go-announce">Announce</button>
+        <button onClick={() => navigate('/admin/promotions')} className="text-xs font-semibold bg-fuchsia-100 text-fuchsia-700 px-3 py-1.5 rounded-full" data-testid="admin-go-promotions">Promotions</button>
         <button onClick={() => navigate('/ambassadors/leaderboard')} className="text-xs font-semibold bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-full" data-testid="admin-go-ambassadors">Ambassadors</button>
         <button onClick={() => navigate('/admin/audit-log')} className="text-xs font-semibold bg-gray-100 text-text-secondary px-3 py-1.5 rounded-full" data-testid="admin-go-audit">Audit</button>
       </div>
