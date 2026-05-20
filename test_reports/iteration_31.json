@@ -1,0 +1,35 @@
+{
+  "summary": "Iter31 retest — ALL 12 focused retest cases PASS + 15/15 iter28 regression PASS (announce/restrict/flag/full-profile/feature-flags/ambassador-leaderboard). The critical iter30 bug is fixed: POST /api/admin/announce now writes a Post-shape document (likes=[], user_score=0, comments=[], hashtags=[], mentions=[]) and GET /api/posts returns 200 with the announce post visible in the feed. Both POST /api/admin/users/<bad-id>/restrict and POST /api/admin/users/<bad-id>/flag now correctly return 404 (previously 200 silent no-op). Valid user paths for restrict/flag still return 200 with the same shape, empty-body restrict still 400.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_retest.py",
+    "/app/test_reports/pytest/iter31_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Iter30 minor recommendations from previous iteration still valid and not addressed in this retest scope: (a) extend Post pydantic model with `official`/`is_announcement`/`pinned`/`image` fields so frontend feed UI can render the announce badge instead of stripping them on response, (b) cache /ambassadors/leaderboard which still runs N*7 sequential DB queries on every public hit, (c) collapse the two `app.include_router(api_router)` calls into one, (d) `_ensure_system_account` still uses a hardcoded non-bcrypt-valid placeholder string for the password field — explicitly mark `is_system: True` and gate auth routes instead.",
+    "Confirmed: admin_announce_as_network_capital at server.py L7382-7401 now correctly initializes Post-model fields. Doc comment at L7379-7381 explicitly notes the shape requirement, which is good documentation.",
+    "Confirmed: admin_restrict_user (L7476-7478) and admin_flag_user (L7506-7508) now pre-check `db.users.find_one({id: user_id})` before mutating + writing audit row — clean fix, matches the dm/announce 404 pattern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_retest.py (NEW — 12 focused retest cases across 5 classes)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 iter31 retest + 15/15 iter28 regression subset)",
+    "frontend": "N/A — backend-only retest"
+  },
+  "test_credentials": "Same as iter28: dynamic users via progressive-signup→send-otp(_mock_code)→verify-otp→complete-profile. Admin via /admin/bootstrap with X-Admin-Password=NetworkCapital2025!.",
+  "seed_data_creation": "5 TEST_iter31_* users created (1 admin, 1 member, 1 restrict_target, 1 flag_target, plus a per-test target). 2 announce posts created — both Post-shape compliant, no longer breaks /api/posts. No leftover broken docs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter31 retest scope was tight (3 fixed endpoints + GET /api/posts smoke) — full iter28 surface was NOT re-run, only the directly-related classes (announce, restrict, flag, full-profile, feature-flags, leaderboard) were sampled and all 15 PASS. Suite ~12s for iter31, ~21s for iter28 subset. Iter30 broken docs were already purged from preview db before this run (TestPostsFeedBaseline confirms baseline /api/posts returns 200). Run iter31 retest: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter31_retest.py -v. Full iter28 regression still available at /app/backend/tests/test_iter28_feature_flags_ambassador.py.",
+  "rca_of_the_issue": "The iter30 critical bug (announce post breaks /api/posts) was caused by admin_announce_as_network_capital inserting a doc with `likes: 0` (int) and omitting required Post fields (`user_score`, `hashtags`, `mentions`, `comments`). Since /api/posts has `response_model=List[Post]`, any single bad doc made the entire feed return 500 ResponseValidationError. FIX VERIFIED at server.py L7382-7401: insert now uses `likes: []`, `user_score: 0`, `comments: []`, `hashtags: []`, `mentions: []` — matching the Post pydantic model. Extra iter28 metadata fields (official, is_announcement, pinned, posted_by_admin_id) are still written to mongo but stripped on response (acceptable). The minor 404 bugs on restrict/flag were fixed by adding `target = await db.users.find_one({id: user_id})` pre-checks at L7476-7478 and L7506-7508 that raise 404 before any mutation or audit write."
+}

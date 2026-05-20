@@ -7376,18 +7376,27 @@ async def admin_announce_as_network_capital(
     if admin.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only admins can announce as Network Capital")
     sys_uid = await _ensure_system_account()
+    # IMPORTANT: shape must match the existing Post pydantic model to avoid
+    # breaking GET /api/posts (response_model=List[Post]). Extra fields are
+    # tolerated as Mongo metadata but stripped on response.
     post = {
         "id": str(uuid.uuid4()),
         "user_id": sys_uid,
         "username": SYSTEM_ACCOUNT_USERNAME,
         "user_photo": "",
+        "user_score": 0,
+        "content": payload.content.strip(),
+        "image": payload.image or "",
+        "video": "",
+        "likes": [],            # Post.likes is List[str]
+        "comments": [],
+        "hashtags": [],
+        "mentions": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        # iter28 metadata (not part of Post model — used by UI badges)
         "official": True,
         "is_announcement": True,
         "pinned": bool(payload.pin),
-        "content": payload.content.strip(),
-        "image": payload.image or "",
-        "likes": 0, "comments_count": 0, "shares": 0,
-        "created_at": datetime.now(timezone.utc).isoformat(),
         "posted_by_admin_id": admin["id"],
     }
     await db.posts.insert_one(post)
@@ -7464,6 +7473,9 @@ async def admin_restrict_user(
     payload: RestrictUserRequest,
     admin: dict = Depends(require_admin_user),
 ):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
     updates: Dict[str, Any] = {}
     for f in ("can_post", "can_comment", "can_dm"):
         v = getattr(payload, f)
@@ -7491,6 +7503,9 @@ async def admin_flag_user(
     payload: FlagUserRequest,
     admin: dict = Depends(require_admin_user),
 ):
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
     await db.users.update_one({"id": user_id}, {"$set": {
         "flagged_for_review": bool(payload.flagged),
         "flag_reason": payload.reason or "",
