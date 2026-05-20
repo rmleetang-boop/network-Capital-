@@ -1,4 +1,20 @@
 # Network Capital — CHANGELOG
+## iter 34 (Feb 20, 2026) — Full rebrand scrub + Terms refresh
+### Rebranding (zero "Emergent" mentions remain in /app/frontend)
+- Downloaded the 4 brand assets (logo-mark, logo-secondary, logo-main, favicon) to `/app/frontend/public/brand/*.png` and updated `brand.js` constants to use local `/brand/...` paths.
+- Replaced all `customer-assets.emergentagent.com` URLs across 9 frontend pages + components (OnboardingPage, ScoreDashboardPage, RewardsPage, WalletPage, LandingPage, StokvelListPage, FeedPage, LeaderboardsPage, PremiumLoadingScreen) and `index.html`.
+- Removed the visible "Made with Emergent" badge HTML, badge-removal JS shim, and the `#emergent-badge` CSS rule.
+- Removed `<script src="https://assets.emergent.sh/scripts/emergent-main.js">` from `index.html` (confirmed safe by Emergent support — no deployment impact).
+- Final grep `grep -rinE "emergent" /app/frontend/{src,public}` returns 0 matches.
+- The 2 remaining preview-only mentions are in the platform's iframe wrapper served on `*.preview.emergentagent.com` ONLY; production at `networkcapitalapp.co.za` is unaffected.
+
+### Legal documents refresh (`/app/frontend/src/pages/LegalDocumentsPage.js`)
+- Effective date bumped to 2026-02-20.
+- **Terms of Service** rewritten with full feature coverage: Social Feed (with edit/delete points-revocation), Network Score (cap + diminishing returns + cooldowns), Stokvel + quarterly pool, Regional Hubs, Activities, DMs, **My Network** (3-category connections), **My Places** (Trustpilot-style reviews + claims), **Jobs** ($50 unlock + reactions + share), **Promotions** (SAST windows + canonical "100 Network Points = R10 ZAR"), **Ambassador programme** (rank tiers + leaderboards), Creator/Product, Premium ($10), Notifications + Resend email. Added §4 (Network Score, Promotions and rewards), §10 (Privacy controls & account lifecycle — deactivation reversible + 30-day deletion grace), and §12 (Changes notice 14 days).
+- **Privacy Policy** updated: explicit data categories for connections, places, jobs, promotions, ambassadors; sub-processors include Resend; retention now mentions promotion-event scrubbing on deletion.
+- **Compliance & Transparency** updated: now lists Promotion rate transparency, Ambassador rank/target documentation, audit-log mention. Adds explicit "Promotion rewards are community recognition, not guaranteed cash" disclaimer.
+
+
 ## iter 33 (Feb 20, 2026) — Promotions extension across platform
 ### Conversion rate (canonical, platform-wide)
 - **100 Network Points = R10 ZAR** (R0.10/pt). Defined as backend constants `NETWORK_POINTS_PER_ZAR=100`, `ZAR_PER_NETWORK_POINT=0.10`, helper `_points_to_zar(points)`.
