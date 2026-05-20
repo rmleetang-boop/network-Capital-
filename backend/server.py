@@ -905,6 +905,12 @@ async def award_points(
     # Single-action dominance review flag (>80% from one action type)
     await _check_review_flag(user_id, new_monthly)
 
+    # Promotions tracker (iter 29) — fire-and-forget tag this event
+    try:
+        await _record_promotion_event(user_id=user_id, action=action, points=awarded)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"promotion track failed for {user_id}/{action}: {exc}")
+
     return awarded
 
 
@@ -7761,6 +7767,496 @@ async def _enforce_stokvel_plus_enabled():
             status_code=503,
             detail="Stokvel+ is coming soon. Creation and registration are temporarily disabled.",
         )
+
+
+# ============================================================================
+# ITER 29 — PROMOTIONS SYSTEM (SAST schedules + ZAR rewards + leaderboards)
+# ============================================================================
+
+import asyncio
+import zoneinfo as _promo_zoneinfo
+from typing import Tuple
+
+SAST_TZ = _promo_zoneinfo.ZoneInfo("Africa/Johannesburg")
+
+# Cache active promotions in-memory and refresh every minute to avoid hitting
+# the DB on every score_event. _record_promotion_event uses this cache.
+_PROMO_CACHE: Dict[str, Any] = {"loaded_at": None, "items": []}
+
+
+def _now_sast() -> datetime:
+    return datetime.now(SAST_TZ)
+
+
+def _parse_hhmm(s: str) -> Tuple[int, int]:
+    try:
+        h, m = s.split(":")
+        return int(h), int(m)
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
+def _is_window_active(promo: dict, now: Optional[datetime] = None) -> bool:
+    """Is the SAST clock currently inside this promo's active window?"""
+    now = now or _now_sast()
+    # Outside campaign date range
+    start_at = promo.get("starts_at")
+    end_at = promo.get("ends_at")
+    iso_now = now.isoformat()
+    if start_at and iso_now < start_at: return False
+    if end_at   and iso_now > end_at:   return False
+    if not promo.get("is_active", True): return False
+    sched = promo.get("schedule") or {}
+    days = sched.get("days_of_week") or list(range(7))   # 0=Mon … 6=Sun
+    if now.weekday() not in days: return False
+    sh, sm = _parse_hhmm(sched.get("start_time") or "00:00")
+    eh, em = _parse_hhmm(sched.get("end_time")   or "23:59")
+    minutes_now = now.hour * 60 + now.minute
+    return (sh * 60 + sm) <= minutes_now <= (eh * 60 + em)
+
+
+def _minutes_until_window(promo: dict, now: Optional[datetime] = None) -> Optional[int]:
+    """Minutes until the next time this promo opens. None if no upcoming window."""
+    now = now or _now_sast()
+    sched = promo.get("schedule") or {}
+    days = sched.get("days_of_week") or list(range(7))
+    sh, sm = _parse_hhmm(sched.get("start_time") or "00:00")
+    today_start = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+    for offset in range(0, 8):
+        candidate = today_start + timedelta(days=offset)
+        if candidate.weekday() in days and candidate > now:
+            return int((candidate - now).total_seconds() // 60)
+    return None
+
+
+async def _refresh_promo_cache(force: bool = False) -> None:
+    now = datetime.now(timezone.utc)
+    if not force and _PROMO_CACHE["loaded_at"] and (now - _PROMO_CACHE["loaded_at"]).total_seconds() < 60:
+        return
+    docs = await db.promotions.find({"is_active": True}, {"_id": 0}).to_list(length=None)
+    _PROMO_CACHE["items"] = docs
+    _PROMO_CACHE["loaded_at"] = now
+
+
+async def _record_promotion_event(*, user_id: str, action: str, points: int) -> None:
+    """Side-effect from award_points. If any active promotion qualifies, write a row."""
+    if points <= 0:
+        return
+    await _refresh_promo_cache()
+    if not _PROMO_CACHE["items"]:
+        return
+    sast_now = _now_sast()
+    user_doc = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "username": 1, "photo": 1, "full_name": 1, "monthly_score": 1},
+    )
+    if not user_doc:
+        return
+    for promo in _PROMO_CACHE["items"]:
+        # Match action
+        elig = promo.get("eligible_actions") or []
+        if elig and action not in elig:
+            continue
+        # Match min score
+        if int(user_doc.get("monthly_score") or 0) < int(promo.get("min_network_score") or 0):
+            continue
+        # Match window
+        if not _is_window_active(promo, sast_now):
+            continue
+        # Compute ZAR estimate from rate
+        zar_rate = float(promo.get("zar_per_point") or 0)
+        zar_estimate = round(points * zar_rate, 2)
+        await db.promotion_events.insert_one({
+            "id": str(uuid.uuid4()),
+            "promotion_id": promo["id"],
+            "user_id": user_id,
+            "username": user_doc.get("username"),
+            "photo": user_doc.get("photo") or "",
+            "action": action,
+            "points": int(points),
+            "zar_estimate": zar_estimate,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at_sast": sast_now.isoformat(),
+            "day_key": sast_now.strftime("%Y-%m-%d"),
+        })
+
+
+# ---- ADMIN: Promotion CRUD ------------------------------------------------
+class PromotionScheduleIn(BaseModel):
+    days_of_week: List[int] = Field(default_factory=lambda: [0, 2, 4])   # M,W,F
+    start_time: str = "08:00"
+    end_time: str = "12:00"
+
+
+class PromotionIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: Optional[str] = ""
+    eligible_actions: List[str] = Field(default_factory=list)
+    min_network_score: int = 0
+    schedule: PromotionScheduleIn = Field(default_factory=PromotionScheduleIn)
+    starts_at: Optional[str] = None     # ISO datetime in SAST
+    ends_at: Optional[str] = None
+    zar_per_point: float = 0.0
+    is_active: bool = True
+    notify_about_to_start_min: int = 15  # send a heads-up X min before window opens
+    notify_about_to_end_min: int = 15
+
+
+@api_router.post("/admin/promotions")
+async def admin_create_promotion(payload: PromotionIn, admin: dict = Depends(require_admin_user)):
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage promotions")
+    promo = {
+        "id": str(uuid.uuid4()),
+        **payload.model_dump(),
+        "created_by": admin["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "_notify_state": {},
+    }
+    await db.promotions.insert_one(promo)
+    await _refresh_promo_cache(force=True)
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="promotion.create", target_type="promotion", target_id=promo["id"],
+        metadata={"name": promo["name"]},
+    )
+    promo.pop("_id", None)
+    return promo
+
+
+@api_router.get("/admin/promotions")
+async def admin_list_promotions(admin: dict = Depends(require_admin_user)):
+    cur = db.promotions.find({}, {"_id": 0}).sort("created_at", -1).limit(200)
+    items = await cur.to_list(length=None)
+    sast_now = _now_sast()
+    for p in items:
+        p["is_window_active"] = _is_window_active(p, sast_now)
+        p["minutes_until_window"] = _minutes_until_window(p, sast_now)
+    return items
+
+
+@api_router.get("/admin/promotions/{promotion_id}")
+async def admin_get_promotion(promotion_id: str, admin: dict = Depends(require_admin_user)):
+    p = await db.promotions.find_one({"id": promotion_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    sast_now = _now_sast()
+    p["is_window_active"] = _is_window_active(p, sast_now)
+    p["minutes_until_window"] = _minutes_until_window(p, sast_now)
+    return p
+
+
+@api_router.patch("/admin/promotions/{promotion_id}")
+async def admin_update_promotion(promotion_id: str, payload: Dict[str, Any], admin: dict = Depends(require_admin_user)):
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage promotions")
+    allowed = {"name", "description", "eligible_actions", "min_network_score", "schedule",
+               "starts_at", "ends_at", "zar_per_point", "is_active",
+               "notify_about_to_start_min", "notify_about_to_end_min"}
+    upd = {k: v for k, v in payload.items() if k in allowed}
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.promotions.update_one({"id": promotion_id}, {"$set": upd})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    await _refresh_promo_cache(force=True)
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="promotion.update", target_type="promotion", target_id=promotion_id,
+        metadata={"fields": list(upd.keys())},
+    )
+    return await db.promotions.find_one({"id": promotion_id}, {"_id": 0})
+
+
+@api_router.delete("/admin/promotions/{promotion_id}")
+async def admin_delete_promotion(promotion_id: str, admin: dict = Depends(require_admin_user)):
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage promotions")
+    res = await db.promotions.delete_one({"id": promotion_id})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    await _refresh_promo_cache(force=True)
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="promotion.delete", target_type="promotion", target_id=promotion_id,
+    )
+    return {"ok": True}
+
+
+# ---- ANALYTICS endpoints --------------------------------------------------
+async def _participant_aggregate(promotion_id: str) -> List[Dict[str, Any]]:
+    """Aggregate per-user stats for a promotion."""
+    pipeline = [
+        {"$match": {"promotion_id": promotion_id}},
+        {"$group": {
+            "_id": "$user_id",
+            "username": {"$last": "$username"},
+            "photo": {"$last": "$photo"},
+            "points": {"$sum": "$points"},
+            "zar_estimate": {"$sum": "$zar_estimate"},
+            "events": {"$sum": 1},
+            "last_activity": {"$max": "$created_at_sast"},
+            "days_active": {"$addToSet": "$day_key"},
+            "posts": {"$sum": {"$cond": [{"$eq": ["$action", "post_create"]}, 1, 0]}},
+            "shares": {"$sum": {"$cond": [{"$eq": ["$action", "post_share"]}, 1, 0]}},
+            "comments": {"$sum": {"$cond": [{"$eq": ["$action", "comment_quality"]}, 1, 0]}},
+            "referrals": {"$sum": {"$cond": [{"$in": ["$action", ["referral_qualified", "referral_feature_unlock", "referral_first_post"]]}, 1, 0]}},
+        }},
+        {"$project": {
+            "_id": 0, "user_id": "$_id",
+            "username": 1, "photo": 1, "points": 1, "zar_estimate": 1, "events": 1,
+            "last_activity": 1, "posts": 1, "shares": 1, "comments": 1, "referrals": 1,
+            "streak_days": {"$size": "$days_active"},
+        }},
+        {"$sort": {"points": -1}},
+    ]
+    return await db.promotion_events.aggregate(pipeline).to_list(length=None)
+
+
+@api_router.get("/admin/promotions/{promotion_id}/participants")
+async def admin_promotion_participants(promotion_id: str, admin: dict = Depends(require_admin_user)):
+    p = await db.promotions.find_one({"id": promotion_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    rows = await _participant_aggregate(promotion_id)
+    # Enrich with current_score
+    if rows:
+        ids = [r["user_id"] for r in rows]
+        cur_scores = {u["id"]: u for u in await db.users.find(
+            {"id": {"$in": ids}},
+            {"_id": 0, "id": 1, "monthly_score": 1, "network_score": 1, "full_name": 1},
+        ).to_list(length=None)}
+        for r in rows:
+            u = cur_scores.get(r["user_id"], {})
+            r["current_score"] = u.get("monthly_score") or 0
+            r["lifetime_score"] = u.get("network_score") or 0
+            r["full_name"] = u.get("full_name")
+    return {"participants": rows, "total": len(rows)}
+
+
+@api_router.get("/admin/promotions/{promotion_id}/leaderboard")
+async def admin_promotion_leaderboard(promotion_id: str, limit: int = 50, admin: dict = Depends(require_admin_user)):
+    rows = await _participant_aggregate(promotion_id)
+    return {
+        "leaderboard": rows[:limit],
+        "ambassadors": [r for r in rows if await db.users.find_one({"id": r["user_id"], "is_ambassador": True}, {"_id": 0, "id": 1})][:limit],
+    }
+
+
+@api_router.get("/admin/promotions/{promotion_id}/feed")
+async def admin_promotion_feed(promotion_id: str, limit: int = 50, admin: dict = Depends(require_admin_user)):
+    cur = db.promotion_events.find({"promotion_id": promotion_id}, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
+@api_router.get("/admin/promotions/{promotion_id}/summary")
+async def admin_promotion_summary(promotion_id: str, admin: dict = Depends(require_admin_user)):
+    p = await db.promotions.find_one({"id": promotion_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    total_points = await db.promotion_events.aggregate([
+        {"$match": {"promotion_id": promotion_id}},
+        {"$group": {"_id": None, "pts": {"$sum": "$points"}, "zar": {"$sum": "$zar_estimate"}, "events": {"$sum": 1}}},
+    ]).to_list(length=None)
+    agg = total_points[0] if total_points else {"pts": 0, "zar": 0, "events": 0}
+    unique_participants = await db.promotion_events.distinct("user_id", {"promotion_id": promotion_id})
+    daily = await db.promotion_events.aggregate([
+        {"$match": {"promotion_id": promotion_id}},
+        {"$group": {"_id": "$day_key", "pts": {"$sum": "$points"}, "events": {"$sum": 1}, "users": {"$addToSet": "$user_id"}}},
+        {"$project": {"_id": 0, "day": "$_id", "pts": 1, "events": 1, "users": {"$size": "$users"}}},
+        {"$sort": {"day": 1}},
+    ]).to_list(length=None)
+    avg_per_user = round((agg["pts"] / max(len(unique_participants), 1)), 1) if unique_participants else 0
+    return {
+        "promotion": {**p, "is_window_active": _is_window_active(p), "minutes_until_window": _minutes_until_window(p)},
+        "total_participants": len(unique_participants),
+        "total_points": agg["pts"],
+        "total_zar_allocated": round(agg["zar"], 2),
+        "total_events": agg["events"],
+        "avg_points_per_user": avg_per_user,
+        "daily_trend": daily,
+    }
+
+
+@api_router.get("/admin/promotions-summary")
+async def admin_all_promotions_summary(admin: dict = Depends(require_admin_user)):
+    """Roll-up across every promotion ever created (for the dashboard panel)."""
+    total_promos = await db.promotions.count_documents({})
+    active_promos = await db.promotions.count_documents({"is_active": True})
+    agg = await db.promotion_events.aggregate([
+        {"$group": {"_id": None, "pts": {"$sum": "$points"}, "zar": {"$sum": "$zar_estimate"}, "events": {"$sum": 1}, "users": {"$addToSet": "$user_id"}}},
+    ]).to_list(length=None)
+    a = agg[0] if agg else {"pts": 0, "zar": 0, "events": 0, "users": []}
+    return {
+        "total_promotions": total_promos,
+        "active_promotions": active_promos,
+        "total_participants": len(a.get("users") or []),
+        "total_points_generated": a["pts"],
+        "total_engagement_actions": a["events"],
+        "total_zar_allocated": round(a["zar"], 2),
+        "avg_per_user": round(a["pts"] / max(len(a.get("users") or []), 1), 1),
+        "now_sast": _now_sast().isoformat(),
+    }
+
+
+# ---- Public: active promotions (for the user-facing banner) ---------------
+@api_router.get("/promotions/active")
+async def public_active_promotions():
+    """Read-only view used by the frontend to show 'window is open' banners."""
+    await _refresh_promo_cache(force=True)
+    sast_now = _now_sast()
+    out = []
+    for p in _PROMO_CACHE["items"]:
+        active = _is_window_active(p, sast_now)
+        out.append({
+            "id": p["id"],
+            "name": p["name"],
+            "description": p.get("description") or "",
+            "is_window_active": active,
+            "minutes_until_window": _minutes_until_window(p, sast_now),
+            "schedule": p.get("schedule"),
+            "eligible_actions": p.get("eligible_actions") or [],
+            "zar_per_point": p.get("zar_per_point") or 0,
+            "min_network_score": p.get("min_network_score") or 0,
+            "now_sast": sast_now.isoformat(),
+        })
+    return out
+
+
+# ---- Background scheduler: window open/close notifications ----------------
+_PROMO_NOTIFIER_TASK: Optional[asyncio.Task] = None
+
+
+async def _promotion_notifier_loop():
+    """Every 60s, check every active promo; on transition write notifications.
+    Targets users who have participated in this promo OR who match min_score."""
+    while True:
+        try:
+            await _refresh_promo_cache(force=True)
+            sast_now = _now_sast()
+            for promo in _PROMO_CACHE["items"]:
+                now_active = _is_window_active(promo, sast_now)
+                mins_until = _minutes_until_window(promo, sast_now)
+                state_key = sast_now.strftime("%Y-%m-%d")
+
+                # JUST OPENED
+                last_open = (promo.get("_notify_state") or {}).get("opened_on")
+                if now_active and last_open != state_key:
+                    await _notify_promo_participants(
+                        promo,
+                        title=f"🎉 {promo['name']} window is OPEN",
+                        message=f"Earn ZAR-converted points until {promo['schedule']['end_time']} SAST.",
+                    )
+                    await db.promotions.update_one(
+                        {"id": promo["id"]},
+                        {"$set": {"_notify_state.opened_on": state_key}},
+                    )
+
+                # ABOUT TO START
+                heads_up = int(promo.get("notify_about_to_start_min") or 15)
+                last_pre  = (promo.get("_notify_state") or {}).get("pre_open_on")
+                if (mins_until is not None) and 0 < mins_until <= heads_up and last_pre != state_key:
+                    await _notify_promo_participants(
+                        promo,
+                        title=f"⏰ {promo['name']} starts in {mins_until} min",
+                        message=f"Get ready — window opens at {promo['schedule']['start_time']} SAST.",
+                    )
+                    await db.promotions.update_one(
+                        {"id": promo["id"]},
+                        {"$set": {"_notify_state.pre_open_on": state_key}},
+                    )
+
+                # ABOUT TO END (only when window is currently active)
+                if now_active:
+                    eh, em = _parse_hhmm(promo["schedule"].get("end_time") or "00:00")
+                    end_today = sast_now.replace(hour=eh, minute=em, second=0, microsecond=0)
+                    mins_left = int((end_today - sast_now).total_seconds() // 60)
+                    heads_down = int(promo.get("notify_about_to_end_min") or 15)
+                    last_close = (promo.get("_notify_state") or {}).get("closing_on")
+                    if 0 < mins_left <= heads_down and last_close != state_key:
+                        await _notify_promo_participants(
+                            promo,
+                            title=f"⏳ {promo['name']} closing in {mins_left} min",
+                            message=f"Last call to earn — window closes at {promo['schedule']['end_time']} SAST.",
+                        )
+                        await db.promotions.update_one(
+                            {"id": promo["id"]},
+                            {"$set": {"_notify_state.closing_on": state_key}},
+                        )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"promo_notifier_loop iter failed: {exc}")
+        await asyncio.sleep(60)
+
+
+async def _notify_promo_participants(promo: dict, *, title: str, message: str) -> None:
+    """Push a notification to anyone who has ever participated in this promo
+    OR who meets the score-threshold (so they're aware before the first event)."""
+    notified_ids: set = set()
+    async for uid in db.promotion_events.distinct("user_id", {"promotion_id": promo["id"]}):
+        notified_ids.add(uid)
+    if int(promo.get("min_network_score") or 0) > 0:
+        cur = db.users.find(
+            {"monthly_score": {"$gte": int(promo["min_network_score"])}},
+            {"_id": 0, "id": 1},
+        ).limit(2000)
+        async for u in cur:
+            notified_ids.add(u["id"])
+    elif not notified_ids:
+        # No existing participants and no min_score → notify everyone (cap 2k)
+        cur = db.users.find({"deactivated": {"$ne": True}}, {"_id": 0, "id": 1}).limit(2000)
+        async for u in cur:
+            notified_ids.add(u["id"])
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if notified_ids:
+        await db.notifications.insert_many([{
+            "id": str(uuid.uuid4()),
+            "user_id": uid,
+            "type": "promotion",
+            "title": title,
+            "message": message,
+            "points": 0,
+            "read": False,
+            "promotion_id": promo["id"],
+            "created_at": now_iso,
+        } for uid in notified_ids])
+
+
+@app.on_event("startup")
+async def iter29_start_promo_loop():
+    global _PROMO_NOTIFIER_TASK
+    if _PROMO_NOTIFIER_TASK is None or _PROMO_NOTIFIER_TASK.done():
+        _PROMO_NOTIFIER_TASK = asyncio.create_task(_promotion_notifier_loop())
+
+
+# ---- Seed the M/W/F 08-12 SAST promotion if none exist --------------------
+@app.on_event("startup")
+async def iter29_seed_mwf_promotion():
+    existing = await db.promotions.count_documents({})
+    if existing > 0:
+        return
+    seed = {
+        "id": str(uuid.uuid4()),
+        "name": "M/W/F Points-to-Cash Window",
+        "description": "All eligible Network Score points earned during M/W/F 08:00–12:00 SAST convert to ZAR cash rewards.",
+        "eligible_actions": [
+            "post_create", "post_share", "comment_quality", "post_like",
+            "video_watched", "referral_qualified", "referral_feature_unlock",
+            "referral_first_post", "ad_watch_engage", "ad_watch_share",
+            "place_review_create", "connection_made", "job_share", "daily_checkin",
+        ],
+        "min_network_score": 0,
+        "schedule": {"days_of_week": [0, 2, 4], "start_time": "08:00", "end_time": "12:00"},
+        "starts_at": None, "ends_at": None,
+        "zar_per_point": 0.10,    # 1 pt = R0.10 by default — admin can edit
+        "is_active": True,
+        "notify_about_to_start_min": 15,
+        "notify_about_to_end_min": 15,
+        "created_by": "system",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "_notify_state": {},
+    }
+    await db.promotions.insert_one(seed)
+    logger.info(f"[SEED] Created M/W/F SAST promotion id={seed['id']}")
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

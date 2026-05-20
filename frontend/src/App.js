@@ -58,6 +58,8 @@ import AdminAnnouncePage from './pages/AdminAnnouncePage';
 import { AdminJobsPage, AdminPlacesPage, AdminActivitiesPage } from './pages/AdminListPages';
 import AmbassadorDashboardPage from './pages/AmbassadorDashboardPage';
 import AmbassadorLeaderboardPage from './pages/AmbassadorLeaderboardPage';
+import PromotionsListPage from './pages/PromotionsListPage';
+import PromotionDetailPage from './pages/PromotionDetailPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
