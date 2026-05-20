@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Users, Target, Calendar, FileText, DollarSign } from 'lucide-react';
+import { ArrowLeft, Users, Target, Calendar, FileText, DollarSign, Hourglass } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom';
 const CreateStokvelPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [flagLoading, setFlagLoading] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -15,6 +17,40 @@ const CreateStokvelPage = () => {
     payout_cycle: 'Monthly',
     purpose: 'savings',
   });
+
+  useEffect(() => {
+    axiosInstance.get('/feature-flags')
+      .then((r) => setEnabled(!!r.data?.stokvel_plus_enabled))
+      .catch(() => setEnabled(false))
+      .finally(() => setFlagLoading(false));
+  }, []);
+
+  if (flagLoading) {
+    return <div className="min-h-screen flex items-center justify-center text-text-muted">Loading…</div>;
+  }
+  if (!enabled) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0a1628] via-primary to-[#0a1628] text-white flex items-center justify-center p-6" data-testid="stokvel-coming-soon">
+        <div className="max-w-md text-center">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-secondary/20 flex items-center justify-center mb-5">
+            <Hourglass size={28} className="text-secondary" />
+          </div>
+          <h1 className="font-heading font-bold text-3xl mb-2">Stokvel+ is coming soon</h1>
+          <p className="text-white/70 text-sm leading-relaxed mb-6">
+            We're putting the finishing touches on Stokvel+ — collective participation circles with shared access,
+            multi-currency support, and group governance. Creation and registration will be enabled at launch.
+          </p>
+          <p className="text-secondary text-xs uppercase tracking-widest font-bold mb-6">Notify members on launch day</p>
+          <button
+            onClick={() => navigate('/stokvels')}
+            className="bg-secondary text-primary font-bold px-6 py-3 rounded-full inline-flex items-center gap-2 active:scale-95"
+            data-testid="stokvel-coming-soon-back">
+            <ArrowLeft size={14} /> Back to Stokvels
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const PURPOSES = [
     { v: 'savings', label: 'Savings', emoji: '💰', desc: 'Build wealth together — classic Stokvel.' },

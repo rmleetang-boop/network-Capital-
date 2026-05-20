@@ -687,6 +687,9 @@ const ProfilePage = ({ user, setUser }) => {
                   { icon: Bell, label: 'Notifications', path: '/notifications' },
                   { icon: HelpCircle, label: 'Help', path: '/help' },
                   { icon: Settings, label: 'Settings', path: '/settings' },
+                  ...(profileUser?.is_ambassador
+                    ? [{ icon: Trophy, label: 'Ambassador', path: '/ambassadors/me' }]
+                    : []),
                   ...(profileUser?.role === 'admin' || profileUser?.role === 'moderator'
                     ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard' }]
                     : []),

@@ -4,13 +4,17 @@ import { Users, Briefcase, MapPin, MessageSquare, Star, PiggyBank, TrendingUp, S
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 
-const StatCard = ({ icon: Icon, label, value, subline, tone = 'from-primary to-secondary' }) => (
-  <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${tone} text-white p-4`}>
+const StatCard = ({ icon: Icon, label, value, subline, tone = 'from-primary to-secondary', onClick, testId }) => (
+  <button
+    onClick={onClick}
+    disabled={!onClick}
+    className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${tone} text-white p-4 text-left w-full ${onClick ? 'cursor-pointer hover:scale-[1.02] active:scale-95 transition-transform' : 'cursor-default'}`}
+    data-testid={testId}>
     <Icon size={18} className="opacity-70 mb-1.5" />
     <p className="text-3xl font-heading font-bold leading-none">{value}</p>
     <p className="text-[11px] uppercase tracking-wider font-bold opacity-90 mt-1">{label}</p>
     {subline && <p className="text-[10px] opacity-75 mt-0.5">{subline}</p>}
-  </div>
+  </button>
 );
 
 const AdminMetricsDashboardPage = ({ user, setUser }) => {
@@ -114,24 +118,14 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
     <div className="min-h-screen bg-background-DEFAULT pb-24" data-testid="admin-metrics-dashboard">
       <div className="sticky top-0 z-10 bg-white/85 backdrop-blur-lg border-b border-gray-200 px-4 py-3 flex items-center gap-2 flex-wrap">
         <h1 className="text-base font-heading font-bold text-primary flex-1">Platform overview</h1>
-        <button
-          onClick={() => navigate('/admin/users')}
-          className="text-xs font-semibold bg-secondary text-primary px-3 py-1.5 rounded-full"
-          data-testid="admin-go-users">
-          Users
-        </button>
-        <button
-          onClick={() => navigate('/admin/stokvels')}
-          className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full"
-          data-testid="admin-go-stokvels">
-          Stokvels
-        </button>
-        <button
-          onClick={() => navigate('/admin/audit-log')}
-          className="text-xs font-semibold bg-gray-100 text-text-secondary px-3 py-1.5 rounded-full"
-          data-testid="admin-go-audit">
-          Audit log
-        </button>
+        <button onClick={() => navigate('/admin/users')} className="text-xs font-semibold bg-secondary text-primary px-3 py-1.5 rounded-full" data-testid="admin-go-users">Users</button>
+        <button onClick={() => navigate('/admin/stokvels')} className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full" data-testid="admin-go-stokvels">Stokvels</button>
+        <button onClick={() => navigate('/admin/jobs')} className="text-xs font-semibold bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full" data-testid="admin-go-jobs">Jobs</button>
+        <button onClick={() => navigate('/admin/places')} className="text-xs font-semibold bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full" data-testid="admin-go-places">Places</button>
+        <button onClick={() => navigate('/admin/activities')} className="text-xs font-semibold bg-pink-100 text-pink-700 px-3 py-1.5 rounded-full" data-testid="admin-go-activities">Activities</button>
+        <button onClick={() => navigate('/admin/announce')} className="text-xs font-semibold bg-primary text-white px-3 py-1.5 rounded-full" data-testid="admin-go-announce">Announce</button>
+        <button onClick={() => navigate('/ambassadors/leaderboard')} className="text-xs font-semibold bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-full" data-testid="admin-go-ambassadors">Ambassadors</button>
+        <button onClick={() => navigate('/admin/audit-log')} className="text-xs font-semibold bg-gray-100 text-text-secondary px-3 py-1.5 rounded-full" data-testid="admin-go-audit">Audit</button>
       </div>
 
       <div className="max-w-5xl mx-auto p-4 space-y-4">
@@ -141,23 +135,31 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
             value={M.users?.total || 0}
             subline={`+${M.users?.new_30d || 0} this month (${M.users?.growth_30d_pct || 0}% growth)`}
             tone="from-primary to-blue-600"
+            onClick={() => navigate('/admin/users')}
+            testId="tile-users"
           />
           <StatCard
             icon={Award} label="Premium"
             value={M.users?.premium || 0}
             subline={M.users?.total ? `${Math.round((M.users.premium / M.users.total) * 100)}% of members` : null}
             tone="from-yellow-600 to-secondary"
+            onClick={() => navigate('/admin/users?role=')}
+            testId="tile-premium"
           />
           <StatCard
             icon={PiggyBank} label="Stokvels"
             value={M.stokvels?.total || 0}
             subline={`+${M.stokvels?.new_30d || 0} this month`}
             tone="from-emerald-500 to-teal-600"
+            onClick={() => navigate('/admin/stokvels')}
+            testId="tile-stokvels"
           />
           <StatCard
             icon={Briefcase} label="Jobs · applications"
             value={`${M.jobs?.total || 0} · ${M.jobs?.applications || 0}`}
             tone="from-amber-500 to-orange-500"
+            onClick={() => navigate('/admin/jobs')}
+            testId="tile-jobs"
           />
         </div>
 
@@ -165,20 +167,26 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
           <StatCard
             icon={MessageSquare} label="Posts (7d)"
             value={M.feed?.posts_7d || 0}
-            subline={`${M.feed?.total_posts || 0} all-time`}
+            subline={`${M.feed?.total_posts || 0} all-time · Announce as NC`}
             tone="from-pink-500 to-rose-500"
+            onClick={() => navigate('/admin/announce')}
+            testId="tile-posts"
           />
           <StatCard
             icon={MapPin} label="Places"
             value={M.places?.total || 0}
             subline={`${M.places?.reviews || 0} reviews · +${M.places?.reviews_30d || 0} this month`}
             tone="from-indigo-500 to-purple-500"
+            onClick={() => navigate('/admin/places')}
+            testId="tile-places"
           />
           <StatCard
             icon={Users} label="Connections"
             value={M.network?.connections || 0}
             subline={`+${M.network?.connections_30d || 0} this month`}
             tone="from-cyan-500 to-blue-500"
+            onClick={() => navigate('/admin/users')}
+            testId="tile-connections"
           />
         </div>
 

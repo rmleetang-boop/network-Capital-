@@ -3187,6 +3187,8 @@ STOKVEL_MEMBER_FEE = 2.0
 
 @api_router.post("/stokvels", response_model=Stokvel)
 async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Depends(get_current_user)):
+    # Stokvel+ gate — Coming Soon when the flag is off
+    await _enforce_stokvel_plus_enabled()
     # Check if user has sufficient balance for creator fee
     user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
     if user.get("wallet_balance", 0.0) < STOKVEL_CREATOR_FEE:
@@ -3269,6 +3271,7 @@ async def get_stokvel(stokvel_id: str, current_user: dict = Depends(get_current_
 
 @api_router.post("/stokvels/{stokvel_id}/invite")
 async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_user: dict = Depends(get_current_user)):
+    await _enforce_stokvel_plus_enabled()
     stokvel = await db.stokvels.find_one({"id": stokvel_id}, {"_id": 0})
     if not stokvel:
         raise HTTPException(status_code=404, detail="Stokvel not found")
@@ -7242,6 +7245,507 @@ async def admin_list_stokvels(
         ]
     cur = db.stokvels.find(query, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
     return await cur.to_list(length=None)
+
+
+# ============================================================================
+# ITER 28 — Feature Flags + System Account + Ambassador Role + Full Mgmt Suite
+# ============================================================================
+
+SYSTEM_ACCOUNT_USERNAME = "networkcapital"
+SYSTEM_ACCOUNT_DISPLAY = "Network Capital"
+
+DEFAULT_FEATURE_FLAGS = {
+    "stokvel_plus_enabled": False,   # OFF by default → Coming Soon
+}
+
+AMBASSADOR_MONTHLY_TARGETS = [
+    {"key": "recruits",            "label": "Recruit ≥ 5 new members",                "target": 5},
+    {"key": "completed_profiles",  "label": "Help 3 referred members complete profile", "target": 3},
+    {"key": "host_activity",       "label": "Host 1 Activity / event",                 "target": 1},
+    {"key": "quality_posts",       "label": "Publish ≥ 10 posts",                      "target": 10},
+    {"key": "comments",            "label": "Reply to ≥ 20 community comments",        "target": 20},
+    {"key": "stokvel_assist",      "label": "Refer at least 1 Stokvel join",           "target": 1},
+]
+
+
+async def _ensure_system_account() -> Optional[str]:
+    """Idempotently create the official 'Network Capital' system account."""
+    existing = await db.users.find_one(
+        {"username": SYSTEM_ACCOUNT_USERNAME},
+        {"_id": 0, "id": 1},
+    )
+    if existing:
+        return existing["id"]
+    uid = str(uuid.uuid4())
+    await db.users.insert_one({
+        "id": uid,
+        "username": SYSTEM_ACCOUNT_USERNAME,
+        "email": "system@networkcapitalapp.co.za",
+        "password": "$2b$12$disabled.system.account.no.login.allowed.x" * 1,
+        "full_name": SYSTEM_ACCOUNT_DISPLAY,
+        "photo": "",
+        "is_system": True,
+        "official": True,
+        "role": "admin",
+        "wallet_balance": 0.0,
+        "monthly_score": 0,
+        "network_score": 0,
+        "profile_completed": True,
+        "email_verified": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    logger.info(f"[SYSTEM] Created Network Capital system account id={uid}")
+    return uid
+
+
+async def _ensure_feature_flags() -> None:
+    """Idempotently seed default feature flags."""
+    for key, default in DEFAULT_FEATURE_FLAGS.items():
+        await db.feature_flags.update_one(
+            {"key": key},
+            {"$setOnInsert": {
+                "key": key, "value": default,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
+
+
+@app.on_event("startup")
+async def iter28_bootstrap():
+    await _ensure_system_account()
+    await _ensure_feature_flags()
+
+
+# ---- FEATURE FLAGS --------------------------------------------------------
+@api_router.get("/feature-flags")
+async def public_feature_flags():
+    """Read-only view used by the frontend to gate UI."""
+    docs = await db.feature_flags.find({}, {"_id": 0}).to_list(length=None)
+    flags = {d["key"]: d["value"] for d in docs}
+    for k, v in DEFAULT_FEATURE_FLAGS.items():
+        flags.setdefault(k, v)
+    return flags
+
+
+class FeatureFlagUpdate(BaseModel):
+    value: Any
+
+
+@api_router.put("/admin/feature-flags/{key}")
+async def admin_set_feature_flag(
+    key: str,
+    payload: FeatureFlagUpdate,
+    admin: dict = Depends(require_admin_user),
+):
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can toggle feature flags")
+    await db.feature_flags.update_one(
+        {"key": key},
+        {"$set": {"key": key, "value": payload.value, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="flag.set", target_type="feature_flag", target_id=key,
+        metadata={"value": payload.value},
+    )
+    return {"ok": True, "key": key, "value": payload.value}
+
+
+async def _is_feature_enabled(key: str) -> bool:
+    doc = await db.feature_flags.find_one({"key": key}, {"_id": 0, "value": 1})
+    if doc:
+        return bool(doc["value"])
+    return bool(DEFAULT_FEATURE_FLAGS.get(key, False))
+
+
+# ---- ADMIN POSTS / DMS AS "NETWORK CAPITAL" -------------------------------
+class AdminAnnounceRequest(BaseModel):
+    content: str = Field(min_length=2, max_length=4000)
+    image: Optional[str] = ""
+    pin: Optional[bool] = False
+
+
+@api_router.post("/admin/announce")
+async def admin_announce_as_network_capital(
+    payload: AdminAnnounceRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    """Publish a feed post authored by the Network Capital system account."""
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can announce as Network Capital")
+    sys_uid = await _ensure_system_account()
+    post = {
+        "id": str(uuid.uuid4()),
+        "user_id": sys_uid,
+        "username": SYSTEM_ACCOUNT_USERNAME,
+        "user_photo": "",
+        "official": True,
+        "is_announcement": True,
+        "pinned": bool(payload.pin),
+        "content": payload.content.strip(),
+        "image": payload.image or "",
+        "likes": 0, "comments_count": 0, "shares": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "posted_by_admin_id": admin["id"],
+    }
+    await db.posts.insert_one(post)
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="post.announce", target_type="post", target_id=post["id"],
+        reason="Announcement as Network Capital",
+        metadata={"content_preview": post["content"][:120]},
+    )
+    post.pop("_id", None)
+    return post
+
+
+class AdminDMRequest(BaseModel):
+    to_user_id: str
+    message: str = Field(min_length=1, max_length=4000)
+
+
+@api_router.post("/admin/dm")
+async def admin_dm_as_network_capital(
+    payload: AdminDMRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    """Send a direct message from the Network Capital system account."""
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can DM as Network Capital")
+    target = await db.users.find_one({"id": payload.to_user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    sys_uid = await _ensure_system_account()
+    message = {
+        "id": str(uuid.uuid4()),
+        "sender_id": sys_uid,
+        "recipient_id": payload.to_user_id,
+        "sender_username": SYSTEM_ACCOUNT_USERNAME,
+        "content": payload.message.strip(),
+        "official": True,
+        "from_admin_id": admin["id"],
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.messages.insert_one(message)
+    # In-app notification badge
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": payload.to_user_id,
+        "type": "system_message",
+        "title": "Message from Network Capital",
+        "message": message["content"][:120],
+        "points": 0,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="dm.send", target_type="user", target_id=payload.to_user_id,
+        metadata={"message_id": message["id"]},
+    )
+    message.pop("_id", None)
+    return message
+
+
+# ---- USER RESTRICT / FLAG / ENRICH PROFILE --------------------------------
+class RestrictUserRequest(BaseModel):
+    can_post: Optional[bool] = None       # False → post-muted
+    can_comment: Optional[bool] = None    # False → comment-muted
+    can_dm: Optional[bool] = None         # False → DM-muted
+    reason: Optional[str] = ""
+
+
+@api_router.post("/admin/users/{user_id}/restrict")
+async def admin_restrict_user(
+    user_id: str,
+    payload: RestrictUserRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    updates: Dict[str, Any] = {}
+    for f in ("can_post", "can_comment", "can_dm"):
+        v = getattr(payload, f)
+        if v is not None:
+            updates[f"restrictions.{f}"] = bool(v)
+    if not updates:
+        raise HTTPException(status_code=400, detail="Specify at least one restriction field")
+    await db.users.update_one({"id": user_id}, {"$set": updates})
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="user.restrict", target_type="user", target_id=user_id,
+        reason=payload.reason, metadata={"set": updates},
+    )
+    return {"ok": True, "restrictions": updates}
+
+
+class FlagUserRequest(BaseModel):
+    flagged: bool = True
+    reason: Optional[str] = ""
+
+
+@api_router.post("/admin/users/{user_id}/flag")
+async def admin_flag_user(
+    user_id: str,
+    payload: FlagUserRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "flagged_for_review": bool(payload.flagged),
+        "flag_reason": payload.reason or "",
+    }})
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="user.flag" if payload.flagged else "user.unflag",
+        target_type="user", target_id=user_id, reason=payload.reason,
+    )
+    return {"ok": True, "flagged": payload.flagged}
+
+
+@api_router.get("/admin/users/{user_id}/full-profile")
+async def admin_full_profile(user_id: str, admin: dict = Depends(require_admin_user)):
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    counts = {
+        "posts": await db.posts.count_documents({"user_id": user_id}),
+        "comments": await db.comments.count_documents({"user_id": user_id}),
+        "messages": await db.messages.count_documents({"$or": [{"sender_id": user_id}, {"recipient_id": user_id}]}),
+        "place_reviews": await db.place_reviews.count_documents({"user_id": user_id}),
+        "jobs_posted": await db.jobs.count_documents({"employer_id": user_id}),
+        "applications": await db.job_applications.count_documents({"applicant_id": user_id}),
+        "stokvels_member_of": await db.stokvel_members.count_documents({"user_id": user_id}),
+        "referrals": await db.users.count_documents({"referred_by": user_id}),
+    }
+    recent_posts = await db.posts.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(length=None)
+    return {"user": u, "counts": counts, "recent_posts": recent_posts}
+
+
+# ---- ADMIN DELETE: STOKVEL / JOB / PLACE / ACTIVITY -----------------------
+@api_router.delete("/admin/stokvels/{stokvel_id}")
+async def admin_delete_stokvel(stokvel_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    s = await db.stokvels.delete_one({"id": stokvel_id})
+    if not s.deleted_count:
+        raise HTTPException(status_code=404, detail="Stokvel not found")
+    await db.stokvel_members.delete_many({"stokvel_id": stokvel_id})
+    await AuditLog.write(actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="stokvel.delete", target_type="stokvel", target_id=stokvel_id, reason=reason)
+    return {"ok": True}
+
+
+@api_router.delete("/admin/jobs/{job_id}")
+async def admin_delete_job(job_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    j = await db.jobs.delete_one({"id": job_id})
+    if not j.deleted_count:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await db.job_applications.delete_many({"job_id": job_id})
+    await AuditLog.write(actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="job.delete", target_type="job", target_id=job_id, reason=reason)
+    return {"ok": True}
+
+
+@api_router.delete("/admin/places/{place_id}")
+async def admin_delete_place(place_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    p = await db.places.delete_one({"id": place_id})
+    if not p.deleted_count:
+        raise HTTPException(status_code=404, detail="Place not found")
+    await db.place_reviews.delete_many({"place_id": place_id})
+    await db.place_claims.delete_many({"place_id": place_id})
+    await AuditLog.write(actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="place.delete", target_type="place", target_id=place_id, reason=reason)
+    return {"ok": True}
+
+
+@api_router.delete("/admin/activities/{activity_id}")
+async def admin_delete_activity(activity_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    res = await db.activities.delete_one({"id": activity_id})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    await AuditLog.write(actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="activity.delete", target_type="activity", target_id=activity_id, reason=reason)
+    return {"ok": True}
+
+
+# ---- ADMIN LIST endpoints (Jobs / Places / Activities) --------------------
+@api_router.get("/admin/jobs")
+async def admin_list_jobs(q: Optional[str] = None, limit: int = 100, admin: dict = Depends(require_admin_user)):
+    query: Dict[str, Any] = {}
+    if q:
+        query["$or"] = [{"title": {"$regex": q, "$options": "i"}}, {"company": {"$regex": q, "$options": "i"}}]
+    cur = db.jobs.find(query, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
+@api_router.get("/admin/places")
+async def admin_list_places(q: Optional[str] = None, limit: int = 100, admin: dict = Depends(require_admin_user)):
+    query: Dict[str, Any] = {}
+    if q:
+        query["$or"] = [{"name": {"$regex": q, "$options": "i"}}, {"city": {"$regex": q, "$options": "i"}}]
+    cur = db.places.find(query, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
+@api_router.get("/admin/activities")
+async def admin_list_activities(q: Optional[str] = None, limit: int = 100, admin: dict = Depends(require_admin_user)):
+    query: Dict[str, Any] = {}
+    if q:
+        query["$or"] = [{"title": {"$regex": q, "$options": "i"}}, {"description": {"$regex": q, "$options": "i"}}]
+    cur = db.activities.find(query, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    return await cur.to_list(length=None)
+
+
+# ---- AMBASSADOR ROLE + DASHBOARD + LEADERBOARD ----------------------------
+@api_router.post("/admin/users/{user_id}/make-ambassador")
+async def admin_make_ambassador(
+    user_id: str,
+    payload: Dict[str, Any] = None,
+    admin: dict = Depends(require_admin_user),
+):
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can grant ambassador status")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    is_amb = bool((payload or {}).get("ambassador", True))
+    await db.users.update_one({"id": user_id}, {"$set": {
+        "is_ambassador": is_amb,
+        "ambassador_rank": "Rising Star" if is_amb else None,
+        "ambassador_granted_at": datetime.now(timezone.utc).isoformat() if is_amb else None,
+    }})
+    await AuditLog.write(actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="user.ambassador_set", target_type="user", target_id=user_id,
+        metadata={"is_ambassador": is_amb})
+    return {"ok": True, "is_ambassador": is_amb}
+
+
+def _ambassador_rank_for(total_contrib: int, recruit_count: int) -> str:
+    if total_contrib >= 50_000 or recruit_count >= 100:
+        return "Network Legend"
+    if total_contrib >= 25_000 or recruit_count >= 50:
+        return "Elite Ambassador"
+    if total_contrib >= 10_000 or recruit_count >= 20:
+        return "Senior Ambassador"
+    if total_contrib >= 3_000  or recruit_count >= 5:
+        return "Ambassador"
+    return "Rising Star"
+
+
+async def _ambassador_summary(user: dict) -> Dict[str, Any]:
+    """Aggregate referral-network stats for an ambassador user."""
+    uid = user["id"]
+    referred = await db.users.find(
+        {"referred_by": uid},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1,
+         "monthly_score": 1, "network_score": 1, "profile_completed": 1,
+         "created_at": 1},
+    ).to_list(length=None)
+
+    total_contrib = sum(int(r.get("monthly_score") or 0) for r in referred)
+    completed_count = sum(1 for r in referred if r.get("profile_completed"))
+    recruit_count = len(referred)
+
+    # Trend: signups this week / this month
+    now = datetime.now(timezone.utc)
+    seven_d  = (now - timedelta(days=7)).isoformat()
+    thirty_d = (now - timedelta(days=30)).isoformat()
+    new_7d  = sum(1 for r in referred if (r.get("created_at") or "") >= seven_d)
+    new_30d = sum(1 for r in referred if (r.get("created_at") or "") >= thirty_d)
+
+    # Activity proxies (this calendar month)
+    ref_ids = [r["id"] for r in referred]
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc).isoformat()
+    posts_this_month = await db.posts.count_documents({"user_id": {"$in": ref_ids}, "created_at": {"$gte": month_start}}) if ref_ids else 0
+    comments_this_month = await db.comments.count_documents({"user_id": {"$in": ref_ids}, "created_at": {"$gte": month_start}}) if ref_ids else 0
+    stokvel_joins = await db.stokvel_members.count_documents({"user_id": {"$in": ref_ids}}) if ref_ids else 0
+    activities_hosted = await db.activities.count_documents({"created_by": uid, "created_at": {"$gte": month_start}})
+
+    # Targets progress
+    progress = []
+    metric_map = {
+        "recruits":           new_30d,
+        "completed_profiles": completed_count,
+        "host_activity":      activities_hosted,
+        "quality_posts":      posts_this_month,
+        "comments":           comments_this_month,
+        "stokvel_assist":     stokvel_joins,
+    }
+    for t in AMBASSADOR_MONTHLY_TARGETS:
+        progress.append({
+            "key": t["key"], "label": t["label"], "target": t["target"],
+            "current": int(metric_map.get(t["key"], 0)),
+        })
+
+    rank = _ambassador_rank_for(total_contrib, recruit_count)
+    return {
+        "user_id": uid,
+        "username": user.get("username"),
+        "full_name": user.get("full_name"),
+        "photo": user.get("photo") or "",
+        "rank": rank,
+        "recruit_count": recruit_count,
+        "completed_count": completed_count,
+        "new_7d": new_7d,
+        "new_30d": new_30d,
+        "total_contribution": total_contrib,
+        "targets": progress,
+        "recent_recruits": sorted(referred, key=lambda r: r.get("created_at",""), reverse=True)[:10],
+        "performance": {
+            "posts_this_month": posts_this_month,
+            "comments_this_month": comments_this_month,
+            "stokvel_joins": stokvel_joins,
+            "activities_hosted": activities_hosted,
+        },
+    }
+
+
+@api_router.get("/ambassadors/me")
+async def my_ambassador_dashboard(current_user: dict = Depends(get_current_user)):
+    if not current_user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador access required")
+    return await _ambassador_summary(current_user)
+
+
+@api_router.get("/ambassadors/leaderboard")
+async def ambassador_leaderboard(limit: int = 50):
+    """Public leaderboard ranking ambassadors by their total network contribution."""
+    cursor = db.users.find(
+        {"is_ambassador": True},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "ambassador_rank": 1},
+    ).limit(min(limit, 200))
+    ambassadors = await cursor.to_list(length=None)
+    summaries: List[Dict[str, Any]] = []
+    for amb in ambassadors:
+        s = await _ambassador_summary(amb)
+        summaries.append({
+            "user_id": s["user_id"],
+            "username": s["username"],
+            "full_name": s["full_name"],
+            "photo": s["photo"],
+            "rank": s["rank"],
+            "total_contribution": s["total_contribution"],
+            "recruit_count": s["recruit_count"],
+            "new_30d": s["new_30d"],
+            "completed_count": s["completed_count"],
+        })
+    summaries.sort(key=lambda x: (-x["total_contribution"], -x["recruit_count"]))
+    return {"leaderboard": summaries, "generated_at": datetime.now(timezone.utc).isoformat()}
+
+
+@api_router.get("/admin/ambassadors")
+async def admin_list_ambassadors(admin: dict = Depends(require_admin_user)):
+    cur = db.users.find({"is_ambassador": True}, {"_id": 0, "password": 0}).limit(500)
+    return await cur.to_list(length=None)
+
+
+# ---- STOKVEL+ COMING SOON GATE --------------------------------------------
+async def _enforce_stokvel_plus_enabled():
+    enabled = await _is_feature_enabled("stokvel_plus_enabled")
+    if not enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Stokvel+ is coming soon. Creation and registration are temporarily disabled.",
+        )
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

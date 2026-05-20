@@ -53,6 +53,11 @@ import AdminMetricsDashboardPage from './pages/AdminMetricsDashboardPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminAuditLogPage from './pages/AdminAuditLogPage';
 import AdminStokvelsPage from './pages/AdminStokvelsPage';
+import AdminProfileDetailPage from './pages/AdminProfileDetailPage';
+import AdminAnnouncePage from './pages/AdminAnnouncePage';
+import { AdminJobsPage, AdminPlacesPage, AdminActivitiesPage } from './pages/AdminListPages';
+import AmbassadorDashboardPage from './pages/AmbassadorDashboardPage';
+import AmbassadorLeaderboardPage from './pages/AmbassadorLeaderboardPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -267,8 +272,15 @@ function App() {
             <Route path="/network/:userId" element={<NetworkUserPage user={user} />} />
             <Route path="/admin/dashboard" element={<AdminMetricsDashboardPage user={user} setUser={setUser} />} />
             <Route path="/admin/users" element={<AdminUsersPage user={user} />} />
+            <Route path="/admin/profiles/:userId" element={<AdminProfileDetailPage user={user} />} />
             <Route path="/admin/audit-log" element={<AdminAuditLogPage user={user} />} />
             <Route path="/admin/stokvels" element={<AdminStokvelsPage user={user} />} />
+            <Route path="/admin/jobs" element={<AdminJobsPage user={user} />} />
+            <Route path="/admin/places" element={<AdminPlacesPage user={user} />} />
+            <Route path="/admin/activities" element={<AdminActivitiesPage user={user} />} />
+            <Route path="/admin/announce" element={<AdminAnnouncePage user={user} />} />
+            <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
+            <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<Navigate to="/" replace />} />

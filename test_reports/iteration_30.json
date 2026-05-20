@@ -1,0 +1,80 @@
+{
+  "summary": "Iter28 backend testing — 35/36 new tests PASS (1 backend bug surfaced) + 23/25 iter27 regression PASS (2 SKIP due to Stokvel+ gate now defaulting to OFF). Verified entire iter28 surface: system-account seed (networkcapital@admin@official), feature flags public GET + admin PUT + moderator/non-admin 403, Stokvel+ gate (503 'Coming Soon' on POST /stokvels + POST /stokvels/{id}/invite when flag=false; succeeds when flipped true), admin announce-as-NC (admin→200/moderator→403/empty content→422), admin DM-as-NC (creates message + system_message notification; 404 unknown user; moderator→403), restrict user (400 empty body; restrictions.can_post persists), flag user (sets flagged_for_review + writes user.flag/user.unflag audit rows), full-profile shape with all 8 counts + 404 path, admin DELETE stokvel cascade + 404 on jobs/places/activities, admin LIST endpoints (jobs/places/activities/ambassadors — moderator allowed since require_admin_user admits both), make-ambassador (admin sets/clears with Rising Star rank; moderator→403), ambassador dashboard (non-amb→403; shape: 6 targets/perf block/recent_recruits/all keys), public leaderboard (no-auth, sorted desc by total_contribution then recruit_count).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/admin/announce + GET /api/posts",
+        "issue": "CRITICAL: admin_announce_as_network_capital (server.py L7379-7392) inserts a post document with shape mismatching the Post Pydantic model (server.py L195-209). Specifically: inserts `likes: 0` (int) but Post model requires `likes: List[str]`; omits required `user_score: int`; omits `hashtags`, `mentions`, `comments`. /api/posts has response_model=List[Post] so the ENTIRE feed returns 500 'ResponseValidationError' to EVERY user as soon as any announce post exists in db.posts. Reproduced: POST /admin/announce → 200, then GET /api/posts → 500 with `validation errors: ('response', 0, 'user_score') missing` and `('response', 0, 'likes') list_type`. FIX: align insert to Post shape — add `user_score: 0`, `likes: []`, `hashtags: []`, `mentions: []`, `comments: []`, and remove the int `likes_count` / `shares` count field (or rename to match model). Then purge or fix existing broken docs: `db.posts.update_many({likes: {$type: 'int'}}, [{$set: {likes_count: '$likes', likes: [], user_score: 0, hashtags: [], mentions: [], comments: []}}])`.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/announce",
+        "issue": "Endpoint also inserts non-model fields: `official`, `is_announcement`, `pinned`, `image`, `comments_count`, `shares` (as int), `posted_by_admin_id`. None of these are in the Post model so they're stripped on response but they DO live in mongodb and may collide with iter-25+ post features. Recommend extending Post model with `official: bool = False`, `is_announcement: bool = False`, `pinned: bool = False`, `image: Optional[str] = None` so the announce post can be properly rendered by the feed UI."
+      },
+      {
+        "endpoint": "POST /api/stokvels (with flag on)",
+        "issue": "Stokvel creation succeeds when flag=true but the stokvel record is still being persisted — iter27 stokvel-related tests that previously PASSED now SKIP because they don't flip the flag first. Recommend either: (a) leaving the flag default OFF and updating iter27 tests to flip it, or (b) flipping default ON now that iter28 has shipped the gate. Currently iter27 tests skip 2 stokvel cases silently."
+      },
+      {
+        "endpoint": "POST /api/admin/users/{id}/restrict",
+        "issue": "Pydantic schema allows ALL three fields to be None — server returns 400 when *no* field is set (manually checked at L7472), which is fine. But there's no validation that the user exists; calling restrict on a non-existent user_id returns 200 ok (with $set having no effect because update_one matches 0). Recommend pre-check existence and return 404 to match the DM/announce/flag patterns."
+      },
+      {
+        "endpoint": "POST /api/admin/users/{id}/flag",
+        "issue": "Same non-existence-not-validated issue as restrict — flagging a non-existent user_id still returns 200 + writes an audit row pointing at a phantom target_id. Recommend a pre-check that 404s before writing the audit log."
+      },
+      {
+        "endpoint": "POST /api/admin/users/{id}/make-ambassador",
+        "issue": "`payload: Dict[str, Any] = None` accepts an empty/missing body and defaults to ambassador=True (line 7610). Acceptable but the OpenAPI schema is `{}` which is unhelpful for clients. Recommend a Pydantic model `class AmbassadorRoleRequest(BaseModel): ambassador: bool = True`."
+      },
+      {
+        "endpoint": "GET /api/ambassadors/leaderboard",
+        "issue": "Aggregates `_ambassador_summary` for EVERY ambassador (200 max) sequentially in a Python for-loop, each making ~7 DB roundtrips. With 200 ambassadors that's 1,400 sequential queries per public leaderboard hit. Cache the result or precompute. Public/unauth endpoint = trivial DDoS surface."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter28_feature_flags_ambassador.py",
+    "/app/test_reports/pytest/iter28_results.xml",
+    "/app/test_reports/pytest/iter27_regression.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix admin_announce_as_network_capital insert shape — add `user_score: 0`, `likes: []`, `hashtags: []`, `mentions: []`, `comments: []`; rename or drop the int `likes_count` field. Then purge/repair any broken docs in db.posts (test agent created 2-3 of them during this run). Once fixed, /api/posts will stop 500'ing.",
+    "Extend Post model to include `official`, `is_announcement`, `pinned`, `image` fields so the announce post renders correctly on the feed UI once shape is fixed.",
+    "Decide on Stokvel+ default flag value (currently OFF) and update iter27 test fixtures to flip the flag before stokvel creation — currently 2 iter27 tests SKIP silently.",
+    "Add existence pre-check + 404 to /admin/users/{id}/restrict and /admin/users/{id}/flag — currently they silently no-op on phantom user_ids.",
+    "Replace `payload: Dict[str, Any] = None` on /admin/users/{id}/make-ambassador with a proper Pydantic model.",
+    "Cache or batch /ambassadors/leaderboard — currently N*7 sequential DB calls per public hit."
+  ],
+  "critical_code_review_comments": [
+    "server.py now 7754 lines (was 7239 at iter27). Iter28 added ~500 lines under the `ITER 28` banner — split into /app/backend/routers/feature_flags.py + admin_system_account.py + ambassadors.py is overdue.",
+    "TWO `app.include_router(api_router)` calls remain (L6769 and L7753) — the iter28 banner explicitly acknowledges this 'fragile pattern' but doesn't fix it. New routes added between them will silently 404. Collapse to a single include at the bottom.",
+    "Three @app.on_event('startup') hooks scattered across the file (iter28 adds iter28_bootstrap at L7314). FastAPI's lifespan handler is the modern replacement and consolidates startup ordering — currently the iter28 startup runs in registration order with no guarantee relative to iter15+ DB index creation.",
+    "`_ensure_system_account` uses `'password': '$2b$12$disabled.system.account.no.login.allowed.x' * 1` — the multiplication is a no-op and the string is NOT a valid bcrypt hash. If any code path tries to verify a password for username='networkcapital' it will likely crash. Use a properly-generated bcrypt hash of a random 64-byte secret, or explicitly mark `'is_system': True` and gate all auth routes to reject `is_system` users.",
+    "`_enforce_stokvel_plus_enabled` raises 503 which is correct, but the message says 'Stokvel+ is coming soon. Creation and registration are temporarily disabled.' — the spec requires the substring 'Coming soon' (capital C). Spec compliance is satisfied by case-insensitive match, but the spec example asks for 'Stokvel+ is coming soon' (lowercase c) which matches.",
+    "`admin_make_ambassador` writes audit action='user.ambassador_set' but unset uses the same action — no way to filter granted-vs-revoked in the audit log. Use 'user.ambassador_grant' / 'user.ambassador_revoke' to mirror the flag/unflag and suspend/unsuspend patterns.",
+    "`_ambassador_summary` proxies posts/comments via `created_at >= month_start` but `created_at` is stored as an ISO string. String comparison works only if all timestamps are UTC ISO with the same precision. If any seed/migration ever inserts a naive datetime or a non-ISO string, the count will silently drop those rows. Standardize on epoch-int storage or use proper $expr/$dateFromString in the aggregation.",
+    "Admin lists (/admin/jobs|places|activities) use case-insensitive regex `$regex: q` with NO escape of user input — a malicious admin could trigger ReDoS with e.g. `q=(a+)+$`. Wrap with `re.escape(q)` before passing.",
+    "_ensure_system_account returns Optional[str] but is awaited and assigned with no None-check in admin_announce + admin_dm. If the seed ever fails (db down at startup) the subsequent insert will store `user_id: None` and the audit log will reference None."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter28_feature_flags_ambassador.py (NEW — 36 tests across 13 classes)"
+  ],
+  "success_rate": {
+    "backend": "97% (35/36 iter28 tests pass; 1 failure is a confirmed backend bug not a test-code defect). Iter27 regression: 92% (23/25 pass, 2 skip due to Stokvel+ gate default-off).",
+    "frontend": "N/A — backend-only iteration per request"
+  },
+  "test_credentials": "Dynamic users via /auth/progressive-signup → /auth/send-otp (_mock_code) → /auth/verify-otp → /auth/complete-profile. Admin: X-Admin-Password='NetworkCapital2025!' via /admin/bootstrap. Two admins (admin1 self-bootstraps, admin2 promoted by admin1 via PATCH /admin/users/{id}/role). Moderator promoted same way with role='moderator'.",
+  "seed_data_creation": "All TEST_iter28_* users + announce posts + flag/restrict/full-profile targets + ambassadors + 1 stokvel (for delete-cascade test) created fresh. Note: 2-3 broken announce posts now sit in db.posts and will keep /api/posts 500'ing until the schema is fixed AND the docs are repaired (see action item #1).",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Iter28 scope: 35/36 + 23/25 iter27 regression. Re-run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest /app/backend/tests/test_iter28_feature_flags_ambassador.py -v. Suite ~70s. Key gotchas: (1) GET /api/posts is currently 500 in this preview env because of the broken announce post(s) seeded during this run — main agent MUST fix the announce shape AND repair existing docs before /api/posts works again; (2) Stokvel+ flag defaults to OFF — stokvel creation tests must flip it first; (3) /api/users/by-username/networkcapital does NOT exist (use /admin/users-list?q=networkcapital instead); (4) /api/admin/users-list returns {users:[...],...} not a bare list; (5) /api/admin/audit-log returns a bare list (not {rows:[...]}); (6) /api/notifications returns {notifications:[...], unread_count} (iter27 fix carries over); (7) admin/feature-flags PUT is admin-only but admin/announce + admin/dm + make-ambassador all explicitly re-check `role=='admin'` to keep moderators out — require_admin_user admits both admin AND moderator.",
+  "rca_of_the_issue": "The critical bug (announce post breaks /api/posts) was discovered when test_admin_announce_creates_nc_post failed at the 'verify post in feed' step with a 500. Inspecting backend.err.log revealed `fastapi.exceptions.ResponseValidationError: 2 validation errors: ('response', 0, 'user_score') missing; ('response', 0, 'likes') list_type`. Root cause: admin_announce_as_network_capital (server.py L7379) constructs a post dict that uses iter-23+ post-list conventions (`likes: 0` as a count + `comments_count: 0` + `shares: 0`) instead of the original Post model shape (`likes: List[str]` of user_ids + nested `comments: List[Dict]`). Because /api/posts declares `response_model=List[Post]`, every read fails as soon as ANY announce doc exists. Reproduction: (a) POST /api/admin/announce {content:'x'} as admin → 200; (b) GET /api/posts as any user → 500. Mitigation: fix the insert shape in admin_announce_as_network_capital AND extend the Post Pydantic model to include the announce-specific fields (official/is_announcement/pinned/image), then run a one-off migration to repair existing rows. Without both steps, the feed stays broken."
+}

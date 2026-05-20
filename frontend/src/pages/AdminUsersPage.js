@@ -148,10 +148,12 @@ const AdminUsersPage = ({ user }) => {
                       {(u.username || u.email || '?')[0].toUpperCase()}
                     </div>
                   )}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/admin/profiles/${u.id}`)} data-testid={`admin-user-open-${u.id}`}>
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold truncate">{label}</p>
+                      {u.is_ambassador && <span className="bg-secondary text-primary text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">★ Amb</span>}
                       {u.suspended && <span className="bg-red-100 text-red-700 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">Suspended</span>}
+                      {u.flagged_for_review && <span className="bg-orange-100 text-orange-700 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">Flagged</span>}
                       {u.deactivated && <span className="bg-amber-100 text-amber-700 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">Pending purge</span>}
                     </div>
                     <p className="text-[11px] text-text-muted truncate">
