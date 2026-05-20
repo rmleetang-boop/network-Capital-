@@ -1,4 +1,24 @@
 # Network Capital — CHANGELOG
+## iter 33 (Feb 20, 2026) — Promotions extension across platform
+### Conversion rate (canonical, platform-wide)
+- **100 Network Points = R10 ZAR** (R0.10/pt). Defined as backend constants `NETWORK_POINTS_PER_ZAR=100`, `ZAR_PER_NETWORK_POINT=0.10`, helper `_points_to_zar(points)`.
+
+### New backend endpoints
+- `GET /api/users/me/promotions` — returns each active promo with the requester's per-promo stats: points, ZAR estimate, rank, streak days, today_points, breakdown (posts/shares/comments/likes/referrals/place_reviews/connections) + a top-level `user_summary` with monthly_score, network_score, total_zar_estimate, conversion label.
+- `GET /api/users/me/promotion-events?promotion_id=&limit=` — recent promotion_events for the user.
+- `GET /api/promotions/me/login-summary` — single payload for the daily login modal: user stats with estimated_zar_value, active_promotions enriched per-user, top 3 ambassadors, conversion + philosophy copy + now_sast.
+
+### New frontend
+- **PromotionsWelcomeModal** (`/app/frontend/src/components/PromotionsWelcomeModal.js`) — daily login pop-up mounted inside `<Layout>`. Hero with user's monthly/lifetime score + estimated R-value, live-now + upcoming promotion tiles with countdowns (SAST), top-3 ambassador block, expandable "Learn how it works" with 4 numbered rows (scores · accumulation · promotions · contribution philosophy), primary CTA → /promotions/me. Dismissal stores `nc_promo_modal_last_shown=YYYY-MM-DD` in localStorage → modal appears only once per day.
+- **MyPromotionsPage** (`/promotions/me`) — user-facing dashboard with hero (4 stat tiles + conversion pill), per-promo cards (schedule badge, R/pt pill, live indicator, mini-stat grid Earned/Rank/Streak/Refs, progress bar, breakdown chips), recent participation history list.
+- **ProfilePage** — Quick Access grid now has a "Promotions" tile (data-testid `quick-promotions`) that links to `/promotions/me`; shown only on own profile (existing `isOwnProfile` gate).
+- **PromotionsListPage** (admin) — conversion banner above summary tiles.
+- **AmbassadorDashboardPage** — conversion pill in the rank hero card.
+
+### Testing
+- iter33: 16/16 backend pytest pass (`/app/backend/tests/test_iter33_my_promotions.py`); 11/12 frontend flows verified through automated UI; the 1 "fail" is a Playwright force-click artifact on the existing `window.location.href` pattern in ProfilePage — works correctly in real browsers and was not introduced by this iteration.
+
+
 ## iter 29 (Feb 20, 2026) — Promotions feature complete + Resend DNS still pending
 ### Backend (`/app/backend/server.py` L7773-8265)
 - **Promotions module** (SAST timezone, M/W/F 08-12 seed promo auto-created).
