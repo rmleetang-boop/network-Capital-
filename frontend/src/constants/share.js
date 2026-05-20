@@ -7,7 +7,7 @@ const PRODUCTION_DOMAIN = 'https://networkcapitalapp.co.za';
 /**
  * Returns the canonical brand origin for share/invite links.
  * Uses the production domain unconditionally so referral / Stokvel invite links
- * never carry preview-only hostnames (e.g., emergentagent.com).
+ * never carry internal preview hostnames.
  */
 export const getShareOrigin = () => PRODUCTION_DOMAIN;
 

@@ -171,7 +171,7 @@ const OnboardingPage = ({ onComplete, onLogin }) => {
             <div className="logo-container">
               <div className="absolute inset-0 bg-gradient-to-br from-secondary/30 to-transparent blur-3xl scale-150 rounded-full" />
               <img 
-                src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/3x79ttpx_Network%20Capital_Secondary%20Logo.png" 
+                src="/brand/logo-secondary.png" 
                 alt="Network Capital" 
                 className="h-28 mx-auto mb-3 relative drop-shadow-[0_0_20px_rgba(232,168,23,0.3)]"
               />

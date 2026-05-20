@@ -110,7 +110,7 @@ const PremiumLoadingScreen = ({ minDuration = 1800, onDone }) => {
                 style={{ background: 'radial-gradient(circle, rgba(245,215,110,0.32) 0%, transparent 60%)', filter: 'blur(24px)' }}
               />
               <img
-                src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/3x79ttpx_Network%20Capital_Secondary%20Logo.png"
+                src="/brand/logo-secondary.png"
                 alt="Network Capital"
                 className="h-32 sm:h-36 w-auto relative"
                 style={{ filter: 'drop-shadow(0 0 18px rgba(245,215,110,0.45))' }}

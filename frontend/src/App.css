@@ -3,18 +3,6 @@
   background-color: #F8F9FA;
 }
 
-/* Hide Emergent platform badge (support-approved removal). Inline !important on
-   the badge beats stylesheet !important for `display`, so we use properties that
-   are NOT set inline (visibility/opacity/pointer-events). The element is also
-   removed on mount via JS in index.html for belt-and-suspenders. */
-#emergent-badge {
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-  width: 0 !important;
-  height: 0 !important;
-}
-
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }

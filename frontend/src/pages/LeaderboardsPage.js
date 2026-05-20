@@ -71,7 +71,7 @@ const LeaderboardsPage = ({ user }) => {
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 py-4">
         <div className="flex items-center gap-3">
           <img 
-            src="https://customer-assets.emergentagent.com/job_fc3cb5f0-3a8d-48cd-b3b3-8fcdd6e615e4/artifacts/q3f2xfwr_Network%20Capital_%20Logo%20Mark.png" 
+            src="/brand/logo-mark.png" 
             alt="Network Capital" 
             className="h-10 w-10 rounded-lg object-cover"
           />
