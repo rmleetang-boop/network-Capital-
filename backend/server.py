@@ -6984,7 +6984,10 @@ async def admin_bulk_delete_users(
 
     expected_token = f"DELETE {count}"
     if payload.confirm_token != expected_token:
-        raise HTTPException(status_code=400, detail=f"Confirm token must be exactly '{expected_token}'")
+        raise HTTPException(
+            status_code=400,
+            detail=f"User count changed since preview — required confirm_token is now '{expected_token}'",
+        )
 
     # Execute
     ids_cursor = db.users.find(q, {"_id": 0, "id": 1}).limit(2000)
@@ -7006,10 +7009,13 @@ async def admin_bulk_delete_users(
             }})
             deleted["users"] += 1
 
+    # Strip confirm_token before logging so it isn't leaked to long-lived audit storage
+    filter_dump = payload.model_dump()
+    filter_dump.pop("confirm_token", None)
     await AuditLog.write(
         actor_id=admin["id"], actor_username=admin.get("username") or "admin",
         action=f"user.bulk_{payload.mode}_delete", target_type="user_group", target_id="bulk",
-        reason=payload.reason, metadata={"filter": payload.model_dump(), "deleted": deleted},
+        reason=payload.reason, metadata={"filter": filter_dump, "deleted": deleted},
     )
     return {"ok": True, "deleted": deleted}
 
@@ -7098,6 +7104,9 @@ def _to_usd(amount: float, currency: str) -> float:
 
 @api_router.post("/admin/credit-grants")
 async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = Depends(require_admin_user)):
+    # Credit grants are an admin-only privilege (moderators can moderate content but not move money).
+    if admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can issue credit grants")
     if not payload.reason or len(payload.reason.strip()) < 10:
         raise HTTPException(status_code=400, detail="Reason must be at least 10 characters.")
     if payload.target_type not in ("user", "stokvel"):
@@ -7105,14 +7114,15 @@ async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = D
     amount = float(payload.amount or 0)
     if amount == 0:
         raise HTTPException(status_code=400, detail="Amount must be non-zero")
-    usd_equiv = _to_usd(abs(amount), payload.currency)
+    currency = payload.currency.upper()
+    usd_equiv = _to_usd(abs(amount), currency)
     requires_co_approve = usd_equiv > CREDIT_GRANT_HARD_CAP_USD
 
     grant_id = str(uuid.uuid4())
     record = {
         "id": grant_id,
         "amount": amount,            # signed: + credit, - deduct
-        "currency": payload.currency.upper(),
+        "currency": currency,
         "usd_equiv": round(usd_equiv * (1 if amount >= 0 else -1), 2),
         "reason": payload.reason.strip(),
         "target_type": payload.target_type,
@@ -7132,7 +7142,7 @@ async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = D
     await AuditLog.write(
         actor_id=admin["id"], actor_username=admin.get("username") or "admin",
         action="credit.grant_created", target_type=payload.target_type, target_id=payload.target_id,
-        reason=payload.reason, metadata={"grant_id": grant_id, "amount": amount, "currency": payload.currency, "usd_equiv": record["usd_equiv"]},
+        reason=payload.reason, metadata={"grant_id": grant_id, "amount": amount, "currency": currency, "usd_equiv": record["usd_equiv"]},
     )
     record.pop("_id", None)
     return record
@@ -7156,13 +7166,14 @@ async def _apply_credit_grant(grant: dict, admin: dict) -> None:
     amount_usd = grant["usd_equiv"]
     if grant["target_type"] == "user":
         await db.users.update_one({"id": grant["target_id"]}, {"$inc": {"wallet_balance": amount_usd}})
-        # In-app notification
+        # In-app notification (include `points` for forward-compat with strict NotificationModel)
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": grant["target_id"],
             "type": "admin_credit",
             "title": "Admin balance update",
             "message": f"{('+' if amount_usd >= 0 else '')}{amount_usd:.2f} USD · {grant['reason'][:80]}",
+            "points": 0,
             "read": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
