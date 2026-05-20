@@ -1,6 +1,46 @@
 # Network Capital — CHANGELOG
 
-## iter 26 (Feb 11, 2026) — Referral tracking, Admin hardening, Email triggers
+## iter 28 (Feb 12, 2026) — Full Platform Management Suite
+### Backend
+- **Network Capital system account** — auto-seeded on startup. Username `networkcapital`, role=admin, official=true. All "Post / DM as Network Capital" actions authored by it.
+- **Feature flags collection** — `GET /api/feature-flags` (public, gates UI), `PUT /api/admin/feature-flags/<key>` (admin-only). Default flag `stokvel_plus_enabled=false`.
+- **Stokvel+ Coming Soon gate** — `_enforce_stokvel_plus_enabled()` wraps `POST /api/stokvels` and `POST /api/stokvels/<id>/invite` returning 503 with "Coming Soon" when flag is off.
+- **Admin announce-as-NC** — `POST /api/admin/announce` writes a Post-model-compatible feed post authored by the system account (with `official:true`, `is_announcement:true`, `pinned` metadata for the UI badge).
+- **Admin DM-as-NC** — `POST /api/admin/dm` sends a direct message from the system account, fires in-app notification.
+- **User moderation** — `POST /api/admin/users/<id>/restrict` (toggle can_post/can_comment/can_dm), `POST /api/admin/users/<id>/flag` (mark flagged_for_review), `GET /api/admin/users/<id>/full-profile` (user + 8 content counters + recent posts). Both 404 on unknown user.
+- **Bulk admin deletes** — `DELETE /api/admin/stokvels|jobs|places|activities/<id>` with cascade.
+- **Admin listings** — `GET /api/admin/jobs|places|activities|ambassadors` with regex search.
+- **Ambassador role** — `POST /api/admin/users/<id>/make-ambassador` (admin only, grants `is_ambassador`+`ambassador_rank`).
+- **Ambassador dashboard** — `GET /api/ambassadors/me` returns rank, recruit counts, monthly target progress (6 targets — recruits / completed_profiles / host_activity / quality_posts / comments / stokvel_assist), performance metrics, and recent recruits.
+- **Public ambassador leaderboard** — `GET /api/ambassadors/leaderboard` ranks by total_contribution = Σ(monthly_score of referred users), then recruit_count.
+- **Rank thresholds**: Rising Star → Ambassador (3k pts or 5 recruits) → Senior (10k/20) → Elite (25k/50) → Network Legend (50k/100).
+
+### Frontend
+- **Clickable dashboard tiles** — every StatCard on `/admin/dashboard` opens its detail page (Users/Stokvels/Jobs/Places/Posts/Connections).
+- **AdminProfileDetailPage `/admin/profiles/:userId`** — full drilldown with 11 stat tiles + 8 action buttons (Message · Adjust balance · Restrict · Suspend · Flag · Make ambassador · Soft-delete · Hard-delete) + recent posts + active restrictions panel.
+- **AdminListPages** — Jobs/Places/Activities lists with search + per-row delete (with reason prompt).
+- **AdminAnnouncePage `/admin/announce`** — feature-flag toggle UI + compose-as-NC editor with image + pin-to-top option.
+- **AmbassadorDashboardPage `/ambassadors/me`** — gradient rank hero + 6-target progress bars + monthly performance breakdown + recent recruits.
+- **AmbassadorLeaderboardPage `/ambassadors/leaderboard`** — top-3 podium + full ranking.
+- **CreateStokvelPage** gated by `/api/feature-flags` — shows branded "Coming Soon" screen when flag is off.
+- **Profile Quick Access** — adds Ambassador tile (when user.is_ambassador) and Admin tile (when admin/moderator).
+- **AdminUsersPage rows** clickable → opens profile detail.
+
+### Testing
+- iter30: 35/36 PASS — 1 critical bug found (announce post breaking feed).
+- iter31: 12/12 retest PASS + 15/15 regression PASS. All iter28 surface verified.
+
+## iter 27 (Feb 11, 2026) — Admin Moderation + Credit Grants + Audit Log
+- See previous changelog entry.
+
+## iter 26 (Feb 11, 2026) — Referral tracking + Admin hardening + Email templates
+- See previous changelog entry.
+
+## iter 25 (Feb 10, 2026) — My Places, My Network, Job reactions, Role-based admin
+- See previous changelog entry.
+
+## Earlier — see /app/memory/PRD.md for full history.
+
 ### Backend
 - **Referral analytics**: `POST /api/referrals/track-click` (public, fired by JoinHandler on `/join/<code>` visits) · `GET /api/referrals/me` returns `{clicks_count, joined_count, joined_7d, completed_count, joined_users[], share_code, share_url}`.
 - **Admin dashboard hardening**: `/admin/dashboard/metrics` now accepts `X-Admin-Password` header as a fallback gate AND auto-promotes the JWT-authenticated user to `role: admin` when password matches (no separate bootstrap step needed).
