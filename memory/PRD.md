@@ -78,16 +78,17 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 ```
 
 ## Backlog
-- **P1** Real domain on Resend (replace `onboarding@resend.dev`).
+- **P1** Resend domain verification — add `mail.networkcapitalapp.co.za` on resend.com/domains (NOT just Domains.co.za) and verify all 4 records there before flipping `SENDER_EMAIL` back.
 - **P1** Paystack (NGN/GHS/KES/ZAR) — needs user test keys.
 - **P1** Carousel + Reels.
-- **P2** Modularise `server.py` (>6,500 lines, blocked 5 iters).
+- **P2** Modularise `server.py` (>8,200 lines, blocked 6+ iters).
 - **P2** CI lint to fail builds on duplicate `@api_router.<method>(<path>)` strings (would have caught 3 dup-handler regressions in iter25 alone).
 - **P2** Migrate base64 media to S3/R2.
-- **P2** Lifespan handler replacing `@app.on_event`.
+- **P2** Lifespan handler replacing `@app.on_event` (2 startup hooks added in iter29).
 - **P2** TTL index on `db.otps.expires_at`.
+- **P2** Compound mongo indexes on `promotion_events` (`promotion_id+created_at`, `promotion_id+user_id`).
 - **P2** Auto-dismiss / click-outside on FeatureIntroModal.
-- **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend) — covered separately.
+- **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend).
 - **P3** Capacitor wrap, Driver Pool.
 
 ## Testing

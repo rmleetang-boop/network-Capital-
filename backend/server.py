@@ -8192,7 +8192,7 @@ async def _notify_promo_participants(promo: dict, *, title: str, message: str) -
     """Push a notification to anyone who has ever participated in this promo
     OR who meets the score-threshold (so they're aware before the first event)."""
     notified_ids: set = set()
-    async for uid in db.promotion_events.distinct("user_id", {"promotion_id": promo["id"]}):
+    for uid in await db.promotion_events.distinct("user_id", {"promotion_id": promo["id"]}):
         notified_ids.add(uid)
     if int(promo.get("min_network_score") or 0) > 0:
         cur = db.users.find(

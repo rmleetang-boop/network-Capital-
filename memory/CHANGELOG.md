@@ -1,4 +1,27 @@
 # Network Capital — CHANGELOG
+## iter 29 (Feb 20, 2026) — Promotions feature complete + Resend DNS still pending
+### Backend (`/app/backend/server.py` L7773-8265)
+- **Promotions module** (SAST timezone, M/W/F 08-12 seed promo auto-created).
+- **Admin CRUD**: `POST/GET/PATCH/DELETE /api/admin/promotions[/{id}]`.
+- **Analytics**: `/summary`, `/leaderboard`, `/feed`, `/participants` per promotion + roll-up at `/api/admin/promotions-summary`.
+- **Public**: `GET /api/promotions/active` returns active promos with `is_window_active` + `minutes_until_window`.
+- **Score-event hook** at `award_points()` (line 908) writes to `promotion_events` when user's action falls inside an active window and matches `eligible_actions` + `min_network_score`.
+- **Notifier loop** runs every 60s — opens/about-to-open/about-to-close notifications via `db.notifications`.
+- **Bugfix** (testing-agent flagged): `_notify_promo_participants` was using `async for uid in db.promotion_events.distinct(...)` (invalid for Motor); fixed to `for uid in await ...distinct(...)`.
+
+### Frontend
+- **PromotionsListPage** (`/admin/promotions`) — summary tiles, list with schedule badge / R/pt pill / live-now indicator / toggle / delete, modal editor for new promotion (days picker, time-range, ZAR rate, eligible actions chips).
+- **PromotionDetailPage** (`/admin/promotions/:id`) — hero with live-window status, 3 tabs (Daily trends, Leaderboard, Live feed).
+- **Admin nav button** `admin-go-promotions` added to AdminMetricsDashboardPage.
+- **Routes** registered in `App.js` for `/admin/promotions` and `/admin/promotions/:promotionId`.
+
+### Testing
+- iter32: 19/19 backend pytest pass (`/app/backend/tests/test_iter29_promotions.py`) — admin CRUD, analytics, public endpoint, permission guards, SAST timezone offset, seed promo present, score-event integration, 5-endpoint regression smoke. Frontend source-verified.
+
+### Resend DNS (still pending)
+- User reported DNS verified on Domains.co.za, but Resend rejected `mail.networkcapitalapp.co.za` as "not verified" — the domain must be added + verified on resend.com/domains too. Reverted `SENDER_EMAIL` to `onboarding@resend.dev` to keep signups working in fallback mode.
+
+
 
 ## iter 28 (Feb 12, 2026) — Full Platform Management Suite
 ### Backend
