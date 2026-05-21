@@ -1,4 +1,36 @@
 # Network Capital — CHANGELOG
+## iter 35 (Feb 21, 2026) — Withdrawals + Ambassador toggle on users list + Promotions-only conversion
+### Conversion-rate scoping
+- Removed the `ambassador-conversion-pill` from `/ambassadors/me` (the "100 Network Points = R10 ZAR" equivalence is now strictly promotions-only context).
+- Equivalence remains on `/admin/promotions`, `/promotions/me`, and the daily login modal — where it's promotion-bound by definition.
+
+### Ambassador role assignment (discoverability fix)
+- The "Make / Revoke ambassador" button already existed on `/admin/profiles/:userId`. Added a second entrypoint on the `/admin/users` row kebab menu (`menu-ambassador-{id}`) for faster access.
+- Renamed the row kebab testid to `user-menu-toggle-{id}` for clarity.
+
+### NEW Withdrawals system
+**Backend** (`/app/backend/server.py` L8430-end + L7905-7917 promotion-balance accumulator):
+- `users.promotion_zar_balance` field auto-incremented inside `_record_promotion_event` each time an active-window promotion event credits ZAR.
+- Eligibility floor: `WITHDRAW_MIN_SCORE = 3500` (max(network_score, monthly_score)).
+- Proof of banking: PDF/JPG/PNG ≤ 5 MB (base64 data-URL), prefix-validated.
+- Endpoints:
+  - `POST /api/withdrawals` — debits the chosen source (wallet OR promotion) immediately to prevent double-spend; rejects on eligibility / proof / amount; notifies all admins via `db.notifications`.
+  - `GET /api/withdrawals/me` — list with balances, eligibility shape, processing window. Proof blobs excluded; account numbers masked.
+  - `GET /api/withdrawals/me/{id}/proof` — full data-URL for owner.
+  - `GET /api/admin/withdrawals?status_filter=&q=` — admin list with summary tiles (pending/approved/paid/rejected + outstanding ZAR).
+  - `POST /api/admin/withdrawals/{id}/{approve|reject|mark-paid|note}` — admin actions. State machine: pending → approved → paid. Reject from pending OR approved refunds the source balance. Each action appends to `admin_notes[]`.
+  - `GET /api/admin/withdrawals/{id}/proof` — admin proof viewer.
+
+**Frontend**:
+- **AdminWithdrawalsPage** (`/admin/withdrawals`) — 5-tab status filter, search, summary tiles, click-to-detail. Detail modal shows Member + Bank + Proof (PDF or image inline) + Source/Timing + admin notes history, with Approve / Reject / Mark Paid / Add Note actions.
+- **WithdrawalRequestModal** mounted on `/wallet` — 3-step flow (source + amount → KYC + proof upload → review/submit). Eligibility gate shows when score < 3500.
+- Admin nav button `admin-go-withdrawals` on `/admin/dashboard`.
+
+### Testing (iter34)
+- 25/25 backend pytest pass (`/app/backend/tests/test_iter34_withdrawals.py`) — eligibility, proof validation, pydantic, balance reservation + isolation, masking, admin gating, full state-machine workflow, reject-refund invariant, mark-paid-needs-approved invariant, notifications, promotion auto-credit, regression smoke.
+- 4/4 critical frontend structural checks pass (conversion-pill removed; withdrawal CTA mounted; admin route gated; testids verified).
+
+
 ## iter 34 (Feb 20, 2026) — Full rebrand scrub + Terms refresh
 ### Rebranding (zero "Emergent" mentions remain in /app/frontend)
 - Downloaded the 4 brand assets (logo-mark, logo-secondary, logo-main, favicon) to `/app/frontend/public/brand/*.png` and updated `brand.js` constants to use local `/brand/...` paths.

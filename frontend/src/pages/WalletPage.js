@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Wallet, Plus, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Wallet, Plus, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight, Banknote } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useCurrency } from '../context/CurrencyContext';
 import CurrencySwitcher from '../components/CurrencySwitcher';
 import PremiumPaywall from '../components/PremiumPaywall';
 import FeatureIntroModal from '../components/FeatureIntroModal';
+import WithdrawalRequestModal from '../components/WithdrawalRequestModal';
 
 const WalletPage = ({ user }) => {
   const { format, premiumUnlocked } = useCurrency();
@@ -16,6 +17,7 @@ const WalletPage = ({ user }) => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
 
   useEffect(() => {
     fetchWalletData();
@@ -144,6 +146,16 @@ const WalletPage = ({ user }) => {
             </div>
           </div>
         </motion.div>
+
+        {/* Request Withdrawal CTA */}
+        <button
+          onClick={() => setShowWithdrawModal(true)}
+          className="w-full bg-white hover:bg-gray-50 border border-secondary/40 text-primary font-bold py-3 rounded-2xl flex items-center justify-center gap-2 shadow-sm transition-all"
+          data-testid="open-withdrawal-modal">
+          <Banknote size={18} className="text-secondary" />
+          Request withdrawal
+          <span className="text-[10px] font-semibold bg-secondary/15 text-primary px-2 py-0.5 rounded-full">24–48h</span>
+        </button>
 
         {/* Important Notice */}
         <motion.div
@@ -274,6 +286,13 @@ const WalletPage = ({ user }) => {
             </div>
           </motion.div>
         </div>
+      )}
+
+      {showWithdrawModal && (
+        <WithdrawalRequestModal
+          onClose={() => setShowWithdrawModal(false)}
+          onSubmitted={() => fetchWalletData()}
+        />
       )}
     </div>
   );

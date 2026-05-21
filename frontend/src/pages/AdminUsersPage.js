@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Search, Loader2, ArrowLeft, MoreVertical, Ban, Trash2, Flame, DollarSign, FileBarChart, Filter, X, AlertTriangle } from 'lucide-react';
+import { Shield, Search, Loader2, ArrowLeft, MoreVertical, Ban, Trash2, Flame, DollarSign, FileBarChart, Filter, X, AlertTriangle, Star } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import CreditGrantModal from '../components/CreditGrantModal';
@@ -44,6 +44,17 @@ const AdminUsersPage = ({ user }) => {
       load();
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Could not update role');
+    }
+  };
+
+  const toggleAmbassador = async (uid, currentlyAmb, label) => {
+    if (!window.confirm(currentlyAmb ? `Revoke ambassador status from ${label}?` : `Promote ${label} to Ambassador?`)) return;
+    try {
+      await axiosInstance.post(`/admin/users/${uid}/make-ambassador`, { ambassador: !currentlyAmb });
+      toast.success(currentlyAmb ? 'Ambassador revoked' : 'Ambassador granted');
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not update ambassador status');
     }
   };
 
@@ -170,7 +181,7 @@ const AdminUsersPage = ({ user }) => {
                   <button
                     onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === u.id ? null : u.id); }}
                     className="p-1.5 rounded-full hover:bg-gray-100"
-                    data-testid={`admin-user-actions-${u.id}`}>
+                    data-testid={`user-menu-toggle-${u.id}`}>
                     <MoreVertical size={16} />
                   </button>
                   {openMenu === u.id && (
@@ -180,6 +191,9 @@ const AdminUsersPage = ({ user }) => {
                       </button>
                       <button onClick={() => { setOpenMenu(null); suspendUser(u.id, u.suspended); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 inline-flex items-center gap-2" data-testid={`menu-suspend-${u.id}`}>
                         <Ban size={12} /> {u.suspended ? 'Unsuspend' : 'Suspend'}
+                      </button>
+                      <button onClick={() => { setOpenMenu(null); toggleAmbassador(u.id, u.is_ambassador, label); }} className="w-full text-left px-3 py-2 text-xs hover:bg-yellow-50 text-yellow-700 inline-flex items-center gap-2" data-testid={`menu-ambassador-${u.id}`}>
+                        <Star size={12} /> {u.is_ambassador ? 'Revoke ambassador' : 'Make ambassador'}
                       </button>
                       <div className="border-t border-gray-50 my-1" />
                       <button onClick={() => { setOpenMenu(null); deleteUser(u.id, label, 'soft'); }} className="w-full text-left px-3 py-2 text-xs hover:bg-amber-50 text-amber-700 inline-flex items-center gap-2" data-testid={`menu-soft-${u.id}`}>

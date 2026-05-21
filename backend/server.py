@@ -7879,6 +7879,12 @@ async def _record_promotion_event(*, user_id: str, action: str, points: int) -> 
             "created_at_sast": sast_now.isoformat(),
             "day_key": sast_now.strftime("%Y-%m-%d"),
         })
+        # Credit user's promotion ZAR balance ledger (separate from wallet)
+        if zar_estimate > 0:
+            await db.users.update_one(
+                {"id": user_id},
+                {"$inc": {"promotion_zar_balance": zar_estimate}},
+            )
 
 
 # ---- ADMIN: Promotion CRUD ------------------------------------------------
@@ -8421,6 +8427,284 @@ async def iter29_seed_mwf_promotion():
     }
     await db.promotions.insert_one(seed)
     logger.info(f"[SEED] Created M/W/F SAST promotion id={seed['id']}")
+
+
+# ============================================================================
+# ITER 34 — WITHDRAWALS (Wallet + Promotion ZAR balance, KYC-style request flow)
+# ============================================================================
+WITHDRAW_MIN_SCORE = 3500
+WITHDRAW_PROOF_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+WITHDRAW_PROOF_ALLOWED_PREFIXES = ("data:application/pdf", "data:image/png", "data:image/jpeg", "data:image/jpg")
+
+
+class WithdrawalRequestIn(BaseModel):
+    source: str = Field(pattern="^(wallet|promotion)$")
+    amount_zar: float = Field(gt=0)
+    full_name: str = Field(min_length=2, max_length=120)
+    bank_name: str = Field(min_length=2, max_length=120)
+    account_number: str = Field(min_length=4, max_length=40)
+    branch_code: Optional[str] = ""
+    swift_code: Optional[str] = ""
+    address: str = Field(min_length=4, max_length=400)
+    proof_data_url: str = Field(min_length=20)   # base64 data-URL, pdf/jpg/png ≤5MB
+
+
+def _mask_account(num: str) -> str:
+    n = (num or "").replace(" ", "")
+    if len(n) <= 4:
+        return "•" * len(n)
+    return "•" * (len(n) - 4) + n[-4:]
+
+
+@api_router.post("/withdrawals")
+async def create_withdrawal(payload: WithdrawalRequestIn, current_user: dict = Depends(get_current_user)):
+    # Eligibility — network score floor
+    net_score = int(current_user.get("network_score") or 0)
+    monthly = int(current_user.get("monthly_score") or 0)
+    if max(net_score, monthly) < WITHDRAW_MIN_SCORE:
+        raise HTTPException(status_code=403, detail=f"Network Score of {WITHDRAW_MIN_SCORE} or higher required to request a withdrawal.")
+
+    # Validate proof file size + mime via base64 prefix
+    proof = payload.proof_data_url
+    if not proof.startswith(WITHDRAW_PROOF_ALLOWED_PREFIXES):
+        raise HTTPException(status_code=400, detail="Proof of banking must be PDF, JPG, or PNG.")
+    # Approximate decoded size — base64 ~ 4/3 of raw, after stripping the prefix
+    try:
+        _, b64 = proof.split(",", 1)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Proof of banking is invalid.")
+    if len(b64) * 3 // 4 > WITHDRAW_PROOF_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Proof of banking must be 5 MB or smaller.")
+
+    # Check source balance
+    if payload.source == "wallet":
+        available = float(current_user.get("wallet_balance") or 0)
+    else:
+        available = float(current_user.get("promotion_zar_balance") or 0)
+    if payload.amount_zar > available + 1e-9:
+        raise HTTPException(status_code=400, detail=f"Requested R{payload.amount_zar:.2f} exceeds available R{available:.2f} on the {payload.source} balance.")
+
+    # Reserve funds — deduct immediately so the user can't double-spend a pending request
+    bal_field = "wallet_balance" if payload.source == "wallet" else "promotion_zar_balance"
+    await db.users.update_one({"id": current_user["id"]}, {"$inc": {bal_field: -payload.amount_zar}})
+
+    wid = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": wid,
+        "user_id": current_user["id"],
+        "username": current_user.get("username"),
+        "user_email": current_user.get("email"),
+        "source": payload.source,                  # wallet | promotion
+        "amount_zar": round(float(payload.amount_zar), 2),
+        "full_name": payload.full_name.strip(),
+        "bank_name": payload.bank_name.strip(),
+        "account_number": payload.account_number.strip(),
+        "branch_code": (payload.branch_code or "").strip(),
+        "swift_code": (payload.swift_code or "").strip(),
+        "address": payload.address.strip(),
+        "proof_data_url": proof,
+        "status": "pending",
+        "admin_notes": [],
+        "created_at": now,
+        "updated_at": now,
+        "approved_at": None,
+        "rejected_at": None,
+        "paid_at": None,
+        "network_score_at_request": net_score,
+        "monthly_score_at_request": monthly,
+    }
+    await db.withdrawals.insert_one(doc)
+
+    # Notify all admins via in-app notification
+    admin_ids = [u["id"] async for u in db.users.find({"role": {"$in": ["admin", "moderator"]}}, {"_id": 0, "id": 1})]
+    if admin_ids:
+        await db.notifications.insert_many([{
+            "id": str(uuid.uuid4()),
+            "user_id": uid,
+            "type": "withdrawal",
+            "title": "New withdrawal request",
+            "message": f"@{current_user.get('username') or 'user'} requested R{payload.amount_zar:.2f} from {payload.source}.",
+            "withdrawal_id": wid,
+            "read": False,
+            "created_at": now,
+        } for uid in admin_ids])
+
+    return {
+        "id": wid,
+        "status": "pending",
+        "amount_zar": doc["amount_zar"],
+        "source": payload.source,
+        "estimated_processing": "24–48 hours",
+        "created_at": now,
+    }
+
+
+@api_router.get("/withdrawals/me")
+async def my_withdrawals(current_user: dict = Depends(get_current_user)):
+    rows = await db.withdrawals.find(
+        {"user_id": current_user["id"]},
+        {"_id": 0, "proof_data_url": 0},   # hide the heavy proof blob from list
+    ).sort("created_at", -1).limit(100).to_list(length=None)
+    for r in rows:
+        if r.get("account_number"):
+            r["account_number_masked"] = _mask_account(r["account_number"])
+            del r["account_number"]
+    return {
+        "withdrawals": rows,
+        "balances": {
+            "wallet_zar": float(current_user.get("wallet_balance") or 0),
+            "promotion_zar": float(current_user.get("promotion_zar_balance") or 0),
+        },
+        "eligibility": {
+            "min_score_required": WITHDRAW_MIN_SCORE,
+            "your_network_score": int(current_user.get("network_score") or 0),
+            "your_monthly_score": int(current_user.get("monthly_score") or 0),
+            "eligible": max(int(current_user.get("network_score") or 0), int(current_user.get("monthly_score") or 0)) >= WITHDRAW_MIN_SCORE,
+        },
+        "processing_window_hours": "24-48",
+    }
+
+
+@api_router.get("/withdrawals/me/{withdrawal_id}/proof")
+async def my_withdrawal_proof(withdrawal_id: str, current_user: dict = Depends(get_current_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id, "user_id": current_user["id"]}, {"_id": 0, "proof_data_url": 1})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    return {"proof_data_url": w.get("proof_data_url", "")}
+
+
+# ---- ADMIN: review withdrawals --------------------------------------------
+@api_router.get("/admin/withdrawals")
+async def admin_list_withdrawals(status_filter: Optional[str] = None, q: Optional[str] = None, admin: dict = Depends(require_admin_user)):
+    query: Dict[str, Any] = {}
+    if status_filter and status_filter != "all":
+        query["status"] = status_filter
+    if q and q.strip():
+        rx = {"$regex": q.strip(), "$options": "i"}
+        query["$or"] = [{"username": rx}, {"user_email": rx}, {"full_name": rx}, {"bank_name": rx}]
+    rows = await db.withdrawals.find(query, {"_id": 0, "proof_data_url": 0}).sort("created_at", -1).limit(500).to_list(length=None)
+    pending = await db.withdrawals.count_documents({"status": "pending"})
+    approved = await db.withdrawals.count_documents({"status": "approved"})
+    paid = await db.withdrawals.count_documents({"status": "paid"})
+    rejected = await db.withdrawals.count_documents({"status": "rejected"})
+    total_amount = 0.0
+    async for r in db.withdrawals.find({"status": {"$in": ["pending", "approved"]}}, {"_id": 0, "amount_zar": 1}):
+        total_amount += float(r.get("amount_zar") or 0)
+    return {
+        "withdrawals": rows,
+        "summary": {
+            "pending": pending, "approved": approved, "paid": paid, "rejected": rejected,
+            "pending_plus_approved_zar": round(total_amount, 2),
+        },
+    }
+
+
+@api_router.get("/admin/withdrawals/{withdrawal_id}")
+async def admin_get_withdrawal(withdrawal_id: str, admin: dict = Depends(require_admin_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id}, {"_id": 0})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    return w
+
+
+class WithdrawalActionIn(BaseModel):
+    note: Optional[str] = ""
+
+
+async def _push_withdrawal_note(wid: str, admin: dict, action: str, note: str) -> None:
+    await db.withdrawals.update_one(
+        {"id": wid},
+        {"$push": {"admin_notes": {
+            "by": admin.get("username") or admin.get("id"),
+            "action": action,
+            "note": note or "",
+            "at": datetime.now(timezone.utc).isoformat(),
+        }}},
+    )
+
+
+async def _notify_user_withdrawal(user_id: str, title: str, message: str, withdrawal_id: str) -> None:
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "type": "withdrawal",
+        "title": title,
+        "message": message,
+        "withdrawal_id": withdrawal_id,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@api_router.post("/admin/withdrawals/{withdrawal_id}/approve")
+async def admin_approve_withdrawal(withdrawal_id: str, payload: WithdrawalActionIn, admin: dict = Depends(require_admin_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if w["status"] not in ("pending",):
+        raise HTTPException(status_code=400, detail=f"Cannot approve a withdrawal in '{w['status']}' state")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.withdrawals.update_one({"id": withdrawal_id}, {"$set": {"status": "approved", "approved_at": now, "updated_at": now}})
+    await _push_withdrawal_note(withdrawal_id, admin, "approve", payload.note or "")
+    await _notify_user_withdrawal(w["user_id"], "Withdrawal approved", f"Your R{w['amount_zar']:.2f} withdrawal request was approved. Funds typically arrive within 24-48 hours.", withdrawal_id)
+    return {"ok": True, "status": "approved"}
+
+
+@api_router.post("/admin/withdrawals/{withdrawal_id}/reject")
+async def admin_reject_withdrawal(withdrawal_id: str, payload: WithdrawalActionIn, admin: dict = Depends(require_admin_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if w["status"] in ("paid", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Cannot reject a withdrawal in '{w['status']}' state")
+    # Refund — return the reserved amount to the user's source balance
+    bal_field = "wallet_balance" if w["source"] == "wallet" else "promotion_zar_balance"
+    await db.users.update_one({"id": w["user_id"]}, {"$inc": {bal_field: float(w["amount_zar"])}})
+    now = datetime.now(timezone.utc).isoformat()
+    await db.withdrawals.update_one({"id": withdrawal_id}, {"$set": {"status": "rejected", "rejected_at": now, "updated_at": now}})
+    await _push_withdrawal_note(withdrawal_id, admin, "reject", payload.note or "")
+    reason = (payload.note or "").strip()
+    msg = f"Your R{w['amount_zar']:.2f} withdrawal request was rejected and funds returned to your {w['source']} balance."
+    if reason:
+        msg += f" Reason: {reason}"
+    await _notify_user_withdrawal(w["user_id"], "Withdrawal rejected", msg, withdrawal_id)
+    return {"ok": True, "status": "rejected"}
+
+
+@api_router.post("/admin/withdrawals/{withdrawal_id}/mark-paid")
+async def admin_mark_paid(withdrawal_id: str, payload: WithdrawalActionIn, admin: dict = Depends(require_admin_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    if w["status"] != "approved":
+        raise HTTPException(status_code=400, detail="Only approved withdrawals can be marked as paid")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.withdrawals.update_one({"id": withdrawal_id}, {"$set": {"status": "paid", "paid_at": now, "updated_at": now}})
+    await _push_withdrawal_note(withdrawal_id, admin, "paid", payload.note or "")
+    await _notify_user_withdrawal(w["user_id"], "Withdrawal paid", f"Your R{w['amount_zar']:.2f} has been sent to your bank account.", withdrawal_id)
+    return {"ok": True, "status": "paid"}
+
+
+class AdminNoteIn(BaseModel):
+    note: str = Field(min_length=1, max_length=1000)
+
+
+@api_router.post("/admin/withdrawals/{withdrawal_id}/note")
+async def admin_add_withdrawal_note(withdrawal_id: str, payload: AdminNoteIn, admin: dict = Depends(require_admin_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id}, {"_id": 0, "id": 1})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    await _push_withdrawal_note(withdrawal_id, admin, "note", payload.note)
+    return {"ok": True}
+
+
+@api_router.get("/admin/withdrawals/{withdrawal_id}/proof")
+async def admin_get_withdrawal_proof(withdrawal_id: str, admin: dict = Depends(require_admin_user)):
+    w = await db.withdrawals.find_one({"id": withdrawal_id}, {"_id": 0, "proof_data_url": 1})
+    if not w:
+        raise HTTPException(status_code=404, detail="Withdrawal not found")
+    return {"proof_data_url": w.get("proof_data_url", "")}
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

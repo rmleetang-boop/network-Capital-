@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy, Sparkles } from 'lucide-react';
+import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy } from 'lucide-react';
 import { axiosInstance } from '../App';
 
 const AmbassadorDashboardPage = ({ user }) => {
@@ -62,9 +62,6 @@ const AmbassadorDashboardPage = ({ user }) => {
               <p className="text-2xl font-heading font-bold text-secondary">{data.total_contribution}</p>
               <p className="text-[10px] uppercase tracking-wider opacity-80">Score contrib.</p>
             </div>
-          </div>
-          <div className="mt-3 bg-white/10 rounded-full px-3 py-1.5 inline-flex items-center gap-2 text-[10px] font-semibold" data-testid="ambassador-conversion-pill">
-            <Sparkles size={10} className="text-secondary" /> 100 Network Points = R10 ZAR
           </div>
         </div>
 
