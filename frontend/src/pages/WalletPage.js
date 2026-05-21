@@ -24,18 +24,31 @@ const WalletPage = ({ user }) => {
   }, []);
 
   const fetchWalletData = async () => {
+    setLoading(true);
+    // Fetch independently so a failure in /wallet/transactions doesn't blank the page.
+    let walletOk = false;
     try {
-      const [walletRes, transactionsRes] = await Promise.all([
-        axiosInstance.get('/wallet'),
-        axiosInstance.get('/wallet/transactions'),
-      ]);
-      setWallet(walletRes.data);
-      setTransactions(transactionsRes.data);
+      const r = await axiosInstance.get('/wallet');
+      setWallet(r.data);
+      walletOk = true;
     } catch (error) {
-      toast.error('Failed to load wallet data');
-    } finally {
-      setLoading(false);
+      // Network/auth blip — leave wallet null so the error UI renders with Retry.
+      // Console-log so it shows up in production crash diagnostics without a noisy toast.
+      console.error('[wallet] fetch failed:', error?.response?.status, error?.response?.data);
     }
+    try {
+      const r = await axiosInstance.get('/wallet/transactions');
+      setTransactions(Array.isArray(r.data) ? r.data : []);
+    } catch (error) {
+      // Transactions are optional — fall back to empty list so the page still renders.
+      setTransactions([]);
+      console.error('[wallet] transactions fetch failed:', error?.response?.status);
+    }
+    if (!walletOk) {
+      // Only toast the user if BOTH attempts gave nothing they can act on.
+      toast.error('Failed to load wallet data');
+    }
+    setLoading(false);
   };
 
   const handleDeposit = async () => {

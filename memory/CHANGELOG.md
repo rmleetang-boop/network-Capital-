@@ -1,4 +1,22 @@
 # Network Capital — CHANGELOG
+## iter 37 (Feb 21, 2026) — Wallet production failure: real RCA + 3 layers of hardening
+### Root cause (the user redeployed iter36's defensive guard, which exposed the underlying issue)
+- `Transaction` Pydantic model had 7 strictly-required fields. The production DB has legacy transaction documents missing one or more of (`type`, `description`, `status`, `created_at`). The endpoint was declared `response_model=List[Transaction]` so FastAPI validated EVERY row — one missing field → 500 → `Promise.all` in WalletPage threw → wallet stayed `null` → my iter36 defensive UI showed "Could not load your wallet" (which is what the user just screenshotted on production).
+- The wallet feature WAS broken on production all along (since some legacy migration), but iter36's defensive guard transformed a blank-screen crash into a visible error state — so the symptom looked the same to the user.
+
+### Three layers of fix
+1. **Backend `/api/wallet`** — wrapped mongo lookup in try/except + `_num()` coercion. Endpoint can no longer 500 even if user record is missing or has odd field types.
+2. **Backend `/api/wallet/transactions`** — dropped `response_model=List[Transaction]`, made Transaction fields Optional with defaults, and the endpoint now coerces each row through Transaction() in a per-row try/except and silently drops malformed rows. Endpoint always returns a 200 list (possibly partial).
+3. **Frontend `WalletPage.fetchWalletData`** — split `Promise.all([wallet, transactions])` into two independent try/catch blocks. A failure in either endpoint no longer blanks the wallet. If wallet succeeds and transactions fail, the page still renders with an empty transactions list.
+
+### Tests
+- iter34 withdrawals: 25/25 pytest pass post-fix (function `create_withdrawal` for stokvels was being shadowed by the new module's `create_withdrawal` for user withdrawals — renamed the new one to `create_user_withdrawal`).
+- Smoke: inserted a corrupted transaction row (missing `status`), confirmed `/wallet/transactions` returns 200 with the row coerced to defaults (`status: 'completed'`, `description: ''`).
+
+### Refund handling
+- User asked for a credit refund for the wallet feature being broken in production. Routed to support_agent per platform policy. Support directed user to email support@emergent.sh with deployment URL + screenshots + job id.
+
+
 ## iter 36 (Feb 21, 2026) — Wallet crash fix + Ambassador as 4th role + premium-gate-free withdrawals
 ### Wallet blank-screen production bug — FIXED
 - **Root cause**: `WalletPage` rendered `{format(wallet.balance)}` after `setLoading(false)`, but if the `/api/wallet` request failed (network blip, expired token, race during deploy), `wallet` stayed `null`. Accessing `wallet.balance` threw and unmounted the entire React tree → fully blank screen with no header/nav/footer.

@@ -249,11 +249,11 @@ class WalletBalance(BaseModel):
 class Transaction(BaseModel):
     id: str
     user_id: str
-    type: str
-    amount: float
-    description: str
-    status: str
-    created_at: str
+    type: Optional[str] = "unknown"
+    amount: Optional[float] = 0.0
+    description: Optional[str] = ""
+    status: Optional[str] = "completed"
+    created_at: Optional[str] = ""
 
 class Stokvel(BaseModel):
     id: str
@@ -3109,14 +3109,26 @@ async def get_dashboard(current_user: dict = Depends(get_current_user)):
     }
 
 # Wallet endpoints
-@api_router.get("/wallet", response_model=WalletBalance)
+@api_router.get("/wallet")
 async def get_wallet(current_user: dict = Depends(get_current_user)):
-    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    """Return the user's wallet snapshot. Hardened to NEVER 500 — coerces every field
+    to a number and falls back to zeros if the user record can't be loaded for any
+    reason. This endpoint blanking is what produced the iter36 production white-screen."""
+    try:
+        user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0}) or {}
+    except Exception as e:
+        logger.error(f"[wallet] mongo lookup failed for {current_user.get('id')}: {e}")
+        user = {}
+    def _num(v):
+        try:
+            return float(v or 0)
+        except Exception:
+            return 0.0
     return {
-        "balance": user.get("wallet_balance", 0.0),
-        "total_earned": user.get("total_earned", 0.0),
-        "total_spent": user.get("total_spent", 0.0),
-        "pending": 0.0
+        "balance": _num(user.get("wallet_balance")),
+        "total_earned": _num(user.get("total_earned")),
+        "total_spent": _num(user.get("total_spent")),
+        "pending": 0.0,
     }
 
 @api_router.post("/wallet/deposit")
@@ -3150,13 +3162,25 @@ async def deposit_funds(request: DepositRequest, current_user: dict = Depends(ge
     
     return {"message": "Deposit successful", "new_balance": (current_user.get("wallet_balance", 0) + request.amount)}
 
-@api_router.get("/wallet/transactions", response_model=List[Transaction])
+@api_router.get("/wallet/transactions")
 async def get_transactions(current_user: dict = Depends(get_current_user)):
-    transactions = await db.transactions.find(
+    """Return the user's recent wallet transactions.
+
+    Hardened against legacy/malformed documents: any row that can't be coerced into the
+    Transaction model is silently dropped rather than 500-ing the whole endpoint, which
+    used to blank the entire WalletPage on production.
+    """
+    rows = await db.transactions.find(
         {"user_id": current_user["id"]},
-        {"_id": 0}
+        {"_id": 0},
     ).sort("created_at", -1).limit(50).to_list(50)
-    return transactions
+    out = []
+    for r in rows:
+        try:
+            out.append(Transaction(**r).model_dump())
+        except Exception:
+            continue
+    return out
 
 async def deduct_wallet_balance(user_id: str, amount: float, description: str) -> bool:
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
@@ -8471,7 +8495,7 @@ def _mask_account(num: str) -> str:
 
 
 @api_router.post("/withdrawals")
-async def create_withdrawal(payload: WithdrawalRequestIn, current_user: dict = Depends(get_current_user)):
+async def create_user_withdrawal(payload: WithdrawalRequestIn, current_user: dict = Depends(get_current_user)):
     # Eligibility — network score floor
     net_score = int(current_user.get("network_score") or 0)
     monthly = int(current_user.get("monthly_score") or 0)
