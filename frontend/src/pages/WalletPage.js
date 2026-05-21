@@ -68,6 +68,22 @@ const WalletPage = ({ user }) => {
     );
   }
 
+  // Defensive: API errors should NOT crash the page. Render a friendly retry state.
+  if (!wallet) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-8 text-center" data-testid="wallet-error-state">
+        <Wallet size={32} className="text-text-muted mb-2" />
+        <p className="font-bold text-text-primary mb-1">Could not load your wallet</p>
+        <p className="text-sm text-text-muted mb-4">Please check your connection and try again.</p>
+        <button onClick={fetchWalletData} className="bg-primary text-white font-bold px-5 py-2.5 rounded-full text-sm" data-testid="wallet-retry">Retry</button>
+      </div>
+    );
+  }
+
+  const balance = Number(wallet?.balance ?? 0);
+  const totalEarned = Number(wallet?.total_earned ?? 0);
+  const totalSpent = Number(wallet?.total_spent ?? 0);
+
   return (
     <div className="min-h-screen bg-background-DEFAULT">
       <FeatureIntroModal
@@ -126,7 +142,7 @@ const WalletPage = ({ user }) => {
             <p className="text-white/80 text-sm">Available Balance</p>
           </div>
           <p className="text-5xl font-bold tracking-tighter mb-6" data-testid="wallet-balance">
-            {format(wallet.balance)}
+            {format(balance)}
           </p>
 
           <div className="grid grid-cols-2 gap-4">
@@ -135,14 +151,14 @@ const WalletPage = ({ user }) => {
                 <TrendingUp size={16} />
                 <p className="text-xs text-white/80">Total Earned</p>
               </div>
-              <p className="text-xl font-bold">{format(wallet.total_earned)}</p>
+              <p className="text-xl font-bold">{format(totalEarned)}</p>
             </div>
             <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4">
               <div className="flex items-center gap-2 mb-1">
                 <TrendingDown size={16} />
                 <p className="text-xs text-white/80">Total Spent</p>
               </div>
-              <p className="text-xl font-bold">{format(wallet.total_spent)}</p>
+              <p className="text-xl font-bold">{format(totalSpent)}</p>
             </div>
           </div>
         </motion.div>

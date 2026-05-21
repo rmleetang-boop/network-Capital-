@@ -137,6 +137,11 @@ class User(BaseModel):
     founder_multiplier_until: Optional[str] = None
     # Role-based admin (iter 25)
     role: Optional[str] = "user"  # "user" | "moderator" | "admin"
+    # Ambassador (iter 28 — flag-driven, exposed via role dropdown as 'ambassador' option in iter 35)
+    is_ambassador: Optional[bool] = False
+    ambassador_rank: Optional[str] = None
+    # Withdrawal feature (iter 34)
+    promotion_zar_balance: Optional[float] = 0.0
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
@@ -6111,13 +6116,22 @@ async def admin_set_user_role(
     # Only admin (not moderator) can change roles.
     if admin.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Only admins can change user roles")
-    if payload.role not in ("admin", "moderator", "user"):
+    if payload.role not in ("admin", "moderator", "user", "ambassador"):
         raise HTTPException(status_code=400, detail="Invalid role")
     target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "role": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role}})
-    return {"ok": True, "user_id": user_id, "role": payload.role}
+    # "ambassador" is a flag-driven pseudo-role: store role='user' but flip is_ambassador on.
+    # Any non-ambassador role flips is_ambassador OFF so the badge doesn't linger.
+    if payload.role == "ambassador":
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"role": "user", "is_ambassador": True,
+                      "ambassador_rank": target.get("ambassador_rank") or "Rising Star"}},
+        )
+        return {"ok": True, "user_id": user_id, "role": "user", "is_ambassador": True}
+    await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role, "is_ambassador": False}})
+    return {"ok": True, "user_id": user_id, "role": payload.role, "is_ambassador": False}
 
 
 @api_router.get("/admin/users-list")

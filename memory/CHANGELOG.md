@@ -1,4 +1,18 @@
 # Network Capital — CHANGELOG
+## iter 36 (Feb 21, 2026) — Wallet crash fix + Ambassador as 4th role + premium-gate-free withdrawals
+### Wallet blank-screen production bug — FIXED
+- **Root cause**: `WalletPage` rendered `{format(wallet.balance)}` after `setLoading(false)`, but if the `/api/wallet` request failed (network blip, expired token, race during deploy), `wallet` stayed `null`. Accessing `wallet.balance` threw and unmounted the entire React tree → fully blank screen with no header/nav/footer.
+- **Fix**: Added defensive null-guard rendering a "Could not load your wallet" retry state if `wallet` is null after loading; also extracted `balance`/`totalEarned`/`totalSpent` into local vars with `Number(… ?? 0)` coercion so the page never crashes.
+
+### Ambassador as 4th role on the admin Users dropdown
+- Backend: `PATCH /api/admin/users/{id}/role` now accepts `"ambassador"` in addition to `"user"|"moderator"|"admin"`. Choosing `ambassador` stores `role="user", is_ambassador=true, ambassador_rank="Rising Star"`. Any non-ambassador role flips `is_ambassador=false` so the badge doesn't linger.
+- Frontend: `AdminUsersPage` role dropdown now exposes 4 options (User / Ambassador / Moderator / Admin). The dropdown value derives from `u.is_ambassador ? 'ambassador' : u.role` so the correct option is reflected.
+- `User` pydantic model now exposes `is_ambassador`, `ambassador_rank`, and `promotion_zar_balance` on `/api/users/me` (previously omitted, meaning the frontend couldn't see the flag).
+
+### Withdrawals: no premium gate (confirmation)
+- Confirmed: the WithdrawalRequestModal had no premium gate to begin with — only the 3500 score gate. The PremiumPaywall block on the WalletPage advertises premium for ADDING funds (deposits), unrelated to withdrawals.
+
+
 ## iter 35 (Feb 21, 2026) — Withdrawals + Ambassador toggle on users list + Promotions-only conversion
 ### Conversion-rate scoping
 - Removed the `ambassador-conversion-pill` from `/ambassadors/me` (the "100 Network Points = R10 ZAR" equivalence is now strictly promotions-only context).

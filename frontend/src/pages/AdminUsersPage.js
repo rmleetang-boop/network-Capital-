@@ -5,7 +5,7 @@ import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import CreditGrantModal from '../components/CreditGrantModal';
 
-const ROLE_OPTIONS = ['user', 'moderator', 'admin'];
+const ROLE_OPTIONS = ['user', 'ambassador', 'moderator', 'admin'];
 
 const AdminUsersPage = ({ user }) => {
   const navigate = useNavigate();
@@ -172,7 +172,7 @@ const AdminUsersPage = ({ user }) => {
                     </p>
                   </div>
                   <select
-                    value={u.role || 'user'}
+                    value={u.is_ambassador ? 'ambassador' : (u.role || 'user')}
                     onChange={(e) => setRole(u.id, e.target.value)}
                     className="text-xs font-semibold px-2 py-1.5 border border-gray-200 rounded-full bg-white outline-none focus:border-primary"
                     data-testid={`admin-user-role-${u.id}`}>
