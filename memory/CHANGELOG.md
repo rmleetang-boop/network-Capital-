@@ -1,4 +1,67 @@
 # Network Capital — CHANGELOG
+## iter 39 (Feb 23, 2026) — Max-possible upload size, in-UI size hints, specific error messages, Chrome toast fix
+### Toast styling rewrite (`/app/frontend/src/components/ui/sonner.jsx`)
+- Chrome rendered toasts as near-invisible light-grey-on-white because the previous shadcn token classes (`bg-background`/`text-foreground`) had no <ThemeProvider> mounted.
+- Rewrote Toaster to use explicit Tailwind colours (`bg-white`, `text-slate-900`, `border-gray-200`) + `richColors` + `closeButton` + per-variant tones (error=red, success=emerald, warning=amber, info=blue). Removed the `next-themes` dependency surface entirely. Now legible across all browsers + obvious by variant colour.
+
+### Media size limits — pushed to the platform maximum
+- MongoDB's 16MB BSON document hard limit + ~1.37x base64 inflation ⇒ practical raw cap is **11 MB per file**.
+- Backend `MAX_MEDIA_BYTES` 10 → 11 MB. Story cap 14 MB base64 → 15 MB base64. `/posts` image+video guards updated with friendlier error text.
+- Frontend caps:
+  - FeedPage post image: 8 → 11 MB
+  - FeedPage post video: 10 → 11 MB
+  - ProfilePage photo/video: 8/10 → 11/11 MB
+  - StoriesRibbon: 8 → 11 MB
+
+### Pre-upload size hints in the Create-Post UI
+- "Add Image" tile now shows `"JPG/PNG/GIF · max 11 MB"` underneath.
+- "Add Video" tile now shows `"MP4/MOV · max 11 MB"` underneath.
+- After successful attachment, a green strip (`data-testid="upload-size-hint"`) shows the **filename + actual size** so users know exactly what they're uploading.
+
+### Specific, actionable error messages
+- Upload validations now state the file's actual MB + why it failed + what to do (`"Image is 14.3 MB — over the 11 MB limit. Please compress it or pick a smaller picture."`).
+- MIME-type guard: when a non-image file is selected for the image picker, the toast names the file's actual MIME and the allowed formats.
+- FileReader errors (corrupt files) get their own toast.
+- Post-create submit now maps HTTP status codes to clear messages:
+  - 413 → "Your post exceeds the 11 MB upload limit. Please compress your media and try again."
+  - 400 → "Your post contains restricted language. Please rephrase and try again."
+  - 401/403 → "Your session expired. Please log in again to continue posting."
+  - 5xx → "Our servers had a hiccup. Please try again in a moment."
+  - Network Error → "No internet connection. Please check your network and try again."
+- Falls back to the backend's actual `detail` string when present.
+
+### Notes
+- Anything larger than 11MB will need the S3/R2 cloud-storage migration (P1 backlog item) — base64-in-Mongo can't grow further without hitting BSON's hard limit.
+
+
+## iter 38 (Feb 21, 2026) — Media upload size limits bumped 3MB → 8MB image / 10MB video
+### Why 10MB ceiling
+- Base64 inflates ~1.37x. MongoDB BSON document hard limit is 16MB. So 10MB raw → ~14MB base64 → safely fits with room for post text, hashtags, mentions, etc.
+- Anything bigger needs the S3/R2 migration (P2 backlog).
+
+### Frontend caps raised (raw file size before base64)
+- `FeedPage` post image: 3MB → 8MB
+- `FeedPage` post video: 3MB → 10MB
+- `ProfilePage` profile photo: 3MB → 8MB
+- `ProfilePage` profile video: 3MB → 10MB
+- `StoriesRibbon` story image/video: 3MB → 8MB
+- Kept DMs (`ChatThread`) at 3MB intentionally — fast peer-to-peer messaging UX.
+- Kept Places/Activities/Admin announcements at 3MB — secondary surfaces.
+
+### Backend caps raised
+- `MAX_MEDIA_BYTES` constant: 3MB → 10MB; the `* 1.4` base64 inflation factor stays the same.
+- `_validate_media_size` (profile uploads) error now reads "max 10MB".
+- `/api/stories` cap: 4MB base64 → 14MB base64 (10MB raw).
+- NEW: explicit size guards on `/api/posts` for image AND video fields, returning 413 with clear messages if the client somehow bypasses the frontend check.
+
+### Untouched (still 3MB) — by design
+- DM image/audio
+- Place photos
+- Activity images
+- Admin announcement images
+- Withdrawal proof of banking (already at 5MB)
+
+
 ## iter 37 (Feb 21, 2026) — Wallet production failure: real RCA + 3 layers of hardening
 ### Root cause (the user redeployed iter36's defensive guard, which exposed the underlying issue)
 - `Transaction` Pydantic model had 7 strictly-required fields. The production DB has legacy transaction documents missing one or more of (`type`, `description`, `status`, `created_at`). The endpoint was declared `response_model=List[Transaction]` so FastAPI validated EVERY row — one missing field → 500 → `Promise.all` in WalletPage threw → wallet stayed `null` → my iter36 defensive UI showed "Could not load your wallet" (which is what the user just screenshotted on production).

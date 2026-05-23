@@ -20,7 +20,7 @@ const StoriesRibbon = ({ currentUser, onOpenViewer }) => {
 
   const handleFile = async (file) => {
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { toast.error('Max 3MB'); return; }
+    if (file.size > 11 * 1024 * 1024) { toast.error(`File is ${(file.size/1024/1024).toFixed(1)} MB — over the 11 MB limit. Please compress and try again.`); return; }
     const isVideo = file.type.startsWith('video/');
     setUploading(true);
     try {

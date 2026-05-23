@@ -57,7 +57,21 @@ const FeedPage = ({ user }) => {
       setShowCreatePost(false);
       toast.success('Post created! +20 points');
     } catch (error) {
-      toast.error('Failed to create post');
+      const status = error?.response?.status;
+      const detail = error?.response?.data?.detail;
+      if (status === 413) {
+        toast.error(detail || 'Your post exceeds the 11 MB upload limit. Please compress your media and try again.');
+      } else if (status === 400) {
+        toast.error(detail || 'Your post contains restricted language. Please rephrase and try again.');
+      } else if (status === 401 || status === 403) {
+        toast.error('Your session expired. Please log in again to continue posting.');
+      } else if (status >= 500) {
+        toast.error('Our servers had a hiccup. Please try again in a moment.');
+      } else if (error?.message === 'Network Error') {
+        toast.error('No internet connection. Please check your network and try again.');
+      } else {
+        toast.error(detail || 'Could not create your post. Please try again.');
+      }
     } finally {
       setPosting(false);
     }
@@ -145,28 +159,54 @@ const FeedPage = ({ user }) => {
     setSharingPost(null);
   };
 
+  const formatBytes = (b) => {
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+    return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 3 * 1024 * 1024) { toast.error('Image too large (max 3MB)'); return; }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewPost({ ...newPost, image: reader.result, video: '' });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error(`That file isn't an image — selected type: ${file.type || 'unknown'}. Please choose a JPG, PNG, GIF or WebP.`);
+      e.target.value = '';
+      return;
     }
+    if (file.size > 11 * 1024 * 1024) {
+      toast.error(`Image is ${formatBytes(file.size)} — over the 11 MB limit. Please compress it or pick a smaller picture.`);
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setNewPost({ ...newPost, image: reader.result, video: '', _imageSize: file.size, _imageName: file.name });
+      toast.success(`Image attached · ${formatBytes(file.size)}`);
+    };
+    reader.onerror = () => toast.error('Could not read the image file. Please try a different photo.');
+    reader.readAsDataURL(file);
   };
 
   const handleVideoUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 3 * 1024 * 1024) { toast.error('Video too large (max 3MB)'); return; }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewPost({ ...newPost, video: reader.result, image: '' });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      toast.error(`That file isn't a video — selected type: ${file.type || 'unknown'}. Please choose an MP4, MOV or WebM clip.`);
+      e.target.value = '';
+      return;
     }
+    if (file.size > 11 * 1024 * 1024) {
+      toast.error(`Video is ${formatBytes(file.size)} — over the 11 MB limit. Try a shorter clip or compress it before uploading.`);
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setNewPost({ ...newPost, video: reader.result, image: '', _videoSize: file.size, _videoName: file.name });
+      toast.success(`Video attached · ${formatBytes(file.size)}`);
+    };
+    reader.onerror = () => toast.error('Could not read the video file. Please try a different clip.');
+    reader.readAsDataURL(file);
   };
 
   if (loading) {
@@ -308,7 +348,8 @@ const FeedPage = ({ user }) => {
             <div className="flex gap-3">
               <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all">
                 <ImageIcon className="mx-auto mb-1 text-text-muted" size={24} />
-                <span className="text-sm text-text-secondary">Add Image</span>
+                <span className="text-sm text-text-secondary block">Add Image</span>
+                <span className="text-[10px] text-text-muted block mt-0.5">JPG/PNG/GIF · max 11 MB</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -319,7 +360,8 @@ const FeedPage = ({ user }) => {
               </label>
               <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all" data-testid="video-upload-tile">
                 <VideoIcon className="mx-auto mb-1 text-text-muted" size={24} />
-                <span className="text-sm text-text-secondary">Add Video</span>
+                <span className="text-sm text-text-secondary block">Add Video</span>
+                <span className="text-[10px] text-text-muted block mt-0.5">MP4/MOV · max 11 MB</span>
                 <input
                   type="file"
                   accept="video/*"
@@ -329,6 +371,11 @@ const FeedPage = ({ user }) => {
                 />
               </label>
             </div>
+            {(newPost._imageSize || newPost._videoSize) && (
+              <p className="text-[11px] text-emerald-600 font-semibold mt-1" data-testid="upload-size-hint">
+                Attached: <strong>{newPost._imageName || newPost._videoName}</strong> · {formatBytes(newPost._imageSize || newPost._videoSize)}
+              </p>
+            )}
 
             <button
               onClick={handleCreatePost}

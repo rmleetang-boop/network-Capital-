@@ -73,7 +73,7 @@ const ProfilePage = ({ user, setUser }) => {
   const handleAddPhoto = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { toast.error('Max 3MB'); return; }
+    if (file.size > 11 * 1024 * 1024) { toast.error(`Photo is ${(file.size/1024/1024).toFixed(1)} MB — over the 11 MB limit. Please compress it or pick a smaller image.`); return; }
     setUploading(true);
     try {
       const data_url = await readDataUrl(file);
@@ -88,7 +88,7 @@ const ProfilePage = ({ user, setUser }) => {
   const handleAddVideo = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 3 * 1024 * 1024) { toast.error('Max 3MB — try a shorter clip'); return; }
+    if (file.size > 11 * 1024 * 1024) { toast.error(`Video is ${(file.size/1024/1024).toFixed(1)} MB — over the 11 MB limit. Try a shorter clip or compress it before uploading.`); return; }
     setUploading(true);
     try {
       const data_url = await readDataUrl(file);

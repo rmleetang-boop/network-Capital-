@@ -1893,8 +1893,8 @@ async def create_story(payload: StoryCreate, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=400, detail="media_type must be image or video")
     if not payload.media_url:
         raise HTTPException(status_code=400, detail="media_url required")
-    if len(payload.media_url) > 4 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Story too large (max ~3MB)")
+    if len(payload.media_url) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Story too large (max 11MB raw)")
     now = datetime.now(timezone.utc)
     story = {
         "id": str(uuid.uuid4()),
@@ -2709,14 +2709,14 @@ async def dm_thread_messages(
 
 
 
-MAX_MEDIA_BYTES = 3 * 1024 * 1024  # ~3MB after base64 ≈ ~2.2MB raw
+MAX_MEDIA_BYTES = 11 * 1024 * 1024  # 11MB raw cap. base64 ≈ 15MB; MongoDB BSON ceiling is 16MB per document — this is the practical maximum until we migrate to S3/R2.
 
 def _validate_media_size(data_url: str):
     if not data_url or not isinstance(data_url, str):
         raise HTTPException(status_code=400, detail="data_url required")
     # Rough size guard (base64 length ~ 1.37x raw bytes)
     if len(data_url) > MAX_MEDIA_BYTES * 1.4:
-        raise HTTPException(status_code=413, detail="File too large (max ~3MB)")
+        raise HTTPException(status_code=413, detail="File too large (max 11MB)")
 
 @api_router.post("/users/me/photos")
 async def upload_photo(payload: MediaUpload, current_user: dict = Depends(get_current_user)):
@@ -2812,6 +2812,12 @@ async def list_articles(user_id: str):
 
 @api_router.post("/posts", response_model=Post)
 async def create_post(request: CreatePostRequest, current_user: dict = Depends(get_current_user)):
+    # Size guards — base64 inflates ~1.37x; cap at MAX_MEDIA_BYTES * 1.4 ≈ 15MB which is under
+    # MongoDB's 16MB BSON document limit. Frontend enforces 11MB raw per file.
+    if request.image and len(request.image) > MAX_MEDIA_BYTES * 1.4:
+        raise HTTPException(status_code=413, detail="Image is too large. Maximum allowed size is 11MB.")
+    if request.video and len(request.video) > MAX_MEDIA_BYTES * 1.4:
+        raise HTTPException(status_code=413, detail="Video is too large. Maximum allowed size is 11MB.")
     post_id = str(uuid.uuid4())
     post_data = {
         "id": post_id,
