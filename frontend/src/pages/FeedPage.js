@@ -7,6 +7,7 @@ import StoriesRibbon from '../components/StoriesRibbon';
 import StoryViewer from '../components/StoryViewer';
 import HashtagText from '../components/HashtagText';
 import FeatureIntroModal from '../components/FeatureIntroModal';
+import MediaPreparer from '../components/MediaPreparer';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -21,6 +22,7 @@ const FeedPage = ({ user }) => {
   const [sharingPost, setSharingPost] = useState(null);
   const [posting, setPosting] = useState(false);
   const [storyGroup, setStoryGroup] = useState(null);
+  const [preparingFile, setPreparingFile] = useState(null);  // optional crop/compress modal
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -178,13 +180,8 @@ const FeedPage = ({ user }) => {
       e.target.value = '';
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setNewPost({ ...newPost, image: reader.result, video: '', _imageSize: file.size, _imageName: file.name });
-      toast.success(`Image attached · ${formatBytes(file.size)}`);
-    };
-    reader.onerror = () => toast.error('Could not read the image file. Please try a different photo.');
-    reader.readAsDataURL(file);
+    setPreparingFile(file);   // opens MediaPreparer for optional crop/compress
+    e.target.value = '';
   };
 
   const handleVideoUpload = (e) => {
@@ -200,13 +197,19 @@ const FeedPage = ({ user }) => {
       e.target.value = '';
       return;
     }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setNewPost({ ...newPost, video: reader.result, image: '', _videoSize: file.size, _videoName: file.name });
-      toast.success(`Video attached · ${formatBytes(file.size)}`);
-    };
-    reader.onerror = () => toast.error('Could not read the video file. Please try a different clip.');
-    reader.readAsDataURL(file);
+    setPreparingFile(file);   // opens MediaPreparer (videos pass through unchanged)
+    e.target.value = '';
+  };
+
+  const handleMediaPrepared = ({ dataUrl, sizeBytes, name, type }) => {
+    if (type.startsWith('image/')) {
+      setNewPost({ ...newPost, image: dataUrl, video: '', _imageSize: sizeBytes, _imageName: name });
+      toast.success(`Image attached · ${formatBytes(sizeBytes)}`);
+    } else {
+      setNewPost({ ...newPost, video: dataUrl, image: '', _videoSize: sizeBytes, _videoName: name });
+      toast.success(`Video attached · ${formatBytes(sizeBytes)}`);
+    }
+    setPreparingFile(null);
   };
 
   if (loading) {
@@ -349,7 +352,7 @@ const FeedPage = ({ user }) => {
               <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all">
                 <ImageIcon className="mx-auto mb-1 text-text-muted" size={24} />
                 <span className="text-sm text-text-secondary block">Add Image</span>
-                <span className="text-[10px] text-text-muted block mt-0.5">JPG/PNG/GIF · max 11 MB</span>
+                <span className="text-[10px] text-text-muted block mt-0.5">JPG/PNG/GIF · max 11 MB · crop &amp; compress on next step</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -403,6 +406,14 @@ const FeedPage = ({ user }) => {
           onClose={() => setStoryGroup(null)}
           onNextGroup={() => setStoryGroup(null)}
           onPrevGroup={() => setStoryGroup(null)}
+        />
+      )}
+
+      {preparingFile && (
+        <MediaPreparer
+          file={preparingFile}
+          onClose={() => setPreparingFile(null)}
+          onConfirm={handleMediaPrepared}
         />
       )}
     </div>

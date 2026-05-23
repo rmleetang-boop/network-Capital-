@@ -1,4 +1,27 @@
 # Network Capital — CHANGELOG
+## iter 40 (Feb 23, 2026) — Optional Crop + Compress before posting
+### New libraries
+- `browser-image-compression@2.0.2` — client-side image shrinking (web-worker, max 1MB/1920px, q=0.85)
+- `react-easy-crop@5.5.7` — Instagram-style crop UI (drag + zoom + aspect chooser)
+
+### New component: `MediaPreparer`
+- Mounts on top of the Create Post modal whenever a user attaches an image OR video.
+- Both crop and compress are **OFF by default** — the modal opens with a clean preview and a primary "Use as is" button so power users keep posting in one tap.
+- Toggling **Crop** ON reveals the interactive cropper with aspect-ratio chips (1:1, 4:5, 16:9, Free) and pinch-zoom.
+- Toggling **Compress** ON applies `browser-image-compression` (max 1 MB output, max 1920px on the long edge, quality 0.85) — a "saved X%" success toast confirms the savings.
+- The two are stackable: crop runs first, then compress runs on the cropped output.
+- A live "Original 4.2 MB → After edits 0.9 MB" indicator updates after Apply.
+- Videos pass through unchanged with an inline note: *"Crop and compress are available for images only. Videos are uploaded as-is."*
+- testids: `media-preparer`, `media-preparer-canvas`, `toggle-crop`, `toggle-compress`, `aspect-picker`, `aspect-{1:1|4:5|16:9|Free}`, `media-preparer-skip`, `media-preparer-apply`, `media-preparer-confirm`, `media-preparer-new-size`, `media-preparer-close`.
+
+### FeedPage wiring
+- `handleImageUpload` and `handleVideoUpload` no longer commit directly. They open the `MediaPreparer` with the selected `File`. The preparer calls `handleMediaPrepared({ dataUrl, sizeBytes, name, type })` on confirm/skip → set newPost state → toast with the final size.
+- Helper text under the "Add Image" tile now reads *"JPG/PNG/GIF · max 11 MB · crop & compress on next step"*.
+
+### S3/R2 explainer added to user-facing communication
+- Documented to the user that going beyond 11 MB requires cloud-object-storage (S3 or Cloudflare R2, where R2 wins on zero egress fees). This is now the P1 next-architecture task.
+
+
 ## iter 39 (Feb 23, 2026) — Max-possible upload size, in-UI size hints, specific error messages, Chrome toast fix
 ### Toast styling rewrite (`/app/frontend/src/components/ui/sonner.jsx`)
 - Chrome rendered toasts as near-invisible light-grey-on-white because the previous shadcn token classes (`bg-background`/`text-foreground`) had no <ThemeProvider> mounted.
