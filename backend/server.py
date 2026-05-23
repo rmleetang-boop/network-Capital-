@@ -8751,6 +8751,387 @@ async def admin_get_withdrawal_proof(withdrawal_id: str, admin: dict = Depends(r
     return {"proof_data_url": w.get("proof_data_url", "")}
 
 
+# ============================================================================
+# ITER 41 — AD CAMPAIGNS (admin-managed) + AMBASSADOR APPLICATIONS
+# ============================================================================
+class AdCampaignIn(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    body: str = Field(min_length=2, max_length=600)
+    cta_label: str = Field(min_length=1, max_length=40)
+    link_url: str = Field(min_length=4, max_length=500)
+    image_data_url: Optional[str] = ""
+    video_data_url: Optional[str] = ""
+    starts_at: Optional[str] = ""           # ISO date or empty for "starts now"
+    ends_at: Optional[str] = ""             # ISO date or empty for "no end"
+    is_active: bool = True
+    reward_engage_points: int = 500
+    reward_share_points: int = 100
+
+
+def _ad_window_active(ad: Dict[str, Any], now_utc: datetime) -> bool:
+    if not ad.get("is_active"):
+        return False
+    sa, ea = ad.get("starts_at"), ad.get("ends_at")
+    if sa:
+        try:
+            if now_utc < datetime.fromisoformat(sa.replace("Z", "+00:00")):
+                return False
+        except Exception:
+            pass
+    if ea:
+        try:
+            if now_utc > datetime.fromisoformat(ea.replace("Z", "+00:00")):
+                return False
+        except Exception:
+            pass
+    return True
+
+
+@api_router.post("/admin/ads")
+async def admin_create_ad(payload: AdCampaignIn, admin: dict = Depends(require_admin_user)):
+    if payload.image_data_url and len(payload.image_data_url) > MAX_MEDIA_BYTES * 1.4:
+        raise HTTPException(status_code=413, detail="Image too large (max 11MB)")
+    if payload.video_data_url and len(payload.video_data_url) > MAX_MEDIA_BYTES * 1.4:
+        raise HTTPException(status_code=413, detail="Video too large (max 11MB)")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        **payload.dict(),
+        "created_by": admin["id"],
+        "created_at": now,
+        "updated_at": now,
+        "impressions": 0,
+        "clicks": 0,
+        "engagements": 0,
+        "shares": 0,
+    }
+    await db.ad_campaigns.insert_one(doc)
+    # Pop the mongo-added _id so the response is JSON-serialisable.
+    doc.pop("_id", None)
+    return {k: v for k, v in doc.items() if k not in ("image_data_url", "video_data_url")}
+
+
+@api_router.get("/admin/ads")
+async def admin_list_ads(admin: dict = Depends(require_admin_user)):
+    rows = await db.ad_campaigns.find({}, {"_id": 0, "image_data_url": 0, "video_data_url": 0}).sort("created_at", -1).limit(200).to_list(length=None)
+    total_impressions = sum(r.get("impressions", 0) for r in rows)
+    total_clicks = sum(r.get("clicks", 0) for r in rows)
+    return {
+        "ads": rows,
+        "summary": {
+            "total_campaigns": len(rows),
+            "active_campaigns": sum(1 for r in rows if r.get("is_active")),
+            "total_impressions": total_impressions,
+            "total_clicks": total_clicks,
+            "ctr_pct": round((total_clicks / total_impressions * 100), 2) if total_impressions else 0.0,
+        },
+    }
+
+
+@api_router.get("/admin/ads/{ad_id}")
+async def admin_get_ad(ad_id: str, admin: dict = Depends(require_admin_user)):
+    ad = await db.ad_campaigns.find_one({"id": ad_id}, {"_id": 0})
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    return ad
+
+
+@api_router.patch("/admin/ads/{ad_id}")
+async def admin_update_ad(ad_id: str, payload: AdCampaignIn, admin: dict = Depends(require_admin_user)):
+    res = await db.ad_campaigns.update_one(
+        {"id": ad_id},
+        {"$set": {**payload.dict(), "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    return {"ok": True}
+
+
+@api_router.delete("/admin/ads/{ad_id}")
+async def admin_delete_ad(ad_id: str, admin: dict = Depends(require_admin_user)):
+    await db.ad_campaigns.delete_one({"id": ad_id})
+    await db.ad_events.delete_many({"ad_id": ad_id})
+    return {"ok": True}
+
+
+@api_router.get("/admin/ads/{ad_id}/analytics")
+async def admin_ad_analytics(ad_id: str, days: int = 30, admin: dict = Depends(require_admin_user)):
+    ad = await db.ad_campaigns.find_one({"id": ad_id}, {"_id": 0, "image_data_url": 0, "video_data_url": 0})
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    days = max(1, min(int(days or 30), 90))
+    # By-day chart
+    pipeline_daily = [
+        {"$match": {"ad_id": ad_id}},
+        {"$group": {
+            "_id": {"day": "$day_key", "type": "$type"},
+            "n": {"$sum": 1},
+        }},
+        {"$sort": {"_id.day": 1}},
+    ]
+    raw = await db.ad_events.aggregate(pipeline_daily).to_list(length=None)
+    by_day: Dict[str, Dict[str, int]] = {}
+    for row in raw:
+        d = row["_id"]["day"]
+        t = row["_id"]["type"]
+        by_day.setdefault(d, {"impressions": 0, "clicks": 0, "engagements": 0, "shares": 0})
+        if t in by_day[d]:
+            by_day[d][t] = row["n"]
+    daily = [{"day": d, **by_day[d]} for d in sorted(by_day.keys())[-days:]]
+
+    # Unique users (overall)
+    unique_users = len(await db.ad_events.distinct("user_id", {"ad_id": ad_id}))
+    unique_clickers = len(await db.ad_events.distinct("user_id", {"ad_id": ad_id, "type": "clicks"}))
+
+    # Geo breakdown (country / city)
+    geo_pipeline = [
+        {"$match": {"ad_id": ad_id, "type": "impressions"}},
+        {"$group": {"_id": {"country": "$country", "city": "$city"}, "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+        {"$limit": 20},
+    ]
+    geo_rows = await db.ad_events.aggregate(geo_pipeline).to_list(length=None)
+    geo = [{"country": (g["_id"] or {}).get("country") or "Unknown",
+            "city": (g["_id"] or {}).get("city") or "Unknown",
+            "impressions": g["n"]} for g in geo_rows]
+
+    # Age bucket breakdown (derived from birth_month — we only have month, so use as a rough cohort)
+    age_pipeline = [
+        {"$match": {"ad_id": ad_id, "type": "impressions"}},
+        {"$group": {"_id": "$birth_month", "n": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+    ]
+    age_rows = await db.ad_events.aggregate(age_pipeline).to_list(length=None)
+    age = [{"birth_month": a["_id"], "impressions": a["n"]} for a in age_rows]
+
+    return {
+        "ad": ad,
+        "totals": {
+            "impressions": ad.get("impressions", 0),
+            "clicks": ad.get("clicks", 0),
+            "engagements": ad.get("engagements", 0),
+            "shares": ad.get("shares", 0),
+            "unique_viewers": unique_users,
+            "unique_clickers": unique_clickers,
+            "ctr_pct": round((ad.get("clicks", 0) / ad.get("impressions", 1) * 100), 2) if ad.get("impressions") else 0.0,
+        },
+        "daily": daily,
+        "geo": geo,
+        "age": age,
+    }
+
+
+# ---- User-facing: serve the currently active ad ----------------------------
+@api_router.get("/ads/current")
+async def get_current_ad(current_user: dict = Depends(get_current_user)):
+    """Return the most-recent active ad campaign whose schedule window includes 'now'.
+    Falls back to the legacy mock ad copy if none configured."""
+    now_utc = datetime.now(timezone.utc)
+    rows = await db.ad_campaigns.find({"is_active": True}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(length=None)
+    for ad in rows:
+        if _ad_window_active(ad, now_utc):
+            return {
+                "id": ad["id"],
+                "title": ad["title"],
+                "body": ad["body"],
+                "cta_label": ad["cta_label"],
+                "link_url": ad["link_url"],
+                "image_data_url": ad.get("image_data_url") or "",
+                "video_data_url": ad.get("video_data_url") or "",
+                "reward_engage_points": ad.get("reward_engage_points", 500),
+                "reward_share_points": ad.get("reward_share_points", 100),
+                "is_real": True,
+            }
+    # No live ads → caller may render legacy mock copy
+    return {"id": None, "is_real": False}
+
+
+class AdEventIn(BaseModel):
+    ad_id: str
+    type: str = Field(pattern="^(impressions|clicks|engagements|shares)$")
+
+
+@api_router.post("/ads/event")
+async def record_ad_event(payload: AdEventIn, current_user: dict = Depends(get_current_user)):
+    """Log impression / click / engagement / share for analytics."""
+    ad = await db.ad_campaigns.find_one({"id": payload.ad_id}, {"_id": 0, "id": 1})
+    if not ad:
+        # silently ignore — keeps client robust to deleted campaigns
+        return {"ok": True}
+    now_utc = datetime.now(timezone.utc)
+    await db.ad_events.insert_one({
+        "id": str(uuid.uuid4()),
+        "ad_id": payload.ad_id,
+        "user_id": current_user["id"],
+        "username": current_user.get("username"),
+        "country": current_user.get("country") or "",
+        "city": current_user.get("city") or "",
+        "birth_month": current_user.get("birth_month"),
+        "type": payload.type,
+        "created_at": now_utc.isoformat(),
+        "day_key": now_utc.strftime("%Y-%m-%d"),
+    })
+    await db.ad_campaigns.update_one({"id": payload.ad_id}, {"$inc": {payload.type: 1}})
+    return {"ok": True}
+
+
+# ============================================================================
+# AMBASSADOR APPLICATIONS — user can self-request, admin approves/rejects
+# ============================================================================
+AMBASSADOR_MIN_SCORE = 2000
+
+
+class AmbassadorApplicationIn(BaseModel):
+    why: str = Field(min_length=20, max_length=1500)
+    links: Optional[List[str]] = []
+
+
+@api_router.post("/ambassadors/apply")
+async def apply_to_be_ambassador(payload: AmbassadorApplicationIn, current_user: dict = Depends(get_current_user)):
+    if current_user.get("is_ambassador"):
+        raise HTTPException(status_code=400, detail="You are already an ambassador.")
+    score = max(int(current_user.get("network_score") or 0), int(current_user.get("monthly_score") or 0))
+    if score < AMBASSADOR_MIN_SCORE:
+        raise HTTPException(
+            status_code=403,
+            detail=f"You need a Network Score of {AMBASSADOR_MIN_SCORE} to apply. Yours is currently {score}. Keep contributing — posts, referrals, place reviews and connections all build your score.",
+        )
+    existing = await db.ambassador_applications.find_one(
+        {"user_id": current_user["id"], "status": "pending"},
+        {"_id": 0, "id": 1},
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have a pending application. We'll review it shortly.")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "username": current_user.get("username"),
+        "user_email": current_user.get("email"),
+        "full_name": current_user.get("full_name"),
+        "photo": current_user.get("photo") or "",
+        "network_score": int(current_user.get("network_score") or 0),
+        "monthly_score": int(current_user.get("monthly_score") or 0),
+        "why": payload.why.strip(),
+        "links": [str(l).strip() for l in (payload.links or []) if str(l).strip()][:6],
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "decided_by": None,
+        "decided_at": None,
+        "admin_note": "",
+    }
+    await db.ambassador_applications.insert_one(doc)
+    # notify admins
+    admin_ids = [u["id"] async for u in db.users.find({"role": {"$in": ["admin", "moderator"]}}, {"_id": 0, "id": 1})]
+    if admin_ids:
+        await db.notifications.insert_many([{
+            "id": str(uuid.uuid4()),
+            "user_id": uid,
+            "type": "ambassador_application",
+            "title": "New ambassador application",
+            "message": f"@{current_user.get('username') or 'user'} applied to become an ambassador.",
+            "application_id": doc["id"],
+            "read": False,
+            "created_at": now,
+        } for uid in admin_ids])
+    return {"ok": True, "id": doc["id"], "status": "pending"}
+
+
+@api_router.get("/ambassadors/me/application")
+async def my_ambassador_application(current_user: dict = Depends(get_current_user)):
+    score = max(int(current_user.get("network_score") or 0), int(current_user.get("monthly_score") or 0))
+    latest = await db.ambassador_applications.find_one(
+        {"user_id": current_user["id"]},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    return {
+        "is_ambassador": bool(current_user.get("is_ambassador")),
+        "score": score,
+        "min_score_required": AMBASSADOR_MIN_SCORE,
+        "eligible": score >= AMBASSADOR_MIN_SCORE,
+        "application": latest,
+    }
+
+
+@api_router.get("/admin/ambassador-applications")
+async def admin_list_ambassador_applications(status_filter: Optional[str] = "pending", admin: dict = Depends(require_admin_user)):
+    q: Dict[str, Any] = {}
+    if status_filter and status_filter != "all":
+        q["status"] = status_filter
+    rows = await db.ambassador_applications.find(q, {"_id": 0}).sort("created_at", -1).limit(500).to_list(length=None)
+    summary = {
+        "pending": await db.ambassador_applications.count_documents({"status": "pending"}),
+        "approved": await db.ambassador_applications.count_documents({"status": "approved"}),
+        "rejected": await db.ambassador_applications.count_documents({"status": "rejected"}),
+    }
+    return {"applications": rows, "summary": summary}
+
+
+class AmbassadorDecisionIn(BaseModel):
+    note: Optional[str] = ""
+
+
+@api_router.post("/admin/ambassador-applications/{application_id}/approve")
+async def admin_approve_ambassador(application_id: str, payload: AmbassadorDecisionIn, admin: dict = Depends(require_admin_user)):
+    app_row = await db.ambassador_applications.find_one({"id": application_id})
+    if not app_row:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if app_row["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Application is already '{app_row['status']}'")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.ambassador_applications.update_one(
+        {"id": application_id},
+        {"$set": {"status": "approved", "decided_by": admin.get("username") or admin["id"],
+                  "decided_at": now, "admin_note": payload.note or "", "updated_at": now}},
+    )
+    await db.users.update_one(
+        {"id": app_row["user_id"]},
+        {"$set": {"is_ambassador": True, "ambassador_rank": "Rising Star"}},
+    )
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": app_row["user_id"],
+        "type": "ambassador_application",
+        "title": "You're an Ambassador!",
+        "message": "Congratulations — your ambassador application was approved. The ★ Ambassador badge is now active on your profile.",
+        "application_id": application_id,
+        "read": False,
+        "created_at": now,
+    })
+    return {"ok": True, "status": "approved"}
+
+
+@api_router.post("/admin/ambassador-applications/{application_id}/reject")
+async def admin_reject_ambassador(application_id: str, payload: AmbassadorDecisionIn, admin: dict = Depends(require_admin_user)):
+    app_row = await db.ambassador_applications.find_one({"id": application_id})
+    if not app_row:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if app_row["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Application is already '{app_row['status']}'")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.ambassador_applications.update_one(
+        {"id": application_id},
+        {"$set": {"status": "rejected", "decided_by": admin.get("username") or admin["id"],
+                  "decided_at": now, "admin_note": payload.note or "", "updated_at": now}},
+    )
+    msg = "Your ambassador application was not approved this time. Keep growing your network — you can re-apply once you've added more contributions."
+    if payload.note and payload.note.strip():
+        msg += f" Reviewer note: {payload.note.strip()}"
+    await db.notifications.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": app_row["user_id"],
+        "type": "ambassador_application",
+        "title": "Ambassador application reviewed",
+        "message": msg,
+        "application_id": application_id,
+        "read": False,
+        "created_at": now,
+    })
+    return {"ok": True, "status": "rejected"}
+
+
 # Re-register router so all routes added above are picked up (must come AFTER the
 # pre-existing seed `app.include_router(api_router)` block immediately below this).
 app.include_router(api_router)

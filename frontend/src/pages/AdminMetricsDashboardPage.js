@@ -126,6 +126,8 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
         <button onClick={() => navigate('/admin/announce')} className="text-xs font-semibold bg-primary text-white px-3 py-1.5 rounded-full" data-testid="admin-go-announce">Announce</button>
         <button onClick={() => navigate('/admin/promotions')} className="text-xs font-semibold bg-fuchsia-100 text-fuchsia-700 px-3 py-1.5 rounded-full" data-testid="admin-go-promotions">Promotions</button>
         <button onClick={() => navigate('/admin/withdrawals')} className="text-xs font-semibold bg-rose-100 text-rose-700 px-3 py-1.5 rounded-full" data-testid="admin-go-withdrawals">Withdrawals</button>
+        <button onClick={() => navigate('/admin/ads')} className="text-xs font-semibold bg-orange-100 text-orange-700 px-3 py-1.5 rounded-full" data-testid="admin-go-ads">Ads</button>
+        <button onClick={() => navigate('/admin/ambassador-applications')} className="text-xs font-semibold bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-full" data-testid="admin-go-ambassador-apps">Amb. Apps</button>
         <button onClick={() => navigate('/ambassadors/leaderboard')} className="text-xs font-semibold bg-yellow-100 text-yellow-700 px-3 py-1.5 rounded-full" data-testid="admin-go-ambassadors">Ambassadors</button>
         <button onClick={() => navigate('/admin/audit-log')} className="text-xs font-semibold bg-gray-100 text-text-secondary px-3 py-1.5 rounded-full" data-testid="admin-go-audit">Audit</button>
       </div>

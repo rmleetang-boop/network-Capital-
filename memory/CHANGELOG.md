@@ -1,4 +1,36 @@
 # Network Capital — CHANGELOG
+## iter 41 (Feb 23, 2026) — Admin Ad Campaigns + User Ambassador Applications
+### Ad Campaigns (admin-managed, full analytics)
+**Backend** (`server.py` — new module after ITER 34 Withdrawals):
+- `AdCampaignIn` Pydantic model: title, body, cta_label, link_url, image_data_url, video_data_url, starts_at, ends_at, is_active, reward_engage_points, reward_share_points.
+- `POST/GET/PATCH/DELETE /api/admin/ads[/{id}]` — admin CRUD with 11MB media gate and `_id`-stripping fix for the create response.
+- `GET /api/admin/ads/{id}/analytics?days=30` — totals (impressions/clicks/engagements/shares/unique_viewers/unique_clickers/CTR%), 30-day daily series, top-20 geo by country+city, and birth-month cohort histogram.
+- `GET /api/ads/current` — user-facing: returns the most recently created `is_active` campaign whose `starts_at`/`ends_at` window includes "now". Falls back to `{ is_real: false }` when none configured.
+- `POST /api/ads/event` — logs `impressions|clicks|engagements|shares` to `db.ad_events` with `country`, `city`, `birth_month` from the requester for geo/age analytics; increments the campaign's counter atomically.
+
+**Frontend**:
+- `AdminAdsPage` (`/admin/ads`): summary tiles (campaigns/live/impressions/CTR), list with inline impressions+clicks+engagements+CTR per row, **AdEditorModal** with title/body/CTA/link/image-or-video/scheduling/reward-points/is_active toggle, **AdAnalyticsModal** with stat tiles + 30-day bar chart + geo list + age-cohort grid.
+- `MockAdButton` rewritten to load real ad copy from `/ads/current` when available (falls back to legacy mock placeholder), records impression on open, click on link tap, engagement/share on point-claim. Button label dynamically reflects the campaign's `reward_engage_points`.
+- Admin nav button `admin-go-ads` on `/admin/dashboard`.
+
+### Ambassador Applications (user can self-request, admin approves/rejects)
+**Backend**:
+- `AMBASSADOR_MIN_SCORE = 2000` constant.
+- `POST /api/ambassadors/apply` — requires score ≥ 2000 OR returns a 403 with a friendly explanation. Blocks duplicate pending applications. Notifies all admins.
+- `GET /api/ambassadors/me/application` — returns eligibility + latest application (any status).
+- `GET /api/admin/ambassador-applications?status_filter=` — admin queue with pending/approved/rejected counters.
+- `POST /api/admin/ambassador-applications/{id}/{approve|reject}` — on approve, sets `is_ambassador=true, ambassador_rank='Rising Star'` and sends user a notification. On reject, sends a constructive notification including the reviewer note.
+
+**Frontend**:
+- `BecomeAmbassadorPage` (`/ambassadors/apply`) — hero, eligibility progress bar, application form (why + optional links). Shows pending/approved/rejected status if user has one. New "Become Ambassador" tile on the Profile Quick Access grid.
+- `AdminAmbassadorApplicationsPage` (`/admin/ambassador-applications`) — 4-tab queue (pending/approved/rejected/all), summary pills, per-row Approve/Reject buttons with prompt-driven admin note.
+- Admin nav button `admin-go-ambassador-apps`.
+
+### Smoke-tested
+- Ads: create (200, _id stripped), `/ads/current` returns the live campaign, events logged (impressions=1, clicks=1, engagements=1, ctr=100%).
+- Ambassador: score=500 → 403 with explanation; bump to 2500 → apply succeeds → admin approve → user's `is_ambassador=true, rank='Rising Star'`.
+
+
 ## iter 40 (Feb 23, 2026) — Optional Crop + Compress before posting
 ### New libraries
 - `browser-image-compression@2.0.2` — client-side image shrinking (web-worker, max 1MB/1920px, q=0.85)

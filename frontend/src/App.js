@@ -63,6 +63,9 @@ import PromotionDetailPage from './pages/PromotionDetailPage';
 import MyPromotionsPage from './pages/MyPromotionsPage';
 import PromotionsWelcomeModal from './components/PromotionsWelcomeModal';
 import AdminWithdrawalsPage from './pages/AdminWithdrawalsPage';
+import AdminAdsPage from './pages/AdminAdsPage';
+import BecomeAmbassadorPage from './pages/BecomeAmbassadorPage';
+import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplicationsPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -288,6 +291,9 @@ function App() {
             <Route path="/admin/promotions" element={<PromotionsListPage user={user} />} />
             <Route path="/admin/promotions/:promotionId" element={<PromotionDetailPage user={user} />} />
             <Route path="/admin/withdrawals" element={<AdminWithdrawalsPage user={user} />} />
+            <Route path="/admin/ads" element={<AdminAdsPage user={user} />} />
+            <Route path="/admin/ambassador-applications" element={<AdminAmbassadorApplicationsPage user={user} />} />
+            <Route path="/ambassadors/apply" element={<BecomeAmbassadorPage user={user} />} />
             <Route path="/promotions/me" element={<MyPromotionsPage user={user} />} />
             <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
             <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
