@@ -40,7 +40,12 @@ const FeedPage = ({ user }) => {
 
   const handleCreatePost = async () => {
     if (!newPost.content.trim()) {
-      toast.error('Please write something');
+      const hasMedia = Boolean(newPost.image || newPost.video);
+      toast.error(
+        hasMedia
+          ? 'Add a caption to share your post — even one line helps your community connect.'
+          : 'Please write something to share with your community.'
+      );
       return;
     }
 
