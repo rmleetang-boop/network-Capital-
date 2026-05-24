@@ -23,7 +23,7 @@ const Layout = ({ children, user, onLogout }) => {
       <div className="max-w-2xl mx-auto">{children}</div>
 
       {!hideBottomNav && (
-        <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-lg border-t border-gray-200 z-50">
+        <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-lg border-t border-gray-200 z-40">
           <div className="max-w-2xl mx-auto flex justify-around items-center h-16 px-2">
             {primaryNav.map((item) => {
               const Icon = item.icon;

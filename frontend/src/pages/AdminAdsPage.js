@@ -151,7 +151,7 @@ const AdEditorModal = ({ initial, onClose, onSaved }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose} data-testid="ad-editor-modal">
-      <div onClick={(e) => e.stopPropagation()} className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl">
+      <div onClick={(e) => e.stopPropagation()} className="bg-white w-full sm:max-w-lg sm:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl pb-[max(env(safe-area-inset-bottom),1rem)]">
         <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-2">
           <h3 className="font-heading font-bold flex-1">{initial ? 'Edit campaign' : 'New campaign'}</h3>
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100"><X size={14} /></button>
@@ -238,7 +238,7 @@ const AdAnalyticsModal = ({ adId, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose} data-testid="ad-analytics-modal">
-      <div onClick={(e) => e.stopPropagation()} className="bg-white w-full sm:max-w-2xl sm:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl">
+      <div onClick={(e) => e.stopPropagation()} className="bg-white w-full sm:max-w-2xl sm:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl pb-[max(env(safe-area-inset-bottom),1rem)]">
         <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-2">
           <h3 className="font-heading font-bold flex-1 inline-flex items-center gap-2"><BarChart3 size={16} className="text-secondary" /> {data.ad.title}</h3>
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100"><X size={14} /></button>

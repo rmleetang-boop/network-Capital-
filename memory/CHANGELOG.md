@@ -1,4 +1,21 @@
 # Network Capital — CHANGELOG
+## iter 42 (Feb 23, 2026) — Modal-vs-bottom-nav z-index collision FIXED
+### Root cause
+- Bottom nav in `Layout.js` was at `z-50` — the same as every modal in the app.
+- CSS rule: same-z tie-breaks by DOM order. Bottom nav is mounted INSIDE `<Layout>` near the top, modals render LATER as `fixed` portals (or inline), but because the nav is a child of a positioned ancestor and the modal `<div>` lives inside the page content, the nav was stealing the bottom-of-screen click area and visually covering the modal's final buttons on mobile.
+- User couldn't tap "Create campaign" in the Ad Editor — it was hidden behind the bottom nav.
+
+### Fix (one line)
+- Lowered Layout bottom nav from `z-50` → `z-40` in `Layout.js`. All modals (z-50) now correctly sit above the nav. No other component relies on the nav being at z-50.
+
+### Side effect handled
+- DM composer (`ChatThreadPage.js`) was already at z-40 — but it sits inside its own route which hides the bottom nav, so no collision.
+- Stokvel FAB at z-40 is positioned `bottom-24 right-6`, well clear of the nav, no collision.
+
+### Plus: AdEditor + AdAnalytics modals
+- Added `pb-[max(env(safe-area-inset-bottom),1rem)]` to the inner scroll container — gives an extra clear gap above the bottom edge / iOS home indicator regardless of where users scroll to.
+
+
 ## iter 41 (Feb 23, 2026) — Admin Ad Campaigns + User Ambassador Applications
 ### Ad Campaigns (admin-managed, full analytics)
 **Backend** (`server.py` — new module after ITER 34 Withdrawals):
