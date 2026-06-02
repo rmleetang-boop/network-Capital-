@@ -4796,18 +4796,12 @@ async def founders_status():
     }
 
 
-# ============== EMAIL OTP (Resend) ==============
-# Sends a 6-digit OTP via Resend. Falls back to logging the code if Resend fails
-# or is not configured, so that QA / non-verified test domains still work.
+# ============== EMAIL OTP (Brevo) ==============
+# Sends a 6-digit OTP via Brevo. Falls back to logging the code if Brevo is
+# not configured (no BREVO_API_KEY), so QA / pre-DNS-setup environments still work.
 import logging as _otp_logging
 import secrets as _otp_secrets
-import asyncio as _otp_asyncio
-import resend as _resend
-
-_RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-_SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
-if _RESEND_API_KEY:
-    _resend.api_key = _RESEND_API_KEY
+from services.email_service import send_transactional_email as _brevo_send, is_configured as _brevo_configured
 
 
 def _generate_otp() -> str:
@@ -4843,23 +4837,20 @@ def _otp_email_html(code: str) -> str:
 
 
 async def _send_otp_email(email: str, code: str) -> bool:
-    """Send OTP via Resend. Returns True on real send, False on fallback (logged only)."""
-    if not _RESEND_API_KEY:
-        _otp_logging.warning(f"[OTP-FALLBACK] No RESEND_API_KEY — code for {email}: {code}")
+    """Send OTP via Brevo. Returns True on real send, False on fallback (logged only)."""
+    if not _brevo_configured():
+        _otp_logging.warning(f"[OTP-FALLBACK] No BREVO_API_KEY — code for {email}: {code}")
         return False
-    params = {
-        "from": f"Network Capital <{_SENDER_EMAIL}>",
-        "to": [email],
-        "subject": "Your Network Capital verification code",
-        "html": _otp_email_html(code),
-    }
-    try:
-        result = await _otp_asyncio.to_thread(_resend.Emails.send, params)
-        _otp_logging.info(f"[OTP-RESEND] Sent to {email} — id={result.get('id') if isinstance(result, dict) else result}")
-        return True
-    except Exception as exc:  # noqa: BLE001
-        _otp_logging.warning(f"[OTP-FALLBACK] Resend failed for {email}: {exc} — code: {code}")
-        return False
+    ok = await _brevo_send(
+        to_email=email,
+        subject="Your Network Capital verification code",
+        html_content=_otp_email_html(code),
+        text_content=f"Your Network Capital verification code is {code}. It expires in 10 minutes.",
+        tags=["otp", "verification"],
+    )
+    if not ok:
+        _otp_logging.warning(f"[OTP-FALLBACK] Brevo send failed for {email} — code: {code}")
+    return ok
 
 
 # ─── Generic branded transactional email helper ────────────────────────────
@@ -4898,24 +4889,19 @@ def _branded_email_html(*, headline: str, body_html: str, cta_label: Optional[st
 
 
 async def _send_branded_email(*, to: str, subject: str, html: str, kind: str = "transactional") -> bool:
-    """Fire-and-forget Resend send. Never raises; logs success/failure with kind tag."""
-    if not to or not _RESEND_API_KEY:
-        _otp_logging.info(f"[MAIL-SKIP:{kind}] No recipient or RESEND_API_KEY missing")
+    """Fire-and-forget Brevo send. Never raises; logs success/failure with kind tag."""
+    if not to:
+        _otp_logging.info(f"[MAIL-SKIP:{kind}] No recipient")
         return False
-    params = {
-        "from": f"Network Capital <{_SENDER_EMAIL}>",
-        "to": [to],
-        "subject": subject,
-        "html": html,
-        "reply_to": "noreply@mail.networkcapitalapp.co.za",
-    }
-    try:
-        result = await _otp_asyncio.to_thread(_resend.Emails.send, params)
-        _otp_logging.info(f"[MAIL-SENT:{kind}] to={to} id={result.get('id') if isinstance(result, dict) else result}")
-        return True
-    except Exception as exc:  # noqa: BLE001
-        _otp_logging.warning(f"[MAIL-FAIL:{kind}] to={to} err={exc}")
+    if not _brevo_configured():
+        _otp_logging.info(f"[MAIL-SKIP:{kind}] BREVO_API_KEY missing — to={to}")
         return False
+    return await _brevo_send(
+        to_email=to,
+        subject=subject,
+        html_content=html,
+        tags=[kind],
+    )
 
 
 # ─── Specific transactional templates ──────────────────────────────────────
