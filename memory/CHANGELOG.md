@@ -1,4 +1,40 @@
 # Network Capital — CHANGELOG
+
+## iter 43 (Feb, 2026) — Brevo OTP verified + new email automations
+### Brevo migration verified end-to-end
+- Added `BREVO_API_KEY` to `/app/backend/.env` (was missing → all sends were silently falling back to logger).
+- Pinned `brevo-python==1.1.2` in `requirements.txt` (v4.x changed the module name from `brevo_python` → `brevo` and the entire SDK surface; v1.1.2 matches `email_service.py`).
+- IP allowlist disabled by user on Brevo side — verified send works to `rmleetang@gmail.com`.
+- Sender domain: `noreply@networkcapitalapp.co.za` (user confirmed verified DNS).
+
+### New email automations (`server.py`)
+- **Welcome** (already wired) — fires on first OTP verify + profile completion. No change.
+- **Daily Rewards digest** — `_daily_digest_loop()` background task started at app startup.
+  - Polls every 10 min; runs `_run_daily_digest_sweep()` once SAST clock hits 21:00.
+  - Idempotent via `users.last_rewards_digest_date == today_SAST`.
+  - Aggregates today's `score_events` grouped by action with friendly labels (`_SCORE_ACTION_LABELS`).
+  - Admin force-run endpoint: `POST /api/admin/rewards/digest/run` → `{ok, sent, date_key_sast}`.
+  - Skips users with no events or no verified email.
+- **Wallet credit** — `_notify_wallet_credit(user_id, amount_usd, reason)` helper, wired into all 5 credit sites:
+  1. Referral $10 bonus on signup (`/auth/signup`)
+  2. Stokvel cashback (`process_rewards`)
+  3. Smart Access fund release
+  4. Stokvel withdrawal execution
+  5. Admin credit grant (`_apply_credit_grant`)
+  - Skips debits, skips unverified users.
+- **Official broadcast** — new `is_official` field on `CreatePostRequest` + `Post` model.
+  - Admin/moderator role required (any non-admin's `is_official=true` is silently coerced to false).
+  - On insert, fires `_broadcast_official_post()` as a background task (non-blocking).
+  - Fan-out filters by `email_verified=true` AND `broadcast_opt_out!=true` AND domain ∉ `{example.com, example.org, example.net, test.com, qa.local}` (`_is_broadcast_eligible_email`).
+  - 50ms throttle between sends to stay under Brevo burst limits.
+
+### Test recap
+- OTP delivery: ✅ `[MAIL-SENT] subj='Your Network Capital verification code'`
+- Welcome on profile complete: ✅ `[MAIL-SENT] subj='Welcome to Network Capital'`
+- Wallet credit ($5 test grant): ✅ `[MAIL-SENT] subj='+$5.00 added to your Network Capital wallet'`
+- Daily digest force-run: ✅ `sent=1` for user with seeded score events (`+575 pts today`)
+- Official broadcast: ✅ Real-domain fan-out `sent=3` (legacy `@example.com` test users filtered out — 314 raw → 3 eligible).
+
 ## iter 42 (Feb 23, 2026) — Modal-vs-bottom-nav z-index collision FIXED
 ### Root cause
 - Bottom nav in `Layout.js` was at `z-50` — the same as every modal in the app.

@@ -211,12 +211,14 @@ class Post(BaseModel):
     likes: List[str] = []
     comments: List[Dict[str, Any]] = []
     shares: int = 0
+    is_official: Optional[bool] = False
     created_at: str
 
 class CreatePostRequest(BaseModel):
     content: str
     image: Optional[str] = None
     video: Optional[str] = None
+    is_official: Optional[bool] = False  # admin-only — triggers broadcast email fan-out
 
 class CommentRequest(BaseModel):
     content: str
@@ -971,6 +973,7 @@ async def signup(request: SignupRequest):
                 {"id": referrer["id"]},
                 {"$inc": {"network_score": 5, "wallet_balance": 10.0}}  # $10 referral bonus
             )
+            await _notify_wallet_credit(referrer["id"], 10.0, f"Referral bonus — @{request.username} joined")
     
     user_data = {
         "id": user_id,
@@ -2818,6 +2821,8 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         raise HTTPException(status_code=413, detail="Image is too large. Maximum allowed size is 11MB.")
     if request.video and len(request.video) > MAX_MEDIA_BYTES * 1.4:
         raise HTTPException(status_code=413, detail="Video is too large. Maximum allowed size is 11MB.")
+    # Only admins/moderators can flag a post as "official" (broadcasts to all users).
+    is_official = bool(request.is_official) and current_user.get("role") in ("admin", "moderator")
     post_id = str(uuid.uuid4())
     post_data = {
         "id": post_id,
@@ -2833,11 +2838,19 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         "likes": [],
         "comments": [],
         "shares": 0,
+        "is_official": is_official,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.posts.insert_one(post_data)
     await award_points(current_user["id"], "post_create", 0, source_id=post_data["id"], message="Posted new content")
+
+    # Fire-and-forget broadcast email fan-out for official posts.
+    if is_official:
+        try:
+            asyncio.create_task(_broadcast_official_post(post_data))
+        except Exception:  # noqa: BLE001
+            pass
 
     # Referral first-post bonus (+150) — fires once if invitee posts within their first 7 days
     try:
@@ -3757,6 +3770,7 @@ async def process_contribution_rewards(user_id: str, stokvel_id: str, contributi
             rewards["cashback"], tier,
             f"Cashback {int(rewards['cashback']/contribution_amount*100)}%"
         )
+        await _notify_wallet_credit(user_id, float(rewards["cashback"]), f"Stokvel cashback — {tier} tier")
 
 @api_router.get("/stokvels/{stokvel_id}/strength")
 async def get_group_strength(stokvel_id: str, current_user: dict = Depends(get_current_user)):
@@ -3940,6 +3954,7 @@ async def request_smart_access(stokvel_id: str, request: RequestSmartAccess, cur
         {"id": current_user["id"]},
         {"$inc": {"wallet_balance": request.requested_amount}}
     )
+    await _notify_wallet_credit(current_user["id"], float(request.requested_amount), "Smart Access fund release")
     
     # Reduce pool
     await db.stokvels.update_one(
@@ -4126,6 +4141,7 @@ async def _vote_withdrawal(stokvel_id: str, withdrawal_id: str, user_id: str, vo
             raise HTTPException(status_code=400, detail="Pool no longer has enough funds")
         await db.stokvels.update_one({"id": stokvel_id}, {"$inc": {"total_pool": -w["amount"]}})
         await db.users.update_one({"id": w["recipient_id"]}, {"$inc": {"wallet_balance": w["amount"]}})
+        await _notify_wallet_credit(w["recipient_id"], float(w["amount"]), f"Stokvel withdrawal — {w.get('stokvel_name','')}")
         await db.withdrawals.update_one(
             {"id": withdrawal_id},
             {"$set": {"status": "executed", "executed_at": datetime.now(timezone.utc).isoformat()}}
@@ -4977,6 +4993,118 @@ def _job_application_status_email_html(*, job_title: str, new_status: str, job_i
         cta_label="View job",
         cta_url=f"https://networkcapitalapp.co.za/jobs/{job_id}",
     )
+
+
+# ─── Rewards / Wallet / Broadcast templates ────────────────────────────────
+def _daily_rewards_digest_html(*, name: str, total_points: int, breakdown: list) -> str:
+    """Daily summary of Network Score points earned. ``breakdown`` is a list of
+    {action, points, count} dicts already prettified server-side."""
+    rows = "".join(
+        f"<tr><td style='padding:6px 0;color:#cbd5e1;font-size:13px;'>{item['label']}"
+        f"{' × ' + str(item['count']) if item['count'] > 1 else ''}</td>"
+        f"<td align='right' style='padding:6px 0;color:#f5d76e;font-size:13px;font-weight:bold;'>+{item['points']}</td></tr>"
+        for item in breakdown
+    )
+    return _branded_email_html(
+        headline=f"You earned +{total_points} pts today",
+        body_html=(
+            f"<p>Nice work, {name}. Here's your Network Score recap for today:</p>"
+            f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;'>{rows}"
+            f"<tr><td style='padding:12px 0 0;border-top:1px solid rgba(255,255,255,0.08);color:#ffffff;font-size:14px;font-weight:bold;'>Total</td>"
+            f"<td align='right' style='padding:12px 0 0;border-top:1px solid rgba(255,255,255,0.08);color:#f5d76e;font-size:14px;font-weight:bold;'>+{total_points}</td></tr>"
+            f"</table>"
+            f"<p style='font-size:12px;color:#94a3b8;margin-top:16px;'>Monthly cap is 10,000 pts. Keep showing up — tomorrow's another chance to climb.</p>"
+        ),
+        cta_label="See your score",
+        cta_url="https://networkcapitalapp.co.za/profile",
+    )
+
+
+# Friendly labels for score actions used in the rewards digest.
+_SCORE_ACTION_LABELS = {
+    "post_create": "Post published",
+    "post_like": "Like received / given",
+    "post_share": "Post shared",
+    "comment_quality": "Comment posted",
+    "video_watched": "Video watched",
+    "ad_watch_engage": "Ad engagement",
+    "ad_watch_share": "Ad share",
+    "place_review_create": "Place review",
+    "connection_made": "New connection",
+    "job_share": "Job shared",
+    "daily_checkin": "Daily check-in",
+    "weekly_resource_drop": "Weekly resource drop",
+    "referral_qualified": "Referral milestone (1k)",
+    "referral_first_post": "Referral first post bonus",
+    "referral_feature_unlock": "Referral feature unlock",
+    "stokvel_first_join": "First Stokvel join",
+    "profile_completed": "Profile completed",
+    "post_create_official": "Official post published",
+}
+
+
+def _wallet_credit_html(*, name: str, amount_usd: float, reason: str, new_balance: float) -> str:
+    return _branded_email_html(
+        headline=f"+${amount_usd:.2f} added to your Network Capital wallet",
+        body_html=(
+            f"<p>Hi {name},</p>"
+            f"<p>Your wallet was just credited:</p>"
+            f"<table width='100%' cellpadding='0' cellspacing='0' style='margin:12px 0;'>"
+            f"<tr><td style='padding:6px 0;color:#cbd5e1;font-size:13px;'>Amount</td>"
+            f"<td align='right' style='padding:6px 0;color:#f5d76e;font-size:14px;font-weight:bold;'>+${amount_usd:.2f} USD</td></tr>"
+            f"<tr><td style='padding:6px 0;color:#cbd5e1;font-size:13px;'>Reason</td>"
+            f"<td align='right' style='padding:6px 0;color:#ffffff;font-size:13px;'>{reason}</td></tr>"
+            f"<tr><td style='padding:6px 0;color:#cbd5e1;font-size:13px;border-top:1px solid rgba(255,255,255,0.08);'>New balance</td>"
+            f"<td align='right' style='padding:6px 0;color:#ffffff;font-size:14px;font-weight:bold;border-top:1px solid rgba(255,255,255,0.08);'>${new_balance:.2f} USD</td></tr>"
+            f"</table>"
+            f"<p style='font-size:12px;color:#94a3b8;'>Withdrawals unlock at 3,500 pts. Funds reflect in your wallet immediately.</p>"
+        ),
+        cta_label="View wallet",
+        cta_url="https://networkcapitalapp.co.za/wallet",
+    )
+
+
+def _official_broadcast_html(*, recipient_name: str, headline: str, content_preview: str, post_id: str) -> str:
+    return _branded_email_html(
+        headline=headline,
+        body_html=(
+            f"<p>Hi {recipient_name},</p>"
+            f"<p>The Network Capital team just shared an update with the community:</p>"
+            f"<blockquote style='margin:12px 0;padding:12px 16px;border-left:3px solid #f5d76e;background:rgba(245,215,110,0.06);"
+            f"color:#e2e8f0;font-size:14px;line-height:22px;border-radius:0 8px 8px 0;'>{content_preview}</blockquote>"
+            f"<p style='font-size:12px;color:#94a3b8;'>Read the full post and react in the app.</p>"
+        ),
+        cta_label="Open in app",
+        cta_url=f"https://networkcapitalapp.co.za/feed?post={post_id}",
+        kicker="Network Capital · Official",
+    )
+
+
+# ─── Hook helpers — fire-and-forget, never raise ─────────────────────────────
+async def _notify_wallet_credit(user_id: str, amount_usd: float, reason: str) -> None:
+    """Email the user when their wallet is credited. Skips on debit / no email."""
+    try:
+        if amount_usd <= 0:
+            return
+        user = await db.users.find_one(
+            {"id": user_id},
+            {"_id": 0, "email": 1, "full_name": 1, "username": 1, "wallet_balance": 1, "email_verified": 1},
+        )
+        if not user or not user.get("email") or not user.get("email_verified"):
+            return
+        await _send_branded_email(
+            to=str(user["email"]).strip().lower(),
+            subject=f"+${amount_usd:.2f} added to your Network Capital wallet",
+            html=_wallet_credit_html(
+                name=(user.get("full_name") or user.get("username") or "there"),
+                amount_usd=float(amount_usd),
+                reason=reason,
+                new_balance=float(user.get("wallet_balance", 0.0)),
+            ),
+            kind="wallet_credit",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[MAIL-FAIL:wallet_credit] user={user_id} err={exc}")
 
 
 OTP_TTL_MINUTES = 10
@@ -7205,6 +7333,8 @@ async def _apply_credit_grant(grant: dict, admin: dict) -> None:
     amount_usd = grant["usd_equiv"]
     if grant["target_type"] == "user":
         await db.users.update_one({"id": grant["target_id"]}, {"$inc": {"wallet_balance": amount_usd}})
+        if amount_usd > 0:
+            await _notify_wallet_credit(grant["target_id"], float(amount_usd), f"Admin credit — {grant.get('reason','')[:80]}")
         # In-app notification (include `points` for forward-compat with strict NotificationModel)
         await db.notifications.insert_one({
             "id": str(uuid.uuid4()),
@@ -8426,6 +8556,173 @@ async def iter29_start_promo_loop():
     global _PROMO_NOTIFIER_TASK
     if _PROMO_NOTIFIER_TASK is None or _PROMO_NOTIFIER_TASK.done():
         _PROMO_NOTIFIER_TASK = asyncio.create_task(_promotion_notifier_loop())
+
+
+# ============== DAILY REWARDS DIGEST (Brevo) ==============
+# Fires once per user per day at >= 21:00 SAST (19:00 UTC) — only if they earned
+# points today. Idempotency: user.last_rewards_digest_date == today's SAST date.
+_DAILY_DIGEST_TASK: Optional[asyncio.Task] = None
+_DAILY_DIGEST_HOUR_UTC = 19  # 21:00 SAST
+_DAILY_DIGEST_POLL_SECONDS = 600  # check every 10 min
+
+
+def _sast_today_key() -> str:
+    """Today's date key in SAST (UTC+2). Promotions also use SAST as the canonical TZ."""
+    return (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%d")
+
+
+async def _send_one_daily_digest(user: dict, digest_date_key: str) -> bool:
+    """Build & send the daily digest for ONE user. Returns True if sent."""
+    user_id = user["id"]
+    pipeline = [
+        {"$match": {"user_id": user_id, "date_key": digest_date_key}},
+        {"$group": {"_id": "$action", "points": {"$sum": "$points"}, "count": {"$sum": 1}}},
+        {"$sort": {"points": -1}},
+    ]
+    rows = await db.score_events.aggregate(pipeline).to_list(length=None)
+    if not rows:
+        return False
+    total = sum(int(r.get("points", 0)) for r in rows)
+    if total <= 0:
+        return False
+    breakdown = [
+        {
+            "label": _SCORE_ACTION_LABELS.get(r["_id"], r["_id"].replace("_", " ").title()),
+            "points": int(r.get("points", 0)),
+            "count": int(r.get("count", 1)),
+        }
+        for r in rows
+    ]
+    email = (user.get("email") or "").strip().lower()
+    if not email or not user.get("email_verified") or not _is_broadcast_eligible_email(email):
+        return False
+    await _send_branded_email(
+        to=email,
+        subject=f"Your Network Capital recap — +{total} pts today",
+        html=_daily_rewards_digest_html(
+            name=(user.get("full_name") or user.get("username") or "there"),
+            total_points=total,
+            breakdown=breakdown,
+        ),
+        kind="rewards_digest",
+    )
+    return True
+
+
+async def _run_daily_digest_sweep() -> int:
+    """One sweep: send to every verified user with points today and no digest yet.
+    Returns number of emails sent."""
+    today = _sast_today_key()
+    sent = 0
+    # Distinct users with score events today
+    user_ids = await db.score_events.distinct("user_id", {"date_key": today})
+    if not user_ids:
+        return 0
+    for uid in user_ids:
+        try:
+            user = await db.users.find_one(
+                {"id": uid, "email_verified": True, "last_rewards_digest_date": {"$ne": today}},
+                {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1, "email_verified": 1},
+            )
+            if not user:
+                continue
+            delivered = await _send_one_daily_digest(user, today)
+            if delivered:
+                await db.users.update_one(
+                    {"id": uid},
+                    {"$set": {"last_rewards_digest_date": today,
+                              "last_rewards_digest_at": datetime.now(timezone.utc).isoformat()}},
+                )
+                sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[DIGEST-FAIL] user={uid} err={exc}")
+    return sent
+
+
+async def _daily_digest_loop() -> None:
+    """Background loop — every 10 min checks if SAST hour >= 21 and runs sweep."""
+    await asyncio.sleep(30)  # avoid blocking startup
+    while True:
+        try:
+            sast_now = datetime.now(timezone.utc) + timedelta(hours=2)
+            if sast_now.hour >= 21:  # 21:00 SAST onwards
+                sent = await _run_daily_digest_sweep()
+                if sent:
+                    logger.info(f"[DIGEST] Sent {sent} daily rewards emails for {_sast_today_key()}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[DIGEST-LOOP] err={exc}")
+        await asyncio.sleep(_DAILY_DIGEST_POLL_SECONDS)
+
+
+@app.on_event("startup")
+async def start_daily_digest_loop():
+    global _DAILY_DIGEST_TASK
+    if _DAILY_DIGEST_TASK is None or _DAILY_DIGEST_TASK.done():
+        _DAILY_DIGEST_TASK = asyncio.create_task(_daily_digest_loop())
+
+
+# Admin-trigger endpoint so QA can fire the digest without waiting until 21:00 SAST.
+@api_router.post("/admin/rewards/digest/run")
+async def admin_run_rewards_digest(admin: dict = Depends(require_admin_user)):
+    """Force-run today's digest sweep. Idempotent — users already emailed today are skipped."""
+    sent = await _run_daily_digest_sweep()
+    return {"ok": True, "sent": sent, "date_key_sast": _sast_today_key()}
+
+
+# ============== OFFICIAL BROADCAST (Brevo) ==============
+# When an admin posts with is_official=True, email every verified user.
+# Test / non-deliverable domains are skipped so QA pollution doesn't burn quota.
+_BROADCAST_SKIP_DOMAINS = {"example.com", "example.org", "example.net", "test.com", "qa.local"}
+
+
+def _is_broadcast_eligible_email(email: str) -> bool:
+    if not email or "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[-1].lower()
+    return domain not in _BROADCAST_SKIP_DOMAINS
+
+
+async def _broadcast_official_post(post: dict) -> int:
+    """Fan-out email send. Runs as a background task. Returns count sent."""
+    sent = 0
+    headline = "New update from Network Capital"
+    preview_raw = (post.get("content") or "").strip()
+    if len(preview_raw) > 320:
+        preview_raw = preview_raw[:317] + "…"
+    # Basic HTML escape on the preview to keep template safe.
+    import html as _html
+    preview = _html.escape(preview_raw).replace("\n", "<br/>")
+    cursor = db.users.find(
+        {"email_verified": True, "email": {"$exists": True, "$ne": ""}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1, "broadcast_opt_out": 1},
+    )
+    async for u in cursor:
+        if u.get("broadcast_opt_out"):
+            continue
+        email = (u.get("email") or "").strip().lower()
+        if not _is_broadcast_eligible_email(email):
+            continue
+        try:
+            ok = await _send_branded_email(
+                to=email,
+                subject="Network Capital · New official update",
+                html=_official_broadcast_html(
+                    recipient_name=(u.get("full_name") or u.get("username") or "there"),
+                    headline=headline,
+                    content_preview=preview,
+                    post_id=post["id"],
+                ),
+                kind="official_broadcast",
+            )
+            if ok:
+                sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[BROADCAST-FAIL] user={u.get('id')} err={exc}")
+        # Gentle throttle — Brevo free tier is 300/day, paid plans much higher.
+        # Sleep keeps us under burst limits without DoSing our own loop.
+        await asyncio.sleep(0.05)
+    logger.info(f"[BROADCAST] Official post {post['id']} fan-out complete — sent={sent}")
+    return sent
 
 
 # ---- Seed the M/W/F 08-12 SAST promotion if none exist --------------------
