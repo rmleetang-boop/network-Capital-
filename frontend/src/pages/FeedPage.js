@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
-import MockAdButton from '../components/MockAdButton';
+import NativeFeedAd from '../components/NativeFeedAd';
 import StoriesRibbon from '../components/StoriesRibbon';
 import StoryViewer from '../components/StoryViewer';
 import HashtagText from '../components/HashtagText';
@@ -271,7 +271,7 @@ const FeedPage = ({ user }) => {
       </div>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
-        <MockAdButton />
+        <NativeFeedAd />
         {posts.map((post, index) => (
           <PostCard
             key={post.id}

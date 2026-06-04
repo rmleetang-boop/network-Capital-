@@ -5,7 +5,22 @@ import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import CreditGrantModal from '../components/CreditGrantModal';
 
-const ROLE_OPTIONS = ['user', 'ambassador', 'moderator', 'admin'];
+const ROLE_OPTIONS = ['user', 'ambassador', 'moderator', 'admin', 'super_admin'];
+
+// Pre-set Network-Score brackets (per-thousand).  Free min/max also supported.
+const SCORE_BRACKETS = [
+  { label: '0 – 1k', min: 0, max: 1000 },
+  { label: '1k – 2k', min: 1000, max: 2000 },
+  { label: '2k – 3k', min: 2000, max: 3000 },
+  { label: '3k – 4k', min: 3000, max: 4000 },
+  { label: '4k – 5k', min: 4000, max: 5000 },
+  { label: '5k – 6k', min: 5000, max: 6000 },
+  { label: '6k – 7k', min: 6000, max: 7000 },
+  { label: '7k – 8k', min: 7000, max: 8000 },
+  { label: '8k – 9k', min: 8000, max: 9000 },
+  { label: '9k – 10k', min: 9000, max: 10000 },
+  { label: '10k+ (Top Contributor)', min: 10000, max: 1000000 },
+];
 
 const AdminUsersPage = ({ user }) => {
   const navigate = useNavigate();
@@ -16,17 +31,30 @@ const AdminUsersPage = ({ user }) => {
   const [openMenu, setOpenMenu] = useState(null);
   const [creditTarget, setCreditTarget] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [scoreFilter, setScoreFilter] = useState(null);   // { min, max } | null
+  const [customRange, setCustomRange] = useState({ min: '', max: '' });
 
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
+  const isSuperAdmin = user && user.role === 'super_admin';
 
   const load = async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (q.trim()) params.q = q.trim();
-      if (roleFilter) params.role = roleFilter;
-      const r = await axiosInstance.get('/admin/users-list', { params });
-      setUsers(r.data || []);
+      // If a score bracket is selected, use /admin/users/by-score; otherwise the
+      // legacy /admin/users-list endpoint (which doesn't know about brackets).
+      if (scoreFilter) {
+        const params = { min_score: scoreFilter.min, max_score: scoreFilter.max, limit: 500 };
+        if (q.trim()) params.q = q.trim();
+        if (roleFilter) params.role = roleFilter;
+        const r = await axiosInstance.get('/admin/users/by-score', { params });
+        setUsers(r.data?.users || []);
+      } else {
+        const params = {};
+        if (q.trim()) params.q = q.trim();
+        if (roleFilter) params.role = roleFilter;
+        const r = await axiosInstance.get('/admin/users-list', { params });
+        setUsers(r.data || []);
+      }
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Could not load users');
     } finally {
@@ -34,7 +62,17 @@ const AdminUsersPage = ({ user }) => {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [roleFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [roleFilter, scoreFilter]);
+
+  const applyCustomRange = () => {
+    const lo = Number(customRange.min);
+    const hi = Number(customRange.max);
+    if (Number.isNaN(lo) || Number.isNaN(hi) || hi <= lo) {
+      toast.error('Enter a valid min < max');
+      return;
+    }
+    setScoreFilter({ min: lo, max: hi });
+  };
 
   const setRole = async (uid, role) => {
     if (!window.confirm(`Set this user's role to ${role.toUpperCase()}?`)) return;
@@ -142,6 +180,64 @@ const AdminUsersPage = ({ user }) => {
           <button onClick={load} className="bg-primary text-white text-xs font-semibold px-3 py-2 rounded-full" data-testid="admin-users-go">Go</button>
         </div>
 
+        {/* Score-bracket filter strip — preset thousand-step chips + custom range */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-3" data-testid="admin-users-bracket-filter">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted">Filter by Network Score</p>
+            {scoreFilter && (
+              <button
+                onClick={() => { setScoreFilter(null); setCustomRange({ min: '', max: '' }); }}
+                className="text-[11px] font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                data-testid="admin-bracket-clear"
+              >
+                <X size={11} /> Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {SCORE_BRACKETS.map((b) => {
+              const active = scoreFilter && scoreFilter.min === b.min && scoreFilter.max === b.max;
+              return (
+                <button
+                  key={b.label}
+                  onClick={() => setScoreFilter({ min: b.min, max: b.max })}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                    active ? 'bg-primary text-white border-primary' : 'bg-gray-50 hover:bg-gray-100 text-text-secondary border-gray-200'
+                  }`}
+                  data-testid={`bracket-chip-${b.min}-${b.max}`}
+                >
+                  {b.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number" min="0" placeholder="Custom min"
+              value={customRange.min} onChange={(e) => setCustomRange({ ...customRange, min: e.target.value })}
+              className="flex-1 px-3 py-1.5 border border-gray-200 rounded-full text-xs outline-none focus:border-primary"
+              data-testid="bracket-custom-min"
+            />
+            <span className="text-text-muted text-xs">–</span>
+            <input
+              type="number" min="1" placeholder="Custom max"
+              value={customRange.max} onChange={(e) => setCustomRange({ ...customRange, max: e.target.value })}
+              className="flex-1 px-3 py-1.5 border border-gray-200 rounded-full text-xs outline-none focus:border-primary"
+              data-testid="bracket-custom-max"
+            />
+            <button
+              onClick={applyCustomRange}
+              className="bg-secondary text-primary text-xs font-bold px-3 py-1.5 rounded-full"
+              data-testid="bracket-custom-apply"
+            >Apply</button>
+          </div>
+          {scoreFilter && (
+            <p className="text-[11px] text-text-muted mt-2" data-testid="bracket-active-label">
+              Showing users with Network Score <strong className="text-primary">{scoreFilter.min.toLocaleString()} – {scoreFilter.max.toLocaleString()}</strong>
+            </p>
+          )}
+        </div>
+
         {loading ? (
           <div className="p-8 text-center text-text-muted"><Loader2 className="mx-auto animate-spin" /></div>
         ) : (
@@ -186,9 +282,15 @@ const AdminUsersPage = ({ user }) => {
                   </button>
                   {openMenu === u.id && (
                     <div onClick={(e) => e.stopPropagation()} className="absolute right-3 top-12 z-20 bg-white border border-gray-100 shadow-lg rounded-xl py-1 min-w-[180px]" data-testid={`admin-user-menu-${u.id}`}>
-                      <button onClick={() => { setOpenMenu(null); setCreditTarget({ id: u.id, label }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 inline-flex items-center gap-2" data-testid={`menu-credit-${u.id}`}>
-                        <DollarSign size={12} /> Adjust balance
-                      </button>
+                      {isSuperAdmin ? (
+                        <button onClick={() => { setOpenMenu(null); setCreditTarget({ id: u.id, label }); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 inline-flex items-center gap-2" data-testid={`menu-credit-${u.id}`}>
+                          <DollarSign size={12} /> Adjust balance
+                        </button>
+                      ) : (
+                        <div className="px-3 py-2 text-[10px] text-text-muted inline-flex items-center gap-1.5" data-testid={`menu-credit-disabled-${u.id}`}>
+                          <DollarSign size={12} /> Balance — owner only
+                        </div>
+                      )}
                       <button onClick={() => { setOpenMenu(null); suspendUser(u.id, u.suspended); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 inline-flex items-center gap-2" data-testid={`menu-suspend-${u.id}`}>
                         <Ban size={12} /> {u.suspended ? 'Unsuspend' : 'Suspend'}
                       </button>

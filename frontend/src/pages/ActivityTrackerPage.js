@@ -100,7 +100,7 @@ const ActivityTrackerPage = ({ user }) => {
         subtitle="Track how your participation builds your Network Score this month."
         bullets={[
           { icon: <Flame size={14} />, label: 'Daily check-ins & streaks', body: 'Log in every day to keep your streak alive — streaks unlock soft-cap boosts.' },
-          { icon: <TrendingUp size={14} />, label: 'Monthly cap: 10,000 points', body: 'Your score resets at the start of every calendar month. Daily and weekly soft caps protect against gaming.' },
+          { icon: <TrendingUp size={14} />, label: 'Top Contributor threshold: 10,000 / month', body: 'Your score grows uncapped. Reaching 10,000 in a month unlocks the Top Contributor badge and Premium-for-free claim. Daily and weekly soft caps protect against gaming.' },
           { icon: <Sparkles size={14} />, label: 'Premium 2× multiplier', body: 'Premium members earn double on qualifying actions during their active period.' },
         ]}
       />
@@ -111,7 +111,7 @@ const ActivityTrackerPage = ({ user }) => {
           </div>
           <div>
             <h1 className="text-xl font-heading font-bold text-white">Score Tracker</h1>
-            <p className="text-xs text-white/60">Network Score — 10,000 / month (resets monthly)</p>
+            <p className="text-xs text-white/60">Network Score — score grows uncapped · 10,000/month = Top Contributor</p>
           </div>
         </div>
       </div>
@@ -167,7 +167,7 @@ const ActivityTrackerPage = ({ user }) => {
                 <p className="text-white font-bold">You hit the cap!</p>
               </div>
               <p className="text-white/80 text-sm mb-3">
-                Claim Premium for free as a reward for reaching 10,000 monthly points.
+                Claim Premium for free as a reward for reaching the 10,000 monthly Top Contributor threshold.
               </p>
               <button
                 onClick={handleClaim}
@@ -262,7 +262,7 @@ const ActivityTrackerPage = ({ user }) => {
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
           className="bg-white/5 rounded-2xl p-5 border border-white/10"
         >
-          <h2 className="text-white font-bold mb-3 text-sm">How to earn points · monthly cap 10,000</h2>
+          <h2 className="text-white font-bold mb-3 text-sm">How to earn points · uncapped growth · 10,000/month = Top Contributor</h2>
           <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Tier 1 · Ad engagement</p>
           <ul className="space-y-1 text-white/70 text-xs mb-3">
             <li>• Watch ad + engage with product: <strong className="text-white">+500</strong> <span className="opacity-60">(5/day)</span></li>

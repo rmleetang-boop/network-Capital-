@@ -534,8 +534,16 @@ async def update_user_score(user_id: str, points: int, notification_msg: str, ac
 # Per-action daily caps + 24h same-source cooldown + 80% single-action review flag.
 # ============================================================================
 
-MONTHLY_SCORE_CAP = 10000
-LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP   # legacy alias kept for /tiers endpoint
+# ============== NETWORK SCORE — uncapped growth, 10k = top contributor ==
+# Score grows indefinitely. The 10,000 threshold is the "Top Contributor"
+# monthly badge — reaching it qualifies the member for badge / premium rewards,
+# but additional points beyond 10k still count toward lifetime rank.
+# Per-action daily caps + 24h same-source cooldown + 80% single-action review flag.
+# ============================================================================
+
+MONTHLY_TOP_CONTRIBUTOR_THRESHOLD = 10000
+MONTHLY_SCORE_CAP = MONTHLY_TOP_CONTRIBUTOR_THRESHOLD   # legacy alias kept for compat; no longer enforces a hard cap
+LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP                  # legacy alias kept for /tiers endpoint
 WEEKLY_RESOURCE_DROP_LIMIT = 1
 PREMIUM_TOP_GRACE_DAYS = 90
 
@@ -801,8 +809,9 @@ async def award_points(
         return 0
 
     monthly = user.get("monthly_score", 0)
-    if monthly >= MONTHLY_SCORE_CAP:
-        return 0
+    # Score growth is no longer hard-capped at the monthly threshold. The 10k
+    # mark only flags the "Top Contributor" badge. We still respect per-action
+    # daily caps and the 24h same-source cooldown below.
 
     # Per-action daily count cap
     cfg = SCORE_TABLE.get(action) or {}
@@ -848,7 +857,7 @@ async def award_points(
             pass
     multiplier = 2 if (is_premium or is_founder_active) else 1
     awarded = base_points * multiplier
-    awarded = min(awarded, MONTHLY_SCORE_CAP - monthly)
+    # No hard ceiling — score grows uncapped. The 10k threshold is informational.
     if awarded <= 0:
         return 0
 
@@ -859,8 +868,10 @@ async def award_points(
         "network_score": new_monthly,
         "rank": calculate_rank(new_monthly),
     }
-    if new_monthly >= MONTHLY_SCORE_CAP and not user.get("cap_reached_at"):
+    if new_monthly >= MONTHLY_TOP_CONTRIBUTOR_THRESHOLD and not user.get("cap_reached_at"):
+        # First time hitting 10k this month → mark as Top Contributor.
         update["cap_reached_at"] = datetime.now(timezone.utc).isoformat()
+        update["top_contributor_at"] = update["cap_reached_at"]
 
     await db.users.update_one({"id": user_id}, {"$set": update})
 
@@ -2976,6 +2987,33 @@ async def delete_comment(post_id: str, comment_id: str, current_user: dict = Dep
 @api_router.get("/posts", response_model=List[Post])
 async def get_posts(skip: int = 0, limit: int = 20):
     posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    return await _enrich_posts_with_live_score(posts)
+
+
+async def _enrich_posts_with_live_score(posts: List[dict]) -> List[dict]:
+    """Replace the denormalised `user_score` on each post with the author's
+    current `network_score`.  This fixes the Feed-vs-Profile drift where the
+    chip on the post header would lag behind the user's actual score until they
+    posted again.  Idempotent and safe on empty input."""
+    if not posts:
+        return posts
+    author_ids = list({p.get("user_id") for p in posts if p.get("user_id")})
+    if not author_ids:
+        return posts
+    rows = await db.users.find(
+        {"id": {"$in": author_ids}},
+        {"_id": 0, "id": 1, "network_score": 1, "username": 1, "photo": 1},
+    ).to_list(length=None)
+    by_id = {r["id"]: r for r in rows}
+    for p in posts:
+        live = by_id.get(p.get("user_id"))
+        if live:
+            p["user_score"] = int(live.get("network_score") or 0)
+            # Also refresh the username/photo snapshots so renames propagate.
+            if live.get("username"):
+                p["username"] = live["username"]
+            if live.get("photo"):
+                p["user_photo"] = live["photo"]
     return posts
 
 @api_router.post("/posts/{post_id}/like")
@@ -5064,8 +5102,7 @@ def _wallet_credit_html(*, name: str, amount_usd: float, reason: str, new_balanc
     )
 
 
-def _official_broadcast_html(*, recipient_name: str, headline: str, content_preview: str, post_id: str) -> str:
-    return _branded_email_html(
+def _official_broadcast_html(*, recipient_name: str, headline: str, content_preview: str, post_id: str) -> str:    return _branded_email_html(
         headline=headline,
         body_html=(
             f"<p>Hi {recipient_name},</p>"
@@ -5105,6 +5142,73 @@ async def _notify_wallet_credit(user_id: str, amount_usd: float, reason: str) ->
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"[MAIL-FAIL:wallet_credit] user={user_id} err={exc}")
+
+
+def _role_change_html(*, name: str, previous_role: str, new_role: str, granted: bool) -> str:
+    """Friendly explainer for each role — keeps the email actionable."""
+    role_blurbs = {
+        "admin": "You now have admin privileges — manage users, content, and platform-wide settings.",
+        "moderator": "You're now a moderator — help keep the community healthy by reviewing flagged content.",
+        "ambassador": "Welcome to the Ambassador programme — invite members, build influence, unlock exclusive rewards.",
+        "super_admin": "You're the platform owner. Wallet adjustments and system-wide controls are now available to you.",
+        "user": "Your access has been updated to a standard member.",
+    }
+    pretty_new = (new_role or "user").replace("_", " ").title()
+    pretty_prev = (previous_role or "user").replace("_", " ").title()
+    headline = (
+        f"You've been granted the {pretty_new} role"
+        if granted else
+        f"Your {pretty_prev} role has been revoked"
+    )
+    body = (
+        f"<p>Hi {name},</p>"
+        f"<p>{('You have been promoted to' if granted else 'Your role has been changed from')} "
+        f"<strong style='color:#f5d76e;'>{pretty_prev}</strong> "
+        f"<span style='color:#94a3b8;'>→</span> "
+        f"<strong style='color:#f5d76e;'>{pretty_new}</strong>.</p>"
+        f"<p>{role_blurbs.get(new_role if granted else 'user', '')}</p>"
+        f"<p style='font-size:12px;color:#94a3b8;'>If you didn't expect this change, contact support immediately.</p>"
+    )
+    return _branded_email_html(
+        headline=headline,
+        body_html=body,
+        cta_label="Open Network Capital",
+        cta_url="https://networkcapitalapp.co.za/",
+    )
+
+
+async def _notify_role_change(*, user: dict, previous_role: str, new_role: str, actor_username: str) -> None:
+    """Fire-and-forget email + in-app notification for any role change."""
+    try:
+        email = (user.get("email") or "").strip().lower()
+        # Define which transitions count as "grant" (everything except → user/default).
+        granted = (new_role not in ("user",))
+        # In-app notification (always)
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["id"],
+            "type": "role_change",
+            "title": f"Role updated — {new_role.replace('_',' ').title()}",
+            "message": f"Your role changed from {previous_role} to {new_role}",
+            "points": 0,
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        if not email or not user.get("email_verified"):
+            return
+        await _send_branded_email(
+            to=email,
+            subject=f"Your Network Capital role is now: {new_role.replace('_',' ').title()}",
+            html=_role_change_html(
+                name=(user.get("full_name") or user.get("username") or "there"),
+                previous_role=previous_role,
+                new_role=new_role,
+                granted=granted,
+            ),
+            kind="role_change",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[MAIL-FAIL:role_change] user={user.get('id')} err={exc}")
 
 
 OTP_TTL_MINUTES = 10
@@ -5715,6 +5819,44 @@ async def cancel_deletion(current_user: dict = Depends(get_current_user)):
 
 
 @app.on_event("startup")
+async def bootstrap_super_admin():
+    """Ensure the Platform Owner has the `super_admin` role.
+    Idempotent — runs once per startup, only touches the single configured email."""
+    try:
+        target_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
+        if not target_email:
+            return
+        owner = await db.users.find_one(
+            {"email": target_email},
+            {"_id": 0, "id": 1, "role": 1},
+        )
+        if owner and owner.get("role") != "super_admin":
+            await db.users.update_one(
+                {"id": owner["id"]},
+                {"$set": {"role": "super_admin", "is_ambassador": False}},
+            )
+            logger.info(f"[BOOTSTRAP] Promoted {target_email} to super_admin")
+    except Exception as e:
+        logger.warning(f"bootstrap_super_admin skipped: {e}")
+
+
+# ============== JUNE 2026 PAYOUT BLOCK ==============
+# Hard server-side gate: no withdrawals (creation or admin approval) before
+# the cutoff. After cutoff, normal flow resumes. The window is configurable
+# via env if the policy shifts.
+JUNE_PAYOUT_RELEASE_AT = datetime(2026, 6, 30, 21, 59, 59, tzinfo=timezone.utc)  # 23:59:59 SAST
+
+
+def _is_june_payout_locked() -> bool:
+    return datetime.now(timezone.utc) < JUNE_PAYOUT_RELEASE_AT
+
+
+def _june_payout_message() -> str:
+    return ("All June withdrawals are processed from 30 June 2026 (23:59 SAST). "
+            "Requests submitted earlier remain pending until the release date.")
+
+
+@app.on_event("startup")
 async def purge_overdue_deletions():
     """Hard-delete user docs whose 30-day deletion grace has elapsed."""
     try:
@@ -6212,11 +6354,26 @@ async def seed_network_capital_job():
 # ============================================================================
 
 # ---- ROLE-BASED ADMIN ------------------------------------------------------
+# Role hierarchy: user → moderator → admin → super_admin
+# - moderator: content moderation only
+# - admin: user management, role changes (except super_admin grant), withdrawals, ads
+# - super_admin: PLATFORM OWNER — wallet balance adjustments, system-wide ops
+SUPER_ADMIN_EMAIL = "rmleetang@gmail.com"  # Platform owner — single tenant
+
+
 async def require_admin_user(current_user: dict = Depends(get_current_user)):
-    """JWT-based admin check (role ∈ {admin, moderator}). Replaces password-only gate."""
+    """JWT-based admin check (role ∈ {admin, moderator, super_admin})."""
     role = current_user.get("role") or "user"
-    if role not in ("admin", "moderator"):
+    if role not in ("admin", "moderator", "super_admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+async def require_super_admin(current_user: dict = Depends(get_current_user)):
+    """Platform owner only. Standard admins are explicitly denied."""
+    role = current_user.get("role") or "user"
+    if role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super-admin (platform owner) access required")
     return current_user
 
 
@@ -6257,25 +6414,65 @@ async def admin_set_user_role(
     payload: PromoteUserRequest,
     admin: dict = Depends(require_admin_user),
 ):
-    # Only admin (not moderator) can change roles.
-    if admin.get("role") != "admin":
+    # Only admin / super_admin (not moderator) can change roles.
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can change user roles")
-    if payload.role not in ("admin", "moderator", "user", "ambassador"):
+    if payload.role not in ("admin", "moderator", "user", "ambassador", "super_admin"):
         raise HTTPException(status_code=400, detail="Invalid role")
-    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "role": 1})
+    # Only super_admin can grant/revoke super_admin.
+    if payload.role == "super_admin" and admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only the platform owner can grant super-admin role")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "role": 1, "is_ambassador": 1, "full_name": 1, "username": 1, "email_verified": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    # Block standard admins from demoting / changing the platform owner.
+    if target.get("role") == "super_admin" and admin.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Cannot modify the platform owner's role")
+
+    prev_role = target.get("role") or "user"
+    prev_is_ambassador = bool(target.get("is_ambassador"))
+
     # "ambassador" is a flag-driven pseudo-role: store role='user' but flip is_ambassador on.
-    # Any non-ambassador role flips is_ambassador OFF so the badge doesn't linger.
     if payload.role == "ambassador":
         await db.users.update_one(
             {"id": user_id},
             {"$set": {"role": "user", "is_ambassador": True,
                       "ambassador_rank": target.get("ambassador_rank") or "Rising Star"}},
         )
-        return {"ok": True, "user_id": user_id, "role": "user", "is_ambassador": True}
-    await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role, "is_ambassador": False}})
-    return {"ok": True, "user_id": user_id, "role": payload.role, "is_ambassador": False}
+        new_role_label = "ambassador"
+        new_role_actual = "user"
+        new_is_ambassador = True
+    else:
+        await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role, "is_ambassador": False}})
+        new_role_label = payload.role
+        new_role_actual = payload.role
+        new_is_ambassador = False
+
+    # Email notification — fire on both grant AND revoke, per product spec.
+    try:
+        prev_label = "ambassador" if prev_is_ambassador else prev_role
+        if prev_label != new_role_label:
+            await _notify_role_change(
+                user=target,
+                previous_role=prev_label,
+                new_role=new_role_label,
+                actor_username=admin.get("username") or "admin",
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[ROLE-EMAIL-FAIL] user={user_id} err={exc}")
+
+    # Audit log
+    try:
+        await AuditLog.write(
+            actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+            action="role.change", target_type="user", target_id=user_id,
+            reason=f"role {prev_label} → {new_role_label}",
+            metadata={"previous": prev_label, "new": new_role_label},
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "user_id": user_id, "role": new_role_actual, "is_ambassador": new_is_ambassador, "role_label": new_role_label}
 
 
 @api_router.get("/admin/users-list")
@@ -6299,6 +6496,118 @@ async def admin_list_users(
         "_id": 0, "password": 0,
     }).limit(min(limit, 500))
     return await cursor.to_list(length=None)
+
+
+# ---- ADMIN: User filter by Network-Score bracket --------------------------
+@api_router.get("/admin/users/by-score")
+async def admin_users_by_score(
+    min_score: int = 0,
+    max_score: int = 1_000_000,
+    bracket: Optional[str] = None,   # convenience: "0-1000", "1000-2000", ...
+    role: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+    admin: dict = Depends(require_admin_user),
+):
+    """Returns users whose network_score is within [min_score, max_score).
+
+    Supports preset thousand-step brackets via ``bracket="N-M"`` query.  Used by
+    the Super-Admin "balance ops" tools and the admin user-bracket selector
+    described in the platform-enhancement spec."""
+    lo, hi = int(min_score), int(max_score)
+    if bracket:
+        try:
+            a, b = bracket.split("-", 1)
+            lo, hi = int(a), int(b)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="bracket must be 'min-max', e.g. '0-1000'")
+    if lo < 0 or hi <= lo:
+        raise HTTPException(status_code=400, detail="min must be >= 0 and max must be > min")
+
+    query: Dict[str, Any] = {"network_score": {"$gte": lo, "$lt": hi}}
+    if role:
+        query["role"] = role
+    if q:
+        query["$or"] = [
+            {"email": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q, "$options": "i"}},
+            {"full_name": {"$regex": q, "$options": "i"}},
+        ]
+    proj = {
+        "_id": 0, "password": 0,
+        # Trim heavy fields the list view doesn't need
+        "photo": 0, "banking": 0, "places_owned": 0,
+    }
+    rows = await db.users.find(query, proj).sort("network_score", -1).limit(min(limit, 1000)).to_list(length=None)
+    return {"bracket": [lo, hi], "count": len(rows), "users": rows}
+
+
+# ---- ADMIN: detailed Network-Score breakdown for a single user ------------
+@api_router.get("/admin/users/{user_id}/score-breakdown")
+async def admin_user_score_breakdown(
+    user_id: str,
+    days: int = 90,
+    limit: int = 500,
+    admin: dict = Depends(require_admin_user),
+):
+    """Audit-grade view: per-event listing with action, points, multiplier,
+    source_id, and totals by action.  Used by the AdminProfileDetailPage
+    drawer for compliance / score-audit visibility."""
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "email": 1,
+         "network_score": 1, "monthly_score": 1, "rank": 1, "cap_reached_at": 1,
+         "is_premium": 1, "founder_multiplier_until": 1},
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, days))).isoformat()
+    events = await db.score_events.find(
+        {"user_id": user_id, "created_at": {"$gte": cutoff}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(min(limit, 2000)).to_list(length=None)
+
+    # Per-action totals across the window
+    pipeline = [
+        {"$match": {"user_id": user_id, "created_at": {"$gte": cutoff}}},
+        {"$group": {
+            "_id": "$action",
+            "points": {"$sum": "$points"},
+            "count": {"$sum": 1},
+            "last_at": {"$max": "$created_at"},
+        }},
+        {"$sort": {"points": -1}},
+    ]
+    by_action = await db.score_events.aggregate(pipeline).to_list(length=None)
+    totals = {
+        "events": len(events),
+        "points": sum(int(e.get("points", 0)) for e in events),
+    }
+    return {
+        "user": user,
+        "window_days": days,
+        "totals": totals,
+        "by_action": [
+            {"action": r["_id"], "points": int(r["points"]),
+             "count": int(r["count"]), "last_at": r["last_at"]}
+            for r in by_action
+        ],
+        "events": events,
+    }
+
+
+# ---- Public payout-window state — surfaced to frontend banner -------------
+@api_router.get("/payouts/status")
+async def payouts_status():
+    """Returns whether the June 2026 payout block is active.
+    Public — no auth — so the wallet page can render the banner client-side."""
+    locked = _is_june_payout_locked()
+    return {
+        "locked": locked,
+        "release_at": JUNE_PAYOUT_RELEASE_AT.isoformat(),
+        "message": _june_payout_message() if locked else "Withdrawals are currently being processed.",
+    }
 
 
 # ---- ADMIN DASHBOARD METRICS ----------------------------------------------
@@ -7270,10 +7579,9 @@ def _to_usd(amount: float, currency: str) -> float:
 
 
 @api_router.post("/admin/credit-grants")
-async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = Depends(require_admin_user)):
-    # Credit grants are an admin-only privilege (moderators can moderate content but not move money).
-    if admin.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can issue credit grants")
+async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = Depends(require_super_admin)):
+    # Credit grants move real money — restricted to the Platform Owner (super_admin) only.
+    # Standard admins cannot adjust user balances. This is enforced by require_super_admin.
     if not payload.reason or len(payload.reason.strip()) < 10:
         raise HTTPException(status_code=400, detail="Reason must be at least 10 characters.")
     if payload.target_type not in ("user", "stokvel"):
@@ -8785,6 +9093,10 @@ def _mask_account(num: str) -> str:
 
 @api_router.post("/withdrawals")
 async def create_user_withdrawal(payload: WithdrawalRequestIn, current_user: dict = Depends(get_current_user)):
+    # June 2026 payout window — block both new requests AND admin approvals
+    # until the release date. We surface a clear, friendly message.
+    if _is_june_payout_locked():
+        raise HTTPException(status_code=403, detail=_june_payout_message())
     # Eligibility — network score floor
     net_score = int(current_user.get("network_score") or 0)
     monthly = int(current_user.get("monthly_score") or 0)
@@ -8966,6 +9278,8 @@ async def _notify_user_withdrawal(user_id: str, title: str, message: str, withdr
 
 @api_router.post("/admin/withdrawals/{withdrawal_id}/approve")
 async def admin_approve_withdrawal(withdrawal_id: str, payload: WithdrawalActionIn, admin: dict = Depends(require_admin_user)):
+    if _is_june_payout_locked():
+        raise HTTPException(status_code=403, detail=_june_payout_message())
     w = await db.withdrawals.find_one({"id": withdrawal_id})
     if not w:
         raise HTTPException(status_code=404, detail="Withdrawal not found")
@@ -9001,6 +9315,8 @@ async def admin_reject_withdrawal(withdrawal_id: str, payload: WithdrawalActionI
 
 @api_router.post("/admin/withdrawals/{withdrawal_id}/mark-paid")
 async def admin_mark_paid(withdrawal_id: str, payload: WithdrawalActionIn, admin: dict = Depends(require_admin_user)):
+    if _is_june_payout_locked():
+        raise HTTPException(status_code=403, detail=_june_payout_message())
     w = await db.withdrawals.find_one({"id": withdrawal_id})
     if not w:
         raise HTTPException(status_code=404, detail="Withdrawal not found")

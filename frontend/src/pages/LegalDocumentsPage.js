@@ -78,7 +78,7 @@ const Terms = () => (
     <H2>2. Features you can access</H2>
     <UL>
       <li><strong>Social Feed</strong> — posts, stories, likes, comments, shares, hashtags, mentions, and explore. Posts can be edited or deleted; deleting a post revokes the points originally earned for it.</li>
-      <li><strong>Network Score</strong> — points earned through engagement, referrals, daily check-ins, profile completion, and consistency. Monthly cap is 10,000 points with diminishing returns and anti-abuse controls.</li>
+      <li><strong>Network Score</strong> — points earned through engagement, referrals, daily check-ins, profile completion, and consistency. Score grows uncapped; reaching <strong>10,000 in a single calendar month</strong> marks a member as a Top Contributor for that month, with diminishing returns and anti-abuse controls in place.</li>
       <li><strong>Stokvel groups</strong> — community savings circles. $20 once to create, $5 per member to join. Fees pool quarterly to the top-performing group; Network Capital adds an additional R1,000,000 to that quarterly pool. Contributions are held by an independent banking partner; Network Capital never touches member contributions. Stokvel+ premium tiers are released in phases via feature flags.</li>
       <li><strong>African Regional Hubs</strong> — Country → Province → City discovery and matching across 13 hubs.</li>
       <li><strong>Activities</strong> — member-organised in-person experiences (dinners, concerts, travel, retreats) with optional costs disclosed by the organiser.</li>
@@ -90,7 +90,7 @@ const Terms = () => (
       <li><strong>Ambassador programme</strong> — members who recruit and support new members can earn an Ambassador rank (Rising Star → Ambassador → Senior → Elite → Network Legend). Public leaderboards highlight top contributors.</li>
       <li><strong>Creator / Product layer</strong> — creators publish products and the community backs them through participation.</li>
       <li><strong>Wallet &amp; Premium</strong> — optional $10 one-time Premium unlock via Stripe. Includes a 2× Network Score multiplier window plus additional feature unlocks. Premium does not buy points.</li>
-      <li><strong>Notifications &amp; email</strong> — essential account, promotion-window, and community notifications are delivered in-app and via email (transactional email via Resend). Marketing email only with explicit opt-in.</li>
+      <li><strong>Notifications &amp; email</strong> — essential account, promotion-window, role-change, wallet-credit, daily reward digest, and community notifications are delivered in-app and via email (transactional email via Brevo / Sendinblue). Marketing email only with explicit opt-in.</li>
     </UL>
 
     <H2>3. Your account and conduct</H2>
@@ -107,7 +107,7 @@ const Terms = () => (
     <UL>
       <li>Network Score is a <strong>community engagement signal</strong>, not a currency. It powers reputation, leaderboards, badges, and unlocks.</li>
       <li>Points are awarded for posts, shares, quality comments (≥ 0.6 AI-scored relevance), likes, video watches, daily check-ins, profile completion, referrals, place reviews, connections made, and job shares — at rates documented inside the app on the Score Dashboard.</li>
-      <li>Monthly cap: <strong>10,000 points</strong> per member, resetting at the start of every calendar month. Diminishing returns apply to repeated identical actions.</li>
+      <li><strong>Top Contributor threshold:</strong> the first <strong>10,000 points</strong> earned within a single calendar month earn the member the Top Contributor badge for that month. Beyond 10,000 the score continues to grow uncapped; only the Top Contributor recognition is monthly. Diminishing returns apply to repeated identical actions, and per-action daily caps are documented inside the app's Score Dashboard.</li>
       <li><strong>Promotion windows</strong> run on South African Standard Time (SAST / GMT+2). Points earned inside an active window are also recorded against that promotion and converted at <strong>100 Network Points = R10 ZAR</strong> for the purpose of community reward tracking.</li>
       <li>Promotion rewards are <strong>community recognition</strong>, not a financial return. They may be distributed through community vouchers, shared experiences, or recognition tiers and are <strong>never</strong> guaranteed cash payouts unless explicitly stated in writing by Network Capital for a specific campaign.</li>
       <li>If a post, comment, review, or connection that earned points is later deleted, removed by moderation, or proven to be abusive, the points awarded for it are revoked.</li>

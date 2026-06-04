@@ -20,6 +20,7 @@ const WithdrawalRequestModal = ({ onClose, onSubmitted }) => {
   const [eligibility, setEligibility] = useState(null);
   const [balances, setBalances] = useState(null);
   const [history, setHistory] = useState([]);
+  const [payoutLock, setPayoutLock] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,6 +45,10 @@ const WithdrawalRequestModal = ({ onClose, onSubmitted }) => {
         setBalances(r.data?.balances || { wallet_zar: 0, promotion_zar: 0 });
         setHistory(r.data?.withdrawals || []);
       } catch (e) { toast.error(e.response?.data?.detail || 'Could not load'); }
+      try {
+        const p = await axiosInstance.get('/payouts/status');
+        setPayoutLock(p.data || null);
+      } catch { /* silent */ }
       setLoading(false);
     })();
   }, []);
@@ -101,6 +106,14 @@ const WithdrawalRequestModal = ({ onClose, onSubmitted }) => {
 
         {loading ? (
           <div className="p-12 text-center text-text-muted"><Loader2 className="mx-auto animate-spin" /></div>
+        ) : payoutLock?.locked ? (
+          <div className="p-6 text-center" data-testid="withdrawal-june-locked">
+            <Clock size={36} className="mx-auto text-amber-500 mb-2" />
+            <p className="font-bold text-text-primary mb-1">June 2026 payout window</p>
+            <p className="text-xs text-text-muted leading-relaxed">{payoutLock.message}</p>
+            <p className="text-[11px] text-text-muted mt-2">Your balance is safe — submit a request from <strong>30 June 2026 (23:59 SAST)</strong> onwards.</p>
+            <button onClick={onClose} className="mt-4 bg-primary text-white font-bold px-4 py-2 rounded-full text-sm">Got it</button>
+          </div>
         ) : !eligibility?.eligible ? (
           <div className="p-6 text-center" data-testid="withdrawal-ineligible">
             <AlertTriangle size={36} className="mx-auto text-amber-500 mb-2" />

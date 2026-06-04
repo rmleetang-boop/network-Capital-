@@ -21,6 +21,7 @@ const WalletPage = ({ user }) => {
 
   useEffect(() => {
     fetchWalletData();
+    axiosInstance.get('/payouts/status').then((r) => setPayoutLock(r.data)).catch(() => {});
   }, []);
 
   const fetchWalletData = async () => {

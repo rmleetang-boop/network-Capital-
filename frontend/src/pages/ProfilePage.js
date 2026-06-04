@@ -459,13 +459,17 @@ const ProfilePage = ({ user, setUser }) => {
               </div>
             )}
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-text-secondary">Network Score · this month</span>
+              <span className="text-sm font-medium text-text-secondary">Network Score</span>
               <span className="text-xs text-text-muted">
-                {profileUser.network_score} / 10,000
+                {profileUser.network_score?.toLocaleString?.() || profileUser.network_score} pts
+                {(profileUser.network_score || 0) >= 10000 && (
+                  <span className="ml-1.5 inline-flex items-center text-[10px] font-bold text-secondary bg-secondary/10 border border-secondary/30 px-1.5 py-0.5 rounded-full">★ Top Contributor</span>
+                )}
               </span>
             </div>
             <NetworkScore score={profileUser.network_score} size="large" />
-            <Progress value={calculateProgress(profileUser.network_score)} className="mt-3 h-2" />
+            <Progress value={Math.min(100, ((profileUser.network_score || 0) / 10000) * 100)} className="mt-3 h-2" />
+            <p className="text-[11px] text-text-muted mt-1">Score grows uncapped. Hit <strong>10,000 this month</strong> to unlock the Top Contributor badge.</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4 mb-6">

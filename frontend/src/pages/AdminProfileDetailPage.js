@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, Shield, DollarSign, Ban, AlertTriangle, Trash2, Flame, MessageCircle, Star, Send } from 'lucide-react';
+import { ArrowLeft, Loader2, Shield, DollarSign, Ban, AlertTriangle, Trash2, Flame, MessageCircle, Star, Send, BarChart3 } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import CreditGrantModal from '../components/CreditGrantModal';
@@ -12,8 +12,10 @@ const AdminProfileDetailPage = ({ user }) => {
   const [creditOpen, setCreditOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const [restrictOpen, setRestrictOpen] = useState(false);
+  const [scoreOpen, setScoreOpen] = useState(false);
 
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
+  const isSuperAdmin = user && user.role === 'super_admin';
 
   const load = async () => {
     try {
@@ -139,7 +141,12 @@ const AdminProfileDetailPage = ({ user }) => {
         {/* Action grid */}
         <div className="bg-white rounded-2xl border border-gray-100 p-3 grid grid-cols-2 md:grid-cols-3 gap-2" data-testid="admin-profile-actions">
           <button onClick={() => setDmOpen(true)} className="bg-primary text-white font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-dm"><MessageCircle size={12} /> Message</button>
-          <button onClick={() => setCreditOpen(true)} className="bg-secondary text-primary font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-credit"><DollarSign size={12} /> Adjust balance</button>
+          <button onClick={() => setScoreOpen(true)} className="bg-blue-100 text-blue-800 font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-score-audit"><BarChart3 size={12} /> Score audit</button>
+          {isSuperAdmin ? (
+            <button onClick={() => setCreditOpen(true)} className="bg-secondary text-primary font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-credit"><DollarSign size={12} /> Adjust balance</button>
+          ) : (
+            <div className="bg-gray-100 text-text-muted font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" title="Only the platform owner can adjust balances" data-testid="action-credit-disabled"><DollarSign size={12} /> Owner only</div>
+          )}
           <button onClick={() => setRestrictOpen(true)} className="bg-orange-100 text-orange-700 font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-restrict"><AlertTriangle size={12} /> Restrict</button>
           <button onClick={suspendToggle} className="bg-gray-100 text-text-primary font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-suspend"><Ban size={12} /> {u.suspended ? 'Unsuspend' : 'Suspend'}</button>
           <button onClick={flagToggle} className="bg-orange-100 text-orange-700 font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-flag"><AlertTriangle size={12} /> {u.flagged_for_review ? 'Unflag' : 'Flag'}</button>
@@ -173,9 +180,105 @@ const AdminProfileDetailPage = ({ user }) => {
       )}
       {dmOpen && <DmAsNCModal targetUser={u} onClose={() => setDmOpen(false)} />}
       {restrictOpen && <RestrictModal user={u} onClose={() => setRestrictOpen(false)} onApplied={load} />}
+      {scoreOpen && <ScoreAuditModal userId={u.id} onClose={() => setScoreOpen(false)} />}
     </div>
   );
 };
+
+const ScoreAuditModal = ({ userId, onClose }) => {
+  const [days, setDays] = useState(30);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    axiosInstance.get(`/admin/users/${userId}/score-breakdown`, { params: { days, limit: 500 } })
+      .then((r) => setData(r.data))
+      .catch((e) => toast.error(e.response?.data?.detail || 'Could not load breakdown'))
+      .finally(() => setLoading(false));
+  }, [userId, days]);
+
+  const fmtAction = (a) => (a || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  const fmtDate = (iso) => { try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose} data-testid="score-audit-modal">
+      <div onClick={(e) => e.stopPropagation()} className="bg-white w-full sm:max-w-2xl sm:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl">
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-3 flex items-center gap-2">
+          <BarChart3 size={16} className="text-primary" />
+          <h3 className="font-heading font-bold text-base flex-1">Network Score audit</h3>
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="text-xs border border-gray-200 rounded-full px-2 py-1" data-testid="score-audit-window">
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+            <option value={365}>Last 12 months</option>
+          </select>
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100"><Ban size={14} /></button>
+        </div>
+
+        {loading || !data ? (
+          <div className="p-10 text-center text-text-muted"><Loader2 className="mx-auto animate-spin" /></div>
+        ) : (
+          <div className="p-5 space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <Stat label="Lifetime score" value={(data.user?.network_score || 0).toLocaleString()} />
+              <Stat label="This month" value={(data.user?.monthly_score || 0).toLocaleString()} />
+              <Stat label={`Events (${data.window_days}d)`} value={data.totals?.events || 0} />
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-2">Source of points (window)</p>
+              {(data.by_action || []).length === 0 ? (
+                <p className="text-xs text-text-muted">No scored actions in this window.</p>
+              ) : (
+                <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+                  {data.by_action.map((r) => (
+                    <div key={r.action} className="flex items-center justify-between px-4 py-2 border-b border-gray-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-text-primary">{fmtAction(r.action)}</p>
+                        <p className="text-[11px] text-text-muted">{r.count} event{r.count > 1 ? 's' : ''} · last {fmtDate(r.last_at)}</p>
+                      </div>
+                      <span className="text-sm font-bold text-secondary shrink-0">+{r.points.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-2">Event log</p>
+              <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+                {(data.events || []).slice(0, 200).map((e) => (
+                  <div key={e.id} className="flex items-center justify-between px-4 py-2 border-b border-gray-50 last:border-0 text-xs">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-text-primary truncate">
+                        <strong>{fmtAction(e.action)}</strong>
+                        {e.multiplier > 1 && <span className="ml-1 text-secondary">×{e.multiplier}</span>}
+                        {e.source_id && <span className="ml-1 text-text-muted">· {String(e.source_id).slice(0, 8)}…</span>}
+                      </p>
+                      <p className="text-[10px] text-text-muted">{fmtDate(e.created_at)}</p>
+                    </div>
+                    <span className="text-sm font-bold text-secondary shrink-0">+{e.points}</span>
+                  </div>
+                ))}
+                {(data.events || []).length === 0 && (
+                  <p className="px-4 py-3 text-xs text-text-muted">No events.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Stat = ({ label, value }) => (
+  <div className="bg-gray-50 rounded-xl p-3 text-center">
+    <p className="text-lg font-heading font-bold text-primary leading-none">{value}</p>
+    <p className="text-[10px] uppercase tracking-wider font-semibold text-text-muted mt-1">{label}</p>
+  </div>
+);
 
 const DmAsNCModal = ({ targetUser, onClose }) => {
   const [text, setText] = useState('');

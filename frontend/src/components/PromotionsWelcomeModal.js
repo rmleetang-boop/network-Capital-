@@ -145,7 +145,7 @@ const PromotionsWelcomeModal = ({ user }) => {
           {learnOpen && (
             <div className="text-xs text-text-secondary space-y-2.5 -mt-2" data-testid="promo-modal-learn-content">
               <LearnRow num="1" title="How Network Scores work">
-                Every meaningful action — posting, sharing, commenting, hosting activities, referring friends — earns you Network Points (capped at 10,000/month with diminishing returns to keep it fair).
+                Every meaningful action — posting, sharing, commenting, hosting activities, referring friends — earns you Network Points. Your score grows uncapped; reaching 10,000 in a month unlocks the Top Contributor badge with diminishing returns to keep it fair.
               </LearnRow>
               <LearnRow num="2" title="How points accumulate">
                 Points are added in real time as you participate. Quality comments, completed referrals, and verified place reviews earn the most. Daily check-ins and profile completion give early boosts.
