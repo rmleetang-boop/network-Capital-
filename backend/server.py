@@ -2838,9 +2838,9 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
     post_data = {
         "id": post_id,
         "user_id": current_user["id"],
-        "username": current_user["username"],
-        "user_photo": current_user["photo"],
-        "user_score": current_user["network_score"],
+        "username": current_user.get("username") or "",
+        "user_photo": current_user.get("photo") or "",
+        "user_score": current_user.get("network_score") or 0,
         "content": request.content,
         "image": request.image,
         "video": request.video,

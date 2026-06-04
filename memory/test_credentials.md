@@ -3,6 +3,15 @@
 ## Existing accounts
 Refer to previous iteration logs. The current testing pattern relies on dynamically generated users.
 
+## Standing test users (iter 35 — still valid)
+- **Admin (also acts as super_admin in dev DB):** `rmleetang+nctest1780423349@gmail.com` / `Test123!` — role currently `super_admin` (manually set via mongosh). Has Network Score, score_events, and post history.
+- **Platform Owner (production):** `rmleetang@gmail.com` — bootstrap_super_admin auto-promotes this email on startup. Not present in the dev DB by default.
+- To create a fresh admin: sign up via `/auth/progressive-signup`, set `email_verified=true` via mongosh, then `db.users.updateOne({id:'<uid>'},{$set:{role:'admin'}})`. For super_admin testing, use `role:'super_admin'` instead.
+
+## Note (iter 43+)
+Brevo is live — `/auth/send-otp` no longer returns `_mock_code` when delivery succeeds. For automated tests that don't need a real inbox, **mint a JWT directly using `JWT_SECRET_KEY` from `/app/backend/.env`** (HS256) — see `/app/backend/tests/test_iter35_platform_enhancements.py` for the helper.
+
+
 ## Generating a test user (recommended for new flows)
 
 The signup flow now requires email-OTP verification. Email is currently MOCKED — the

@@ -1,5 +1,55 @@
 # Network Capital — CHANGELOG
 
+## iter 44 (Feb, 2026) — Platform Enhancements Batch
+### Role hierarchy & permissions
+- New `super_admin` role tier above `admin`. Single tenant: `SUPER_ADMIN_EMAIL = rmleetang@gmail.com`.
+- `bootstrap_super_admin()` startup hook auto-promotes that email idempotently. Logs `[BOOTSTRAP] Promoted ... to super_admin`.
+- New `require_super_admin` FastAPI dependency. `require_admin_user` now accepts `super_admin` too.
+- `POST /api/admin/credit-grants` → super_admin ONLY. Standard admins blocked with 403 ("Super-admin (platform owner) access required"). Comment in code makes the intent explicit.
+- `PATCH /api/admin/users/{id}/role` — only admin/super_admin may change roles. Only super_admin may grant or revoke `super_admin`. Standard admins cannot modify the platform owner.
+
+### Role-assignment email (Brevo) — fires on grant AND revoke
+- New helper `_notify_role_change(user, previous_role, new_role, actor_username)` + template `_role_change_html`.
+- Inserts an in-app `notifications` doc with type='role_change' (always).
+- Sends an email via Brevo if the user is `email_verified`. Subject `Your Network Capital role is now: …`.
+- Audit-logged via `AuditLog.write` with action='role.change' + before/after metadata.
+
+### June 2026 payout block
+- `JUNE_PAYOUT_RELEASE_AT = 2026-06-30 21:59:59 UTC` (= 23:59:59 SAST).
+- Helper `_is_june_payout_locked()` + `_june_payout_message()` shared by:
+  - `POST /api/withdrawals` (block create) — 403
+  - `POST /api/admin/withdrawals/{id}/approve` — 403
+  - `POST /api/admin/withdrawals/{id}/mark-paid` — 403
+- New public endpoint `GET /api/payouts/status → {locked, release_at, message}` (no auth) so the frontend can render the banner without a token.
+- Frontend: `WalletPage.js` shows `[data-testid='june-payout-banner']`; `WithdrawalRequestModal` shows `[data-testid='withdrawal-june-locked']` state when the lock is active.
+
+### Score-bracket filter (admin)
+- `GET /api/admin/users/by-score` — accepts `?bracket=N-M` OR `?min_score=N&max_score=M`, plus optional `q` / `role` / `limit`. Returns `{bracket, count, users[]}` sorted by `network_score desc`. Admin-gated.
+- `AdminUsersPage`: new chip strip with 11 per-thousand presets (0-1k → 10k+) + custom min/max inputs + clear button. Active-bracket label shows current filter. Adjust-balance menu item gated to super_admin only; standard admins see "Balance — owner only" label.
+
+### Score audit visibility
+- `GET /api/admin/users/{id}/score-breakdown?days=N` — returns `{user, window_days, totals:{events,points}, by_action[{action,points,count,last_at}], events[]}`. Admin-gated.
+- `AdminProfileDetailPage`: new "Score audit" button → `ScoreAuditModal` with 7d/30d/90d/12mo window selector, stat tiles, by-action grouping, and 200-row event log.
+
+### Network Score logic — uncapped growth, 10k = Top Contributor
+- Removed the `monthly >= MONTHLY_SCORE_CAP → return 0` guard in `award_points`.
+- Removed the `awarded = min(awarded, MONTHLY_SCORE_CAP - monthly)` clamp. Score now grows for every legitimate action.
+- New `MONTHLY_TOP_CONTRIBUTOR_THRESHOLD = 10000`. When `new_monthly` crosses 10k for the first time we set `cap_reached_at` AND `top_contributor_at`.
+- All user-facing copy updated: `LegalDocumentsPage`, `HelpCenterPage` FAQ, `ActivityTrackerPage`, `PromotionsWelcomeModal`, `ProfilePage` progress bar. Wording is now compliance-safe ("score grows uncapped", "10,000/month = Top Contributor badge").
+
+### Native feed ad (Instagram/FB style)
+- New `frontend/src/components/NativeFeedAd.js`. Looks like a regular post: header with Sponsored badge, media (image or autoplay-mute-loop video), IG-style action row (heart=engage, comment=learn more, send=share), title/body, CTA pill. Hooks into existing `/ads/current` + `/ads/event` + `/ads/watch` endpoints (impression on intersection-observer, click/engagement/share events tracked).
+- `FeedPage.js` swaps in `<NativeFeedAd />` at the existing slot (top of feed). `MockAdButton` import dropped. Placement unchanged.
+
+### Feed ↔ Profile score sync
+- `GET /api/posts` now calls `_enrich_posts_with_live_score(posts)` which overwrites each post's `user_score`, `username`, `user_photo` with the author's current `users.network_score` (single bulk `find` keyed by `user_id IN [...]`). Profile and Feed now agree.
+- Defensive: `create_post` switched to `.get()` for `username/photo/network_score` so legacy users missing fields can't 500 the endpoint.
+
+### Test recap (iteration_35.json)
+- Backend: **18/18 PASS** — super-admin bootstrap, credit-grant 403 gating, June lock on all 3 endpoints, by-score endpoint (presets + custom + 400 on invalid), score-breakdown shape, role-change email/notification/audit on grant+revoke, uncapped score growth (9990 + 500 → 10490 with top_contributor_at set), live post score (snapshot 100 → live 700), is_official broadcast regression-clean.
+- Frontend: NOT click-tested by agent in this run (OTP/Brevo session friction documented in iter35). All 7 new data-testids are in place — main agent self-verified the routes load.
+
+
 ## iter 43 (Feb, 2026) — Brevo OTP verified + new email automations
 ### Brevo migration verified end-to-end
 - Added `BREVO_API_KEY` to `/app/backend/.env` (was missing → all sends were silently falling back to logger).
