@@ -217,6 +217,7 @@ function App() {
               <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
               <Route path="/join" element={<JoinHandler />} />
               <Route path="/join/:slug" element={<JoinHandler />} />
+              <Route path="/r/:username" element={<ReferralLandingPage />} />
               <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             </Routes>
           </BrowserRouter>

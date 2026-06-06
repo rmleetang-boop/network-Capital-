@@ -91,6 +91,38 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend).
 - **P3** Capacitor wrap, Driver Pool.
 
+## iter 49 (Feb 2026) — Share growth · Pan-African expansion · Premium Features · Role-mgmt hardening
+
+### Role management bug fixes (P0 — user-blocker)
+- `bootstrap_super_admin()` now performs an **unconditional** `update_one({id}, {$set: role:'super_admin'})` and logs `matched_count`, `modified_count`, `prev_role` so production operators can verify the write.
+- `POST /api/admin/bootstrap` reworked: legacy ADMIN_PASSWORD header now **explicitly promotes the configured `SUPER_ADMIN_EMAIL` user (rmleetang@gmail.com)** to super_admin — not the caller. Returns the raw `update_one` result + `other_super_admins_demoted` count. 404 if the platform-owner account doesn't exist yet.
+- `GET /api/admin/dashboard/metrics`: removed silent auto-promotion-to-admin when caller hits the route with a valid X-Admin-Password but no admin role. Role escalation must now go through the explicit bootstrap or PATCH role endpoints.
+- `POST /api/users/me/heartbeat` and `PUT /api/users/me` confirmed to NEVER touch `user.role`. `UpdateProfileRequest` Pydantic model is a strict allowlist with no `role` field — role smuggling impossible.
+
+### Share growth
+- Ambassador referral link: `GET /api/ambassador/share-link` → `https://networkcapitalapp.co.za/r/<username>` with ready-to-post share text.
+- Public referral landing page: `/r/:username` (frontend route in BOTH unauth and auth route trees) + `GET /api/referral/{username}` backend resolver.
+- Promotion sharing: `GET /api/promotions/{id}/share-payload` returns auto-generated blurb (title + reward + ends + min-score). `POST /api/promotions/{id}/share` awards +20 pts (24h cooldown).
+- Frontend: `ShareLinkCard` mounted atop Ambassador IncentivePanel. `PromotionShareButton` on every promo card.
+
+### Pan-African expansion
+- AFRICAN_REGIONS expanded from 13 → **55 entries** (54 AU members + 'other'). New: Algeria, Angola, Benin, Botswana, Burkina Faso, Burundi, Cameroon, Cape Verde, CAR, Chad, Comoros, Congo-Republic, DRC, Côte d'Ivoire, Djibouti, Equatorial Guinea, Eritrea, Eswatini, Gabon, Gambia, Guinea, Guinea-Bissau, Lesotho, Liberia, Libya, Madagascar, Malawi, Mali, Mauritania, Mauritius, Mozambique, Namibia, Niger, São Tomé, Seychelles, Sierra Leone, Somalia, South Sudan, Sudan, Togo, Tunisia, Zambia.
+- Free-text city input — `CustomCityInput` at `/hubs` ("My city is not listed" button) so users can self-declare any city not in the seeded list.
+
+### Premium "Features" landing section
+- New `<section id="features">` on landing page with 9 premium feature tiles (My Network, Activities, Stokvel+ Wallet, Net Worth, Score Tracker, Jobs, Direct Messages, Ambassador, Promotions).
+- Dark navy + gold (#E8A817) aesthetic: gradient halos, subtle grid texture, gold-bordered icon containers, motion-staggered reveals, hover-lift + gold halo, ALL-CAPS tag pills (CORE/COMMUNITY/PREMIUM/TOP TIER/REWARDS etc.).
+- Trust-signal row beneath grid (POPIA-aligned · Pan-African 54 countries · Premium for $10).
+- Nav "Features" anchor now points to `#features` instead of `#how`.
+
+### Hardening
+- All `current_user["photo"]` / `current_user["username"]` keyed accesses in posts/comments/stokvel join/contribute switched to `.get(...) or ""` (KeyError-proof for legacy users).
+- Duplicate `require_admin_user` / `require_super_admin` definitions consolidated to one declaration each (near June payout block).
+
+### Iter 49 testing
+- 17/17 backend tests PASS (`/app/test_reports/iteration_49.json`). 95%+ frontend source-verified.
+- 1 routing bug found + fixed: `/r/:username` now registered in the first-time-visitor route tree as well as the authed/onboarded trees.
+
 ## iter 48 (Feb 2026) — Ambassador Incentive Programme · Global Job Apps · User Cleanup
 ### Ambassador Incentive (R8,500 ZAR)
 - `_allocate_ambassador_balance()` fires on every ambassador role grant (set-role, make-ambassador, application approve) — idempotent.

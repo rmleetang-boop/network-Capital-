@@ -3478,8 +3478,8 @@ async def comment_post(post_id: str, request: CommentRequest, current_user: dict
     comment = {
         "id": str(uuid.uuid4()),
         "user_id": current_user["id"],
-        "username": current_user["username"],
-        "user_photo": current_user["photo"],
+        "username": current_user.get("username") or "",
+        "user_photo": current_user.get("photo") or "",
         "content": content,
         "ai_relevance": relevance.get("score"),
         "quality": relevance.get("quality"),
@@ -3721,8 +3721,8 @@ async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Dep
         "purpose": purpose,
         "members": [{
             "user_id": current_user["id"],
-            "username": current_user["username"],
-            "photo": current_user["photo"],
+            "username": current_user.get("username") or "",
+            "photo": current_user.get("photo") or "",
             "joined_at": datetime.now(timezone.utc).isoformat(),
             "total_contributed": 0,
             "fee_paid": True
@@ -3819,8 +3819,8 @@ async def invite_member(stokvel_id: str, request: InviteMemberRequest, current_u
     
     new_member = {
         "user_id": user["id"],
-        "username": user["username"],
-        "photo": user["photo"],
+        "username": user.get("username") or "",
+        "photo": user.get("photo") or "",
         "joined_at": datetime.now(timezone.utc).isoformat(),
         "total_contributed": 0,
         "fee_paid": True
@@ -3859,8 +3859,8 @@ async def contribute_to_stokvel(stokvel_id: str, request: ContributionRequest, c
         "id": contribution_id,
         "stokvel_id": stokvel_id,
         "user_id": current_user["id"],
-        "username": current_user["username"],
-        "user_photo": current_user["photo"],
+        "username": current_user.get("username") or "",
+        "user_photo": current_user.get("photo") or "",
         "amount": request.amount,
         "note": request.note or "",
         "created_at": datetime.now(timezone.utc).isoformat()
