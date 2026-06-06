@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings, Briefcase, Shield, Star } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings, Briefcase, Shield, Star, Crown } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -696,8 +696,11 @@ const ProfilePage = ({ user, setUser }) => {
                   ...(profileUser?.is_ambassador
                     ? [{ icon: Trophy, label: 'Ambassador', path: '/ambassadors/me' }]
                     : []),
-                  ...(profileUser?.role === 'admin' || profileUser?.role === 'moderator'
+                  ...(profileUser?.role === 'admin' || profileUser?.role === 'moderator' || profileUser?.role === 'super_admin'
                     ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard' }]
+                    : []),
+                  ...(profileUser?.role === 'super_admin'
+                    ? [{ icon: Crown, label: 'Owner Center', path: '/admin/owner' }]
                     : []),
                 ].map((q) => {
                   const QIcon = q.icon;

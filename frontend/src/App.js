@@ -65,6 +65,7 @@ import PromotionsWelcomeModal from './components/PromotionsWelcomeModal';
 import AdminWithdrawalsPage from './pages/AdminWithdrawalsPage';
 import AdminAdsPage from './pages/AdminAdsPage';
 import BecomeAmbassadorPage from './pages/BecomeAmbassadorPage';
+import OwnerControlCenterPage from './pages/OwnerControlCenterPage';
 import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplicationsPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
@@ -299,6 +300,8 @@ function App() {
             <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
+            <Route path="/admin/owner" element={<OwnerControlCenterPage user={user} />} />
+
             <Route path="/join" element={<Navigate to="/" replace />} />
             <Route path="/join/:slug" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />

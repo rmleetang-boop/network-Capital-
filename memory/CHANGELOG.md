@@ -1,5 +1,39 @@
 # Network Capital — CHANGELOG
 
+## iter 46 (Feb, 2026) — Sole Super Admin + Owner Control Center
+
+### Sole super_admin enforced
+- `bootstrap_super_admin()` now also runs a **DEMOTION sweep** on every backend startup: any user with `role='super_admin'` whose `id != rmleetang@gmail.com.id` is automatically demoted to `role='admin'`. Logs: `[BOOTSTRAP] Demoted N non-owner super_admin(s) → admin`.
+- `PATCH /admin/users/{id}/role` now rejects any attempt to grant `super_admin` to an email other than `SUPER_ADMIN_EMAIL` with a 403 (instead of accepting + relying on the next-boot sweep).
+- Verified: 3 super_admins seeded in dev DB → restart → 1 remaining (`rmleetang@gmail.com`).
+
+### New Owner-only endpoints (`require_super_admin`)
+- `GET /api/admin/owner/overview` — full KPI snapshot: users by role + verified + new 24h/7d + ambassador count; wallet total USD + pending withdrawals + grants 24h + completed 7d + payout-lock state; engagement (score events today, points today, top contributors); content (posts 24h, official posts 7d, pending ambassador apps); ads (active campaigns, claims 24h); promotions.
+- `GET /api/admin/wallet-audit?days&target_user_id&actor_id&min_amount_usd&limit` — filterable view over `wallet_adjustments_audit`. Returns full audit row: prev/new balance, actor (id/role/username), reason, timestamp, reversed_at if reversed.
+- `POST /api/admin/wallet-audit/{audit_id}/reverse` — atomically creates an inverse `credit_grants` record + applies it via `_apply_credit_grant` (which writes a NEW audit row), then marks the original row `reversed_at/reversed_by_grant_id/reversed_by_actor_id`. Reason must be ≥ 10 chars.
+- `GET /api/admin/feature-flags` (admin+) — merged view of DB-stored flags + DEFAULT_FEATURE_FLAGS so the toggle UI can render every known flag.
+
+### Frontend — OwnerControlCenterPage
+- New page at `/admin/owner` (super_admin gated; other roles see a 403 "Platform Owner only" card).
+- Sections:
+  1. **KPI grid** (4 stat tiles) + June payout banner.
+  2. **Quick actions** (broadcast, users, withdrawals, ads).
+  3. **Users & roles** — role counts + tiles to `/admin/users`, ambassador-applications, audit log.
+  4. **Wallet & financial** — wallet KPIs + the new **Wallet Audit Trail drawer** (search by user/actor/reason, 7d/30d/90d/12mo window, **one-click Reverse** with reason prompt).
+  5. **Rewards & score engine** — events today, points awarded today, Top Contributor count, active promotions + tiles to promotions admin, score audit, ad reward inventory.
+  6. **Content & engagement** — posts 24h, official 7d, ambassador apps pending + tiles to announce, ambassador queue, stokvels.
+  7. **Advertising** — active campaigns + claims 24h + tiles to manage campaigns / analytics / ad reward log.
+  8. **Operational & feature flags** — full feature-flag list with live toggle switches (PUT /admin/feature-flags/{key}).
+- Route wired in `App.js`. New "Owner Center" link added to ProfilePage quick-actions, visible only when `profileUser.role === 'super_admin'`.
+
+### Smoke-test results
+- `GET /admin/owner/overview` (as super_admin) → returns full payload (verified by curl).
+- `GET /admin/owner/overview` (as `admin`) → 403 "Super-admin (platform owner) access required".
+- `GET /admin/wallet-audit?days=30` → returns existing audit row with all fields populated.
+- `GET /admin/feature-flags` → returns merged list (1 flag in dev DB: `stokvel_plus_enabled`).
+- UI renders correctly at `/admin/owner` — 3-screen scroll captured, all sections + tiles + KPIs visible.
+
+
 ## iter 45 (Feb, 2026) — Security & Permission Audit (29/29 pass)
 
 ### Wallet — SELF-CREDIT REMOVED

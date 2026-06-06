@@ -5896,8 +5896,9 @@ async def ensure_indexes():
 
 @app.on_event("startup")
 async def bootstrap_super_admin():
-    """Ensure the Platform Owner has the `super_admin` role.
-    Idempotent — runs once per startup, only touches the single configured email."""
+    """Ensure the Platform Owner has the `super_admin` role — and that they are the
+    ONLY user with that role. Any other accounts holding super_admin are demoted
+    to plain ``admin`` automatically on each boot. Idempotent."""
     try:
         target_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
         if not target_email:
@@ -5912,6 +5913,22 @@ async def bootstrap_super_admin():
                 {"$set": {"role": "super_admin", "is_ambassador": False}},
             )
             logger.info(f"[BOOTSTRAP] Promoted {target_email} to super_admin")
+
+        # Enforce SOLE super_admin — demote any other super_admins to plain admin.
+        # Compares by id (not by email) so we don't accidentally demote the owner
+        # because of email casing differences in the DB.
+        owner_id = (owner or {}).get("id")
+        demote_query: Dict[str, Any] = {"role": "super_admin"}
+        if owner_id:
+            demote_query["id"] = {"$ne": owner_id}
+        demoted = await db.users.update_many(
+            demote_query,
+            {"$set": {"role": "admin"}},
+        )
+        if demoted.modified_count:
+            logger.warning(
+                f"[BOOTSTRAP] Demoted {demoted.modified_count} non-owner super_admin(s) → admin"
+            )
     except Exception as e:
         logger.warning(f"bootstrap_super_admin skipped: {e}")
 
@@ -6501,6 +6518,14 @@ async def admin_set_user_role(
     target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "email": 1, "role": 1, "is_ambassador": 1, "full_name": 1, "username": 1, "email_verified": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    # The platform-owner email is the SOLE allowed super_admin holder. Any attempt
+    # to grant super_admin to a different account is denied (would be auto-demoted
+    # on next boot anyway — this just surfaces it immediately to the actor).
+    if payload.role == "super_admin" and (target.get("email") or "").strip().lower() != (SUPER_ADMIN_EMAIL or "").strip().lower():
+        raise HTTPException(
+            status_code=403,
+            detail=f"super_admin is reserved exclusively for {SUPER_ADMIN_EMAIL}",
+        )
     # Block standard admins from demoting / changing the platform owner.
     if target.get("role") == "super_admin" and admin.get("role") != "super_admin":
         raise HTTPException(status_code=403, detail="Cannot modify the platform owner's role")
@@ -7787,6 +7812,209 @@ async def admin_list_grants(
         q["status"] = status_filter
     cur = db.credit_grants.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
     return await cur.to_list(length=None)
+
+
+# ===================== OWNER CONTROL CENTER =================================
+# These endpoints are exposed to the Platform Owner (super_admin) to give a single
+# dashboard-style snapshot of every operational, commercial, content, rewards,
+# and engagement signal — with drill-down filtering on the audit trail so the
+# owner can correct any issue they spot.
+
+@api_router.get("/admin/owner/overview")
+async def owner_overview(owner: dict = Depends(require_super_admin)):
+    """High-level KPI snapshot for the Owner Control Center home view."""
+    now = datetime.now(timezone.utc)
+    today_iso = now.date().isoformat()
+    day_ago = (now - timedelta(days=1)).isoformat()
+    week_ago = (now - timedelta(days=7)).isoformat()
+
+    # ── Users
+    total_users = await db.users.count_documents({})
+    verified_users = await db.users.count_documents({"email_verified": True})
+    new_24h = await db.users.count_documents({"created_at": {"$gte": day_ago}})
+    new_7d = await db.users.count_documents({"created_at": {"$gte": week_ago}})
+    role_breakdown_pipeline = [{"$group": {"_id": "$role", "n": {"$sum": 1}}}]
+    role_rows = await db.users.aggregate(role_breakdown_pipeline).to_list(length=None)
+    role_counts = {(r["_id"] or "user"): int(r["n"]) for r in role_rows}
+    ambassador_count = await db.users.count_documents({"is_ambassador": True})
+
+    # ── Wallet & financial
+    wallet_agg = await db.users.aggregate([
+        {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$wallet_balance", 0]}}}}
+    ]).to_list(1)
+    total_wallet_usd = float(wallet_agg[0]["total"]) if wallet_agg else 0.0
+    pending_withdrawals = await db.withdrawals.count_documents({"status": "pending"})
+    completed_withdrawals_7d = await db.withdrawals.count_documents({
+        "status": "paid", "updated_at": {"$gte": week_ago}
+    })
+    grant_count_24h = await db.credit_grants.count_documents({"created_at": {"$gte": day_ago}})
+    payout_locked = _is_june_payout_locked()
+
+    # ── Score / engagement
+    events_today = await db.score_events.count_documents({"date_key": today_iso})
+    pts_today_agg = await db.score_events.aggregate([
+        {"$match": {"date_key": today_iso}},
+        {"$group": {"_id": None, "pts": {"$sum": "$points"}}},
+    ]).to_list(1)
+    points_today = int(pts_today_agg[0]["pts"]) if pts_today_agg else 0
+    top_contributors_month = await db.users.count_documents({
+        "top_contributor_at": {"$exists": True, "$ne": None}
+    })
+
+    # ── Content
+    posts_24h = await db.posts.count_documents({"created_at": {"$gte": day_ago}})
+    official_posts_7d = await db.posts.count_documents({
+        "is_official": True, "created_at": {"$gte": week_ago}
+    })
+    pending_ambassador_apps = await db.ambassador_applications.count_documents({"status": "pending"})
+
+    # ── Advertising
+    active_ads = await db.ads.count_documents({"is_active": True})
+    ad_claims_24h = await db.ad_reward_claims.count_documents({"created_at": {"$gte": day_ago}})
+
+    # ── Promotions
+    active_promotions = await db.promotions.count_documents({"is_active": True})
+
+    return {
+        "generated_at": now.isoformat(),
+        "users": {
+            "total": total_users, "verified": verified_users,
+            "new_24h": new_24h, "new_7d": new_7d,
+            "ambassadors": ambassador_count,
+            "by_role": role_counts,
+        },
+        "wallet": {
+            "total_wallet_usd": round(total_wallet_usd, 2),
+            "pending_withdrawals": pending_withdrawals,
+            "completed_withdrawals_7d": completed_withdrawals_7d,
+            "grants_24h": grant_count_24h,
+            "payout_locked": payout_locked,
+        },
+        "engagement": {
+            "score_events_today": events_today,
+            "points_awarded_today": points_today,
+            "posts_24h": posts_24h,
+            "official_posts_7d": official_posts_7d,
+            "top_contributors_this_month": top_contributors_month,
+        },
+        "content": {
+            "pending_ambassador_apps": pending_ambassador_apps,
+        },
+        "ads": {
+            "active_campaigns": active_ads,
+            "claims_24h": ad_claims_24h,
+        },
+        "promotions": {
+            "active": active_promotions,
+        },
+        "platform": {
+            "super_admin_email": SUPER_ADMIN_EMAIL,
+            "june_payout_release_at": JUNE_PAYOUT_RELEASE_AT.isoformat(),
+        },
+    }
+
+
+@api_router.get("/admin/wallet-audit")
+async def owner_wallet_audit(
+    target_user_id: Optional[str] = None,
+    actor_id: Optional[str] = None,
+    min_amount_usd: Optional[float] = None,
+    days: int = 30,
+    limit: int = 100,
+    owner: dict = Depends(require_super_admin),
+):
+    """Filterable view of every wallet adjustment ever applied.  Super-admin only.
+
+    Supports filtering by target user, actor (admin), minimum amount, and window.
+    Returns rows sorted newest-first so the owner can spot anomalies and (via the
+    UI) take corrective action (reverse via a counter-grant)."""
+    q: Dict[str, Any] = {}
+    if target_user_id:
+        q["target_user_id"] = target_user_id
+    if actor_id:
+        q["actor_id"] = actor_id
+    if isinstance(min_amount_usd, (int, float)):
+        q["amount_usd"] = {"$gte": float(min_amount_usd)}
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, days))).isoformat()
+    q.setdefault("created_at", {})
+    q["created_at"]["$gte"] = cutoff
+    cur = db.wallet_adjustments_audit.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500))
+    rows = await cur.to_list(length=None)
+    return {
+        "count": len(rows),
+        "window_days": days,
+        "filters": {"target_user_id": target_user_id, "actor_id": actor_id, "min_amount_usd": min_amount_usd},
+        "rows": rows,
+    }
+
+
+@api_router.post("/admin/wallet-audit/{audit_id}/reverse")
+async def owner_wallet_audit_reverse(
+    audit_id: str,
+    payload: Dict[str, Any] = None,
+    owner: dict = Depends(require_super_admin),
+):
+    """Reverse a previously-applied wallet adjustment by creating an inverse
+    credit_grant. Append-only — the original audit row is preserved."""
+    audit_row = await db.wallet_adjustments_audit.find_one({"id": audit_id}, {"_id": 0})
+    if not audit_row:
+        raise HTTPException(status_code=404, detail="Audit row not found")
+    if audit_row.get("reversed_at"):
+        raise HTTPException(status_code=400, detail="Adjustment already reversed")
+    inverse_amount = -float(audit_row.get("amount_usd", 0.0))
+    if inverse_amount == 0:
+        raise HTTPException(status_code=400, detail="Cannot reverse a zero-amount entry")
+    reason = ((payload or {}).get("reason") or f"Reversal of audit {audit_id}").strip()
+    if len(reason) < 10:
+        raise HTTPException(status_code=400, detail="Reason must be ≥ 10 chars")
+
+    grant_record = {
+        "id": str(uuid.uuid4()),
+        "amount": inverse_amount, "currency": "USD",
+        "usd_equiv": round(inverse_amount, 2),
+        "reason": reason,
+        "target_type": "user",
+        "target_id": audit_row["target_user_id"],
+        "created_by": owner["id"], "created_by_username": owner.get("username"),
+        "co_approver_id": None,
+        "status": "applied",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "applied_at": None,
+        "reverses_audit_id": audit_id,
+    }
+    await db.credit_grants.insert_one(grant_record)
+    await _apply_credit_grant(grant_record, owner)
+    # Mark the original audit row as reversed (keeps trail intact).
+    await db.wallet_adjustments_audit.update_one(
+        {"id": audit_id},
+        {"$set": {"reversed_at": datetime.now(timezone.utc).isoformat(),
+                  "reversed_by_grant_id": grant_record["id"],
+                  "reversed_by_actor_id": owner["id"]}},
+    )
+    return {"ok": True, "reversal_grant_id": grant_record["id"], "amount_usd": inverse_amount}
+
+
+@api_router.get("/admin/feature-flags")
+async def list_feature_flags(owner: dict = Depends(require_admin_user)):
+    """Returns merged view of DB-stored flags + defaults so the UI can render every toggle."""
+    defaults = globals().get("DEFAULT_FEATURE_FLAGS", {}) or {}
+    db_flags = await db.feature_flags.find({}, {"_id": 0}).to_list(length=None)
+    db_map = {f["key"]: f for f in db_flags}
+    merged = []
+    for key, default in defaults.items():
+        row = db_map.get(key)
+        merged.append({
+            "key": key,
+            "value": (row["value"] if row else default),
+            "default": default,
+            "updated_at": (row.get("updated_at") if row else None),
+        })
+    for k, row in db_map.items():
+        if k not in defaults:
+            merged.append({"key": k, "value": row["value"], "default": None,
+                           "updated_at": row.get("updated_at")})
+    return {"flags": merged}
+
 
 
 # ---- AUDIT LOG -------------------------------------------------------------
