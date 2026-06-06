@@ -1438,6 +1438,30 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
     updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
     return updated_user
 
+@api_router.get("/users/by-username/{username}")
+async def get_user_by_username(username: str):
+    """Public lookup by username — returns the same lightweight payload as
+    /users/{user_id} but indexed by handle so the new `/u/:username` page can
+    fetch by URL slug. Used by the Instagram-style public profile view."""
+    if not username or len(username) > 50:
+        raise HTTPException(status_code=404, detail="Invalid username")
+    u = await db.users.find_one(
+        {"username": username},
+        {"_id": 0, "password": 0, "banking": 0, "super_admin_pin_hash": 0,
+         "email": 0, "phone": 0, "id_number": 0},
+    )
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Hydrate aggregate counts so the public profile can render without N follow-ups
+    user_id = u["id"]
+    posts_count = await db.posts.count_documents({"user_id": user_id})
+    connections_count = await db.connections.count_documents({
+        "$or": [{"requester_id": user_id, "status": "accepted"},
+                {"target_id": user_id, "status": "accepted"}],
+    })
+    return {**u, "posts_count": posts_count, "connections_count": connections_count}
+
+
 @api_router.get("/users/{user_id}", response_model=User)
 async def get_user(user_id: str):
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
@@ -11341,7 +11365,19 @@ class CleanupDeleteIn(BaseModel):
 async def admin_cleanup_delete_user(
     payload: CleanupDeleteIn,
     admin: dict = Depends(require_super_admin),
+    x_super_pin_token: Optional[str] = Header(None),
 ):
+    # Require a valid super-PIN token in addition to super-admin role.
+    if not x_super_pin_token:
+        raise HTTPException(status_code=401, detail="Super-admin PIN required — re-enter your PIN to confirm this destructive action")
+    try:
+        decoded = jwt.decode(x_super_pin_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if decoded.get("kind") != "super_pin" or decoded.get("sub") != admin["id"]:
+            raise HTTPException(status_code=401, detail="Super-admin PIN token does not belong to this session")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Super-admin PIN token invalid or expired")
     """Hard-delete a non-admin user account and ALL of their content.
     Refuses to delete admins, super admin, or the platform owner email.
     Writes a full audit row that records every collection touched.
@@ -11534,6 +11570,113 @@ async def record_promotion_share(promotion_id: str, current_user: dict = Depends
         message=f"Shared promotion: {promo.get('name', 'promotion')}",
     )
     return {"ok": True, "awarded": awarded, "promotion_id": promotion_id}
+
+
+# ============== SUPER ADMIN PASSWORD (one-time-set) =====================
+# A second-factor secret the Platform Owner sets ONCE, and then must supply
+# whenever they log in to assume the super_admin session token. Stored as a
+# bcrypt hash on the owner's user row under `super_admin_pin_hash`. There is
+# no UI to reset this; if the owner ever loses it the only recovery is to
+# clear the field directly via mongosh.
+# =========================================================================
+
+class SetSuperAdminPinIn(BaseModel):
+    pin: str = Field(min_length=6, max_length=128)
+
+
+class VerifySuperAdminPinIn(BaseModel):
+    pin: str = Field(min_length=1, max_length=128)
+
+
+@api_router.get("/admin/super-pin/status")
+async def super_pin_status(current_user: dict = Depends(get_current_user)):
+    """Read whether the platform owner has set their one-time super-admin PIN yet.
+    Only the owner themselves can call this (returns 403 for everyone else)."""
+    if (current_user.get("email") or "").strip().lower() != (SUPER_ADMIN_EMAIL or "").strip().lower():
+        raise HTTPException(status_code=403, detail="Platform owner only")
+    owner = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "super_admin_pin_hash": 1})
+    return {"is_set": bool((owner or {}).get("super_admin_pin_hash"))}
+
+
+@api_router.post("/admin/super-pin/set")
+async def super_pin_set(payload: SetSuperAdminPinIn, current_user: dict = Depends(get_current_user)):
+    """Set the super-admin PIN. CAN ONLY BE CALLED ONCE — if a hash already
+    exists on the owner's record, this returns 409. Only the platform owner
+    (rmleetang@gmail.com) can set it."""
+    if (current_user.get("email") or "").strip().lower() != (SUPER_ADMIN_EMAIL or "").strip().lower():
+        raise HTTPException(status_code=403, detail="Platform owner only")
+    owner = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "super_admin_pin_hash": 1})
+    if (owner or {}).get("super_admin_pin_hash"):
+        raise HTTPException(status_code=409, detail="Super-admin PIN already set — it cannot be changed via the app.")
+    pin = (payload.pin or "").strip()
+    if len(pin) < 6:
+        raise HTTPException(status_code=400, detail="PIN must be at least 6 characters")
+    import bcrypt as _bcrypt
+    hashed = _bcrypt.hashpw(pin.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"super_admin_pin_hash": hashed,
+                  "super_admin_pin_set_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    logger.warning(f"[SUPER-PIN] {current_user.get('email')} set their one-time super-admin PIN")
+    await AuditLog.write(
+        actor_id=current_user["id"], actor_username=current_user.get("username") or "owner",
+        action="super_pin.set", target_type="user", target_id=current_user["id"],
+        metadata={"set_at": datetime.now(timezone.utc).isoformat()},
+    )
+    return {"ok": True, "is_set": True}
+
+
+@api_router.post("/admin/super-pin/verify")
+async def super_pin_verify(payload: VerifySuperAdminPinIn, current_user: dict = Depends(get_current_user)):
+    """Verify the supplied PIN matches the owner's stored hash. Returns
+    {ok: true, token: <one-time-token>} on success. The token is a short-lived
+    (15-minute) HS256 JWT that downstream sensitive endpoints check via the
+    `X-Super-Pin-Token` header."""
+    if (current_user.get("email") or "").strip().lower() != (SUPER_ADMIN_EMAIL or "").strip().lower():
+        raise HTTPException(status_code=403, detail="Platform owner only")
+    owner = await db.users.find_one(
+        {"id": current_user["id"]},
+        {"_id": 0, "super_admin_pin_hash": 1, "id": 1, "email": 1},
+    )
+    stored = (owner or {}).get("super_admin_pin_hash")
+    if not stored:
+        raise HTTPException(status_code=400, detail="Super-admin PIN not set yet — set it first.")
+    import bcrypt as _bcrypt
+    if not _bcrypt.checkpw((payload.pin or "").strip().encode("utf-8"), stored.encode("utf-8")):
+        # Audit log so brute-force shows up immediately in the owner-center.
+        await AuditLog.write(
+            actor_id=current_user["id"], actor_username=current_user.get("username") or "owner",
+            action="super_pin.verify_fail", target_type="user", target_id=current_user["id"],
+        )
+        raise HTTPException(status_code=403, detail="Invalid PIN")
+    token = jwt.encode(
+        {"sub": current_user["id"], "kind": "super_pin",
+         "exp": datetime.now(timezone.utc) + timedelta(minutes=15)},
+        SECRET_KEY, algorithm=ALGORITHM,
+    )
+    return {"ok": True, "token": token, "expires_in_minutes": 15}
+
+
+async def require_super_pin(
+    current_user: dict = Depends(get_current_user),
+    x_super_pin_token: Optional[str] = Header(None),
+):
+    """Dependency: caller must be super_admin AND have a valid (unexpired)
+    super-pin token from `/admin/super-pin/verify`. Use on the most sensitive
+    endpoints (cleanup-delete, ambassador-grant, wallet-adjust)."""
+    role = current_user.get("role") or "user"
+    if role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super-admin (platform owner) access required")
+    if not x_super_pin_token:
+        raise HTTPException(status_code=401, detail="Super-admin PIN token missing — re-enter your PIN")
+    try:
+        decoded = jwt.decode(x_super_pin_token, SECRET_KEY, algorithms=[ALGORITHM])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Super-admin PIN token invalid or expired — re-enter your PIN")
+    if decoded.get("kind") != "super_pin" or decoded.get("sub") != current_user["id"]:
+        raise HTTPException(status_code=401, detail="Super-admin PIN token does not belong to this session")
+    return current_user
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

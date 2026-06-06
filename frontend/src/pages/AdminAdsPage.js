@@ -15,7 +15,7 @@ const fileToDataUrl = (file) => new Promise((r, rej) => { const x = new FileRead
 
 const AdminAdsPage = ({ user }) => {
   const navigate = useNavigate();
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
   const [list, setList] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);

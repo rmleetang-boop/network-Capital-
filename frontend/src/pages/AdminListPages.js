@@ -14,7 +14,7 @@ const AdminGenericListPage = ({ user, title, fetchUrl, deleteUrl, rowRender, dat
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
 
-  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator');
+  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

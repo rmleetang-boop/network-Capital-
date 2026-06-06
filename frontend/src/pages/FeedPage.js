@@ -280,7 +280,7 @@ const FeedPage = ({ user }) => {
             onLike={handleLike}
             onComment={handleComment}
             onShare={handleShare}
-            onUserClick={(userId) => navigate(`/profile/${userId}`)}
+            onUserClick={(userId, username) => navigate(username ? `/u/${username}` : `/profile/${userId}`)}
             onDeletePost={handleDeletePost}
             onEditPost={handleEditPost}
             onDeleteComment={handleDeleteComment}
@@ -471,7 +471,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
         <div className="relative">
           <Avatar
             className="w-12 h-12 cursor-pointer ring-2 ring-white shadow-md border-2 border-secondary/30 hover:scale-105 transition-transform"
-            onClick={() => onUserClick(post.user_id)}
+            onClick={() => onUserClick(post.user_id, post.username)}
             data-testid={`post-author-avatar-${index}`}
           >
             <AvatarImage src={post.user_photo} alt={post.username} className="object-cover" />
@@ -487,7 +487,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-text-primary text-sm truncate cursor-pointer hover:text-primary transition-colors" onClick={() => onUserClick(post.user_id)}>
+            <h3 className="font-semibold text-text-primary text-sm truncate cursor-pointer hover:text-primary transition-colors" onClick={() => onUserClick(post.user_id, post.username)}>
               {post.username}
             </h3>
             <NetworkScore score={post.user_score} size="small" animate={false} />

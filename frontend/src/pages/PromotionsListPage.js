@@ -13,7 +13,7 @@ const PromotionsListPage = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

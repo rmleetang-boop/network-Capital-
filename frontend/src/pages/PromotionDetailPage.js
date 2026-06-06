@@ -15,7 +15,7 @@ const PromotionDetailPage = ({ user }) => {
   const [tab, setTab] = useState('overview'); // overview | leaderboard | feed
   const [loading, setLoading] = useState(true);
 
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

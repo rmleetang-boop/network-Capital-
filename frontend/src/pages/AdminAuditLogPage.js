@@ -24,7 +24,7 @@ const AdminAuditLogPage = ({ user }) => {
   const [actionFilter, setActionFilter] = useState('');
   const [search, setSearch] = useState('');
 
-  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator');
+  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

@@ -11,7 +11,7 @@ const AdminStokvelsPage = ({ user }) => {
   const [q, setQ] = useState('');
   const [creditTarget, setCreditTarget] = useState(null);
 
-  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator');
+  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

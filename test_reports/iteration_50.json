@@ -1,0 +1,46 @@
+{
+  "summary": "Iter50 backend + frontend testing. Backend 15/15 PASS (super-PIN status/set/verify, cleanup-delete header gating, role-gate sync, /api/users/by-username). Frontend mixed: SuperPinPage verify flow works, premium grid renders with all required testids, admin role-sync works. Three confirmed frontend bugs: /profile/:userId does not redirect to /u/:username, leaderboard entry click does not navigate to /u/<username>, and feed post avatar click navigates to home instead of /u/<username>. Also one suspect: quick-owner-center tile click did not navigate (may be flaky due to promo modal). /u/owner is missing data-testid='avatar'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "UserPublicProfilePage", "issue": "Missing data-testid='avatar' on the avatar element (spec requires it)", "selector": "[data-testid='avatar']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "/profile/:userId auto-redirect", "issue": "Visiting /profile/<owner_id> (logged in as owner with username='owner') does NOT redirect to /u/owner. URL stays at /profile/<id>.", "affected_selectors": ["/profile/:userId"]},
+      {"flow": "Leaderboards entry click", "issue": "50 entries render with proper data-testid='leaderboard-entry-<uid>' but clicking the first entry (force=True) does not navigate. URL stays at /leaderboards. onClick handler likely not wired or guard returns early when username falsy.", "affected_selectors": ["[data-testid^='leaderboard-entry-']"]},
+      {"flow": "Feed avatar/username click", "issue": "Clicking post-author-avatar in Feed navigates to '/' (home) instead of /u/<username>. The onClick uses navigate('/') fallback when username is missing — most feed posts may lack username field in payload, so feed posts are not actually routing to user profiles.", "affected_selectors": ["[data-testid^='post-author-avatar']"]},
+      {"flow": "quick-owner-center tile click", "issue": "Clicking [data-testid='quick-owner-center'] (which uses window.location.href='/admin/owner/pin') did not change the URL in automated test. May be a test artifact from promo modal interception, but main agent should manually verify the tile navigates correctly.", "affected_selectors": ["[data-testid='quick-owner-center']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter50_super_pin.py",
+    "/app/test_reports/pytest/iter50_results.xml"
+  ],
+  "action_items": [
+    "Investigate ProfilePage useEffect that should redirect /profile/:userId -> /u/:username when target has username. Confirm the lookup uses /api/users/{userId} or /api/users/by-username and reads the username field correctly.",
+    "Fix LeaderboardsPage entry onClick handler — entries have testids but click does not navigate. Likely missing username in API response or onClick guard `if(username) navigate(...)` short-circuits because the leaderboard list payload doesn't include `username` field.",
+    "Fix FeedPage onUserClick — avatar click going to '/' indicates username is empty for those posts. Either ensure feed API returns username for each post author, or fallback to /profile/:id which then redirects.",
+    "Add data-testid='avatar' to the avatar element on UserPublicProfilePage (currently missing).",
+    "(Suspect) Verify quick-owner-center tile in ProfilePage navigates to /admin/owner/pin in a live browser session (test automation may have been blocked by transient promo modal)."
+  ],
+  "critical_code_review_comments": [
+    "ProfilePage.js uses `window.location.href = q.path` for quick-tile navigation — works but causes full-page reload. Consider using React Router `navigate(q.path)` for SPA consistency.",
+    "LeaderboardsPage/FeedPage onClick handlers should gracefully fallback to /profile/:userId when username is unavailable rather than dropping the click silently or routing to home.",
+    "/api/admin/users (line 6011) still uses static X-Admin-Password header guard while the spec described it as JWT role-gated for admin+super_admin. The role-gated equivalent /api/admin/users-list works; consider deprecating or unifying.",
+    "SuperPinPage handleVerify writes sessionStorage and navigates correctly. No auto-skip when token already valid — minor UX improvement: detect existing valid nc_super_pin_token in sessionStorage and skip directly to /admin/owner."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter50_super_pin.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "~55% (5/9 flows pass; 3 confirmed bugs + 1 suspect + 1 missing testid)"},
+  "test_credentials": "Owner: rmleetang@gmail.com / OwnerTest123!  |  Admin: rmleetang+nctest1780423349@gmail.com / Test123!  |  Super-PIN: NCowner!2026",
+  "seed_data_creation": "No new seed data created. Used existing platform owner + standing admin accounts.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend Iter50 pytest file at /app/backend/tests/test_iter50_super_pin.py — pass REACT_APP_BACKEND_URL via env. Cleanup-delete test asserts token acceptance (no 401 with 'pin' detail) rather than full delete — full delete blocked by 'target not admin/owner' rule and we don't have a non-admin disposable user to delete safely. Frontend has 3 navigation bugs to fix; once fixed, retest leaderboard click, feed avatar click, and /profile/:userId redirect.",
+  "rca_of_the_issue": "1) /profile/:userId not redirecting: ProfilePage likely fetches target user but its useEffect either (a) doesn't fire on userId param change, (b) reads target.username from a field that's null, or (c) navigate() call is inside a condition that never evaluates true. 2) Leaderboard entry click: rows have data-testid but onClick body probably reads `entry.username` which is missing from /api/leaderboards/* response — confirm by inspecting payload. 3) Feed avatar going to '/' confirms the same root cause: posts payload missing `author_username` / `username`. Adding the field server-side OR routing via /profile/:userId (then having that redirect work) fixes both feed + leaderboards at once. So fix order: first repair /profile/:userId → /u/:username redirect; then fall back routes via /profile/:userId will all work."
+}

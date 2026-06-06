@@ -21,7 +21,7 @@ const AdminWithdrawalsPage = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);   // selected withdrawal id (detail)
 
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

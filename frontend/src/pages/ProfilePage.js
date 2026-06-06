@@ -45,7 +45,16 @@ const ProfilePage = ({ user, setUser }) => {
 
   useEffect(() => {
     if (!isOwnProfile && userId) {
-      fetchUserProfile(userId);
+      // For other users, prefer the Instagram-style /u/:username public profile.
+      // Look up the target user to obtain a username, then redirect.
+      axiosInstance.get(`/users/${userId}`).then((r) => {
+        const target = r.data;
+        if (target?.username) {
+          navigate(`/u/${target.username}`, { replace: true });
+        } else {
+          setProfileUser(target);
+        }
+      }).catch(() => fetchUserProfile(userId));
     } else {
       setProfileUser(user);
     }
@@ -675,8 +684,16 @@ const ProfilePage = ({ user, setUser }) => {
 
           {isOwnProfile && (
             <>
-              {/* Quick Access grid (formerly in floating menu) */}
-              <div className="grid grid-cols-3 gap-3 mb-5" data-testid="quick-access-grid">
+              {/* Quick Access grid — dark navy premium */}
+              <div className="relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#04101e] via-[#0a1f3a] to-[#04101e] border border-white/10 p-4 sm:p-5" data-testid="quick-access-grid-wrap">
+                {/* Halo */}
+                <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full pointer-events-none opacity-40 blur-3xl" style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.25) 0%, transparent 65%)' }} />
+                <div className="absolute -bottom-24 -left-24 w-64 h-64 rounded-full pointer-events-none opacity-30 blur-3xl" style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(30,79,165,0.5) 0%, transparent 65%)' }} />
+                <div className="relative flex items-center justify-between mb-3">
+                  <p className="text-[10px] uppercase tracking-[0.25em] font-bold text-[#E8A817]">Your modules</p>
+                  <span className="text-[10px] uppercase tracking-wider text-white/40">Tap to open</span>
+                </div>
+                <div className="relative grid grid-cols-3 gap-2.5" data-testid="quick-access-grid">
                 {[
                   { icon: Users, label: 'My Network', path: '/network' },
                   { icon: MapPin, label: 'My Places', path: '/places' },
@@ -694,13 +711,13 @@ const ProfilePage = ({ user, setUser }) => {
                   { icon: HelpCircle, label: 'Help', path: '/help' },
                   { icon: Settings, label: 'Settings', path: '/settings' },
                   ...(profileUser?.is_ambassador
-                    ? [{ icon: Trophy, label: 'Ambassador', path: '/ambassadors/me' }]
+                    ? [{ icon: Trophy, label: 'Ambassador', path: '/ambassadors/me', highlight: true }]
                     : []),
                   ...(profileUser?.role === 'admin' || profileUser?.role === 'moderator' || profileUser?.role === 'super_admin'
-                    ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard' }]
+                    ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard', highlight: true }]
                     : []),
                   ...(profileUser?.role === 'super_admin'
-                    ? [{ icon: Crown, label: 'Owner Center', path: '/admin/owner' }]
+                    ? [{ icon: Crown, label: 'Owner Center', path: '/admin/owner/pin', highlight: true }]
                     : []),
                 ].map((q) => {
                   const QIcon = q.icon;
@@ -708,14 +725,25 @@ const ProfilePage = ({ user, setUser }) => {
                     <button
                       key={q.path}
                       onClick={() => (window.location.href = q.path)}
-                      className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-background-subtle hover:bg-gray-100 transition-colors"
+                      className={`group relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-200 active:scale-95 ${
+                        q.highlight
+                          ? 'bg-gradient-to-br from-[#E8A817]/20 to-[#E8A817]/5 border-[#E8A817]/40 hover:border-[#E8A817]/70'
+                          : 'bg-white/[0.06] border-white/10 hover:bg-white/[0.10] hover:border-[#E8A817]/30'
+                      }`}
                       data-testid={`quick-${q.label.toLowerCase().replace(/\s+/g, '-')}`}
                     >
-                      <QIcon size={20} className="text-primary" />
-                      <span className="text-xs font-medium text-text-primary">{q.label}</span>
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                        q.highlight
+                          ? 'bg-[#E8A817]/15 border-[#E8A817]/40'
+                          : 'bg-white/5 border-white/10 group-hover:border-[#E8A817]/40 group-hover:bg-[#E8A817]/10'
+                      } transition-colors`}>
+                        <QIcon size={18} className={q.highlight ? 'text-[#E8A817]' : 'text-white/85 group-hover:text-[#E8A817]'} />
+                      </div>
+                      <span className="text-[11px] font-semibold leading-tight text-center text-white/85 group-hover:text-white">{q.label}</span>
                     </button>
                   );
                 })}
+                </div>
               </div>
 
               <button

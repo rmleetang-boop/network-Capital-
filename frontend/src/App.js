@@ -73,6 +73,8 @@ import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplications
 import AdminJobApplicationsPage from './pages/AdminJobApplicationsPage';
 import OwnerUserCleanupPage from './pages/OwnerUserCleanupPage';
 import ReferralLandingPage from './pages/ReferralLandingPage';
+import SuperPinPage from './pages/SuperPinPage';
+import UserPublicProfilePage from './pages/UserPublicProfilePage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -131,6 +133,17 @@ axiosInstance.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Optional super-admin PIN token (15-min) — only attached if still valid.
+  try {
+    const pinToken = sessionStorage.getItem('nc_super_pin_token');
+    const exp = parseInt(sessionStorage.getItem('nc_super_pin_exp') || '0', 10);
+    if (pinToken && exp > Date.now()) {
+      config.headers['X-Super-Pin-Token'] = pinToken;
+    } else if (pinToken && exp && exp <= Date.now()) {
+      sessionStorage.removeItem('nc_super_pin_token');
+      sessionStorage.removeItem('nc_super_pin_exp');
+    }
+  } catch { /* sessionStorage disabled */ }
   return config;
 });
 
@@ -259,6 +272,7 @@ function App() {
             <Route path="/" element={<FeedPage user={user} />} />
             <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} />} />
             <Route path="/profile/:userId" element={<ProfilePage user={user} setUser={setUser} />} />
+            <Route path="/u/:username" element={<UserPublicProfilePage user={user} />} />
             <Route path="/leaderboard" element={<LeaderboardPage currentUser={user} />} />
             <Route path="/notifications" element={<NotificationsPage user={user} />} />
             <Route path="/dashboard" element={<DashboardPage user={user} />} />
@@ -317,6 +331,7 @@ function App() {
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/admin/owner" element={<OwnerControlCenterPage user={user} />} />
+            <Route path="/admin/owner/pin" element={<SuperPinPage user={user} />} />
             <Route path="/admin/locked-accounts" element={<AdminLockedAccountsPage user={user} />} />
             <Route path="/admin/job-applications" element={<AdminJobApplicationsPage user={user} />} />
             <Route path="/admin/owner/cleanup" element={<OwnerUserCleanupPage user={user} />} />

@@ -24,7 +24,7 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
   const [bootstrap, setBootstrap] = useState(false);
   const [adminPwd, setAdminPwd] = useState('');
 
-  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator');
+  const isAdmin = user && (user.role === 'admin' || user.role === 'moderator' || user.role === 'super_admin');
 
   const load = async () => {
     setLoading(true);

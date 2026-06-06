@@ -287,7 +287,7 @@ const RegionalHubsPage = ({ user }) => {
                 data-testid={`hub-user-${u.id}`}
               >
                 <div className="flex items-center gap-3">
-                  <button onClick={() => navigate(`/profile/${u.id}`)} className="flex-shrink-0">
+                  <button onClick={() => navigate(u.username ? `/u/${u.username}` : `/profile/${u.id}`)} className="flex-shrink-0">
                     {u.photo ? (
                       <img src={u.photo} alt={u.username} className="w-14 h-14 rounded-full object-cover" />
                     ) : (
@@ -297,7 +297,7 @@ const RegionalHubsPage = ({ user }) => {
                     )}
                   </button>
                   <div className="flex-1 min-w-0">
-                    <button onClick={() => navigate(`/profile/${u.id}`)} className="block text-left">
+                    <button onClick={() => navigate(u.username ? `/u/${u.username}` : `/profile/${u.id}`)} className="block text-left">
                       <p className="text-white font-semibold truncate">{u.full_name || u.username}</p>
                       <p className="text-white/60 text-xs truncate">@{u.username}</p>
                     </button>

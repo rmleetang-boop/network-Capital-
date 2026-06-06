@@ -13,7 +13,7 @@ const AdminAnnouncePage = ({ user }) => {
   const [flagBusy, setFlagBusy] = useState(false);
   const [stokvelEnabled, setStokvelEnabled] = useState(null);
 
-  const isAdmin = user && user.role === 'admin';
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
 
   useEffect(() => {
     axiosInstance.get('/feature-flags').then((r) => setStokvelEnabled(!!r.data?.stokvel_plus_enabled)).catch(() => {});
