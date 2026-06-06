@@ -1,5 +1,52 @@
 # Network Capital — CHANGELOG
 
+## iter 45 (Feb, 2026) — Security & Permission Audit (29/29 pass)
+
+### Wallet — SELF-CREDIT REMOVED
+- `POST /api/wallet/deposit` → **HTTP 410 GONE** for ALL roles. Body still parsed for backwards-compat clarity, but no balance change ever occurs.
+- Removed frontend "Add funds" UI from `WalletPage.js`: `showDepositModal`/`depositAmount`/`handleDeposit`/the `+ Plus` button/the entire Deposit modal/the `wallet deposits` paywall copy — all stripped.
+- Server-side guard `require_super_admin` enforced on `POST /api/admin/credit-grants` and `POST /api/admin/credit-grants/{id}/co-approve` (was previously open to any `admin`).
+- **Wallet adjustment audit** — every successful credit grant writes a row to a new `wallet_adjustments_audit` collection with:
+  `grant_id, target_user_id, target_email, target_username, amount_usd, currency, amount_native, previous_balance_usd, new_balance_usd, actor_id, actor_username, actor_role, reason, created_at`.
+  Indexes on `created_at` + `target_user_id` created at startup.
+
+### Ad rewards — fraud-proofed
+- `POST /api/ads/watch` rewrite: validates ad existence → `is_active` + `status` → time window (`starts_at` / `ends_at`) → reward inventory (`max_rewards` / `rewards_used`).
+- **Per (user, ad, event_kind) uniqueness** via new `ad_reward_claims` collection with a **unique index on `key`** (atomic dedup, race-proof). First engage on a given ad → awarded; second engage on same ad → `{awarded:false, duplicate:true}`. Engage and share count separately so a user can legitimately do both.
+- `ads.rewards_used` and `ads.engagements` / `ads.shares` counters incremented on each successful claim.
+- No active ad → `{points:0, awarded:false, reason:"No active rewarded advertisements available."}` — never awards just for opening the feed.
+
+### Role-change emails — fan-out fixed
+Previously only `/admin/users/{id}/role` fired the email. Now also fires from:
+- `POST /admin/users/{id}/make-ambassador` (grant AND revoke — diffs `prev_was_ambassador != is_amb`)
+- `POST /admin/ambassador-applications/{id}/approve` — emits `_notify_role_change(prev=user/admin, new=ambassador)` + AuditLog action `ambassador.approve`
+- Each path: in-app notification doc + Brevo email (subject `Your Network Capital role is now: …`) + AuditLog entry. Verified **`[MAIL-SENT] subj='Your Network Capital role is now: Ambassador'`** to real inbox.
+
+### Role-check guards — super_admin no longer falsely blocked
+Endpoints that hardcoded `role != "admin"` were rejecting super_admin. Patched to `role not in ("admin","super_admin")`:
+- `PUT  /api/admin/feature-flags/{key}`
+- `POST /api/admin/announce`
+- `POST /api/admin/dm`
+- `POST /api/admin/users/{id}/make-ambassador`
+- `POST /api/admin/promotions`
+- `PATCH /api/admin/promotions/{id}`
+- `DELETE /api/admin/promotions/{id}`
+
+### Permission matrix (now enforced)
+```
+Role          Wallet write        Score awards   User mgmt    Financial (credit-grants)
+user          ✗ 410               ✓ via actions  ✗ 403        ✗ 403
+ambassador    ✗ 410               ✓ via actions  ✗ 403        ✗ 403
+moderator     ✗ 410               ✓ via actions  ✗ 403        ✗ 403
+admin         ✗ 410               ✓ via actions  ✓ role+amb   ✗ 403 (now correctly gated)
+super_admin   ✓ via /credit-grants ✓ via actions ✓ all        ✓ create + co-approve
+```
+
+### Test recap (iteration_36.json)
+- **29/29 pass** — wallet 410, credit-grants (403/200) + audit row shape match, /ads/watch all 8 branches, role-change fan-out on all 4 paths, super_admin role-guard fixes on 7 endpoints, startup index creation.
+- Test file: `/app/backend/tests/test_iter36_security_audit.py`.
+
+
 ## iter 44 (Feb, 2026) — Platform Enhancements Batch
 ### Role hierarchy & permissions
 - New `super_admin` role tier above `admin`. Single tenant: `SUPER_ADMIN_EMAIL = rmleetang@gmail.com`.

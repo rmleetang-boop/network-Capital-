@@ -7916,7 +7916,7 @@ async def admin_set_feature_flag(
     payload: FeatureFlagUpdate,
     admin: dict = Depends(require_admin_user),
 ):
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can toggle feature flags")
     await db.feature_flags.update_one(
         {"key": key},
@@ -8497,7 +8497,7 @@ class PromotionIn(BaseModel):
 
 @api_router.post("/admin/promotions")
 async def admin_create_promotion(payload: PromotionIn, admin: dict = Depends(require_admin_user)):
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can manage promotions")
     promo = {
         "id": str(uuid.uuid4()),
@@ -8541,7 +8541,7 @@ async def admin_get_promotion(promotion_id: str, admin: dict = Depends(require_a
 
 @api_router.patch("/admin/promotions/{promotion_id}")
 async def admin_update_promotion(promotion_id: str, payload: Dict[str, Any], admin: dict = Depends(require_admin_user)):
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can manage promotions")
     allowed = {"name", "description", "eligible_actions", "min_network_score", "schedule",
                "starts_at", "ends_at", "zar_per_point", "is_active",
@@ -8563,7 +8563,7 @@ async def admin_update_promotion(promotion_id: str, payload: Dict[str, Any], adm
 
 @api_router.delete("/admin/promotions/{promotion_id}")
 async def admin_delete_promotion(promotion_id: str, admin: dict = Depends(require_admin_user)):
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can manage promotions")
     res = await db.promotions.delete_one({"id": promotion_id})
     if not res.deleted_count:
