@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, MessageCircle, UserPlus, UserCheck, Crown, Star, MoreVertical, MapPin, Briefcase, Grid3x3, Bookmark, Share2, Loader2, Sparkles, Image as ImageIcon, Camera, Users, Wallet, Package, TrendingUp, Activity, Trophy, Bell, HelpCircle, Settings, Shield, MessageCircle as MessageCircleIcon } from 'lucide-react';
+import { ArrowLeft, MessageCircle, UserPlus, UserCheck, Crown, Star, MoreVertical, MapPin, Briefcase, Grid3x3, Bookmark, Share2, Loader2, Sparkles, Image as ImageIcon, Camera, Users, Wallet, Package, TrendingUp, Activity, Trophy, Bell, HelpCircle, Settings, Shield, MessageCircle as MessageCircleIcon, LogOut, Flag, UserX } from 'lucide-react';
 import { toast } from 'sonner';
 import { axiosInstance } from '../App';
 
@@ -23,8 +23,29 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('grid');
   const [busyConnect, setBusyConnect] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
   const isOwnProfile = currentUser && profile && currentUser.id === profile.id;
+
+  useEffect(() => {
+    const onClickAway = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    if (menuOpen) document.addEventListener('mousedown', onClickAway);
+    return () => document.removeEventListener('mousedown', onClickAway);
+  }, [menuOpen]);
+
+  const handleLogout = () => {
+    if (!window.confirm('Sign out of Network Capital?')) return;
+    try {
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('nc_super_pin_token');
+      sessionStorage.removeItem('nc_super_pin_exp');
+    } catch { /* ignored */ }
+    toast.success('Signed out');
+    window.location.href = '/';
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -104,9 +125,33 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
           <button onClick={handleShare} className="p-2 rounded-full hover:bg-white/5" data-testid="share-btn">
             <Share2 size={18} />
           </button>
-          <button className="p-2 rounded-full hover:bg-white/5">
-            <MoreVertical size={18} />
-          </button>
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => setMenuOpen((v) => !v)} className="p-2 rounded-full hover:bg-white/5" data-testid="profile-menu-btn">
+              <MoreVertical size={18} />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 mt-2 w-56 bg-[#0a1f3a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-30"
+                data-testid="profile-menu"
+              >
+                {isOwnProfile ? (
+                  <>
+                    <MenuItem icon={UserCheck} label="Edit profile" onClick={() => { setMenuOpen(false); navigate('/profile'); }} testid="menu-edit" />
+                    <MenuItem icon={Settings} label="Settings" onClick={() => { setMenuOpen(false); navigate('/settings'); }} testid="menu-settings" />
+                    <MenuItem icon={HelpCircle} label="Help" onClick={() => { setMenuOpen(false); navigate('/help'); }} testid="menu-help" />
+                    <div className="border-t border-white/10" />
+                    <MenuItem icon={LogOut} label="Sign out" onClick={() => { setMenuOpen(false); handleLogout(); }} testid="menu-logout" danger />
+                  </>
+                ) : (
+                  <>
+                    <MenuItem icon={Share2} label="Share profile" onClick={() => { setMenuOpen(false); handleShare(); }} testid="menu-share" />
+                    <MenuItem icon={Flag} label="Report" onClick={() => { setMenuOpen(false); toast.info('Report received — our team will review.'); }} testid="menu-report" />
+                    <MenuItem icon={UserX} label="Block" onClick={() => { setMenuOpen(false); toast.info('Blocking feature coming soon.'); }} testid="menu-block" />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -292,6 +337,19 @@ const Stat = ({ label, value, testid }) => (
     <p className="font-heading font-bold text-lg sm:text-xl">{value}</p>
     <p className="text-[11px] uppercase tracking-wider text-white/55">{label}</p>
   </div>
+);
+
+const MenuItem = ({ icon: Icon, label, onClick, testid, danger }) => (
+  <button
+    onClick={onClick}
+    className={`w-full px-4 py-3 flex items-center gap-3 text-sm text-left hover:bg-white/5 transition-colors ${
+      danger ? 'text-red-300 hover:text-red-200' : 'text-white/90'
+    }`}
+    data-testid={testid}
+  >
+    <Icon size={15} className={danger ? 'text-red-400' : 'text-white/55'} />
+    <span className="font-semibold">{label}</span>
+  </button>
 );
 
 const PostEmptyState = ({ isOwn, navigate }) => (
