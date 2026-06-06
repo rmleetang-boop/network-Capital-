@@ -6230,25 +6230,33 @@ async def ensure_indexes():
 async def bootstrap_super_admin():
     """Ensure the Platform Owner has the `super_admin` role — and that they are the
     ONLY user with that role. Any other accounts holding super_admin are demoted
-    to plain ``admin`` automatically on each boot. Idempotent."""
+    to plain ``admin`` automatically on each boot. Idempotent.
+
+    Email lookup is CASE-INSENSITIVE so legacy records stored with mixed casing
+    (e.g. ``Rmleetang@gmail.com``) still resolve to the platform owner."""
     try:
         target_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
         if not target_email:
             return
+        # Anchored, case-insensitive regex match.
+        import re as _re
         owner = await db.users.find_one(
-            {"email": target_email},
-            {"_id": 0, "id": 1, "role": 1},
+            {"email": {"$regex": f"^{_re.escape(target_email)}$", "$options": "i"}},
+            {"_id": 0, "id": 1, "role": 1, "email": 1},
         )
         if owner and owner.get("role") != "super_admin":
             await db.users.update_one(
                 {"id": owner["id"]},
-                {"$set": {"role": "super_admin", "is_ambassador": False}},
+                {"$set": {"role": "super_admin", "is_ambassador": False,
+                          "email": target_email}},
             )
-            logger.info(f"[BOOTSTRAP] Promoted {target_email} to super_admin")
+            logger.info(f"[BOOTSTRAP] Promoted {owner.get('email')} to super_admin (canonicalised to {target_email})")
+        elif owner:
+            # Normalise the stored email casing in-place so future lookups are exact-match.
+            if (owner.get("email") or "").strip().lower() != target_email or owner.get("email") != target_email:
+                await db.users.update_one({"id": owner["id"]}, {"$set": {"email": target_email}})
 
         # Enforce SOLE super_admin — demote any other super_admins to plain admin.
-        # Compares by id (not by email) so we don't accidentally demote the owner
-        # because of email casing differences in the DB.
         owner_id = (owner or {}).get("id")
         demote_query: Dict[str, Any] = {"role": "super_admin"}
         if owner_id:
