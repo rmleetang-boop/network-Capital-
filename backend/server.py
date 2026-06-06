@@ -33,6 +33,15 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 security = HTTPBearer()
 
+def _norm_email(email) -> str:
+    """Canonical form for emails — strip + lowercase.
+
+    Used on every read AND write path so login is case-insensitive and storage
+    casing is uniform. Returns an empty string for falsy inputs."""
+    if not email:
+        return ""
+    return str(email).strip().lower()
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
@@ -963,7 +972,8 @@ async def revoke_score_event(user_id: str, action: str, source_id: str) -> int:
 
 @api_router.post("/auth/signup", response_model=AuthResponse)
 async def signup(request: SignupRequest):
-    existing_user = await db.users.find_one({"email": request.email}, {"_id": 0})
+    email = _norm_email(request.email)
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -1017,7 +1027,7 @@ async def signup(request: SignupRequest):
     
     user_response = {
         "id": user_id,
-        "email": request.email,
+        "email": email,
         "username": request.username,
         "bio": request.bio,
         "photo": request.photo,
@@ -1034,7 +1044,8 @@ async def signup(request: SignupRequest):
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
-    user = await db.users.find_one({"email": request.email}, {"_id": 0})
+    email = _norm_email(request.email)
+    user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user or not verify_password(request.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -4746,7 +4757,7 @@ async def follow_product(product_id: str, request: FollowProductRequest):
         "id": follower_id,
         "product_id": product_id,
         "name": request.name,
-        "email": request.email,
+        "email": _norm_email(request.email),
         "phone": request.phone,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -5080,10 +5091,12 @@ async def get_net_worth(current_user: dict = Depends(get_current_user)):
 @api_router.post("/auth/progressive-signup")
 async def progressive_signup(request: ProgressiveSignupRequest):
     """Step 1: Create account with minimal info"""
+    # Normalise email casing so login is case-insensitive end-to-end.
+    norm_email = _norm_email(request.email) if request.email else ""
     # Check if email/phone already exists
     query = {}
-    if request.email:
-        query["email"] = request.email
+    if norm_email:
+        query["email"] = norm_email
     elif request.phone:
         query["phone"] = request.phone
     else:
@@ -5111,7 +5124,7 @@ async def progressive_signup(request: ProgressiveSignupRequest):
 
     user_data = {
         "id": user_id,
-        "email": request.email or f"{request.phone}@phone.networkcapital.app",
+        "email": norm_email or f"{request.phone}@phone.networkcapital.app",
         "phone": request.phone,
         "password": hashed_password,
         "username": f"user_{user_id[:8]}",
@@ -6224,6 +6237,40 @@ async def ensure_indexes():
     except Exception as e:
         logger.warning(f"wallet_adjustments_audit index ensure failed: {e}")
 
+
+
+@app.on_event("startup")
+async def canonicalise_user_emails():
+    """One-shot (per-boot) migration: lowercase every email stored on `users`.
+
+    Login, signup, OTP, and forgot-password are all case-insensitive by treating
+    the request email as ``email.strip().lower()``.  This migration brings every
+    legacy record in line so the lookup is a fast exact-match index hit rather
+    than a regex scan.
+
+    Idempotent — only updates rows whose stored email actually changes.
+    """
+    try:
+        # Scan in batches of 1000 to keep memory bounded on large tenants.
+        cursor = db.users.find(
+            {"email": {"$exists": True, "$ne": None}},
+            {"_id": 0, "id": 1, "email": 1},
+            no_cursor_timeout=False,
+        )
+        fixed = 0
+        async for u in cursor:
+            raw = u.get("email") or ""
+            norm = raw.strip().lower()
+            if norm != raw:
+                await db.users.update_one(
+                    {"id": u["id"]},
+                    {"$set": {"email": norm}},
+                )
+                fixed += 1
+        if fixed:
+            logger.info(f"[MIGRATE] Lowercased {fixed} legacy user email(s) on startup")
+    except Exception as e:
+        logger.warning(f"canonicalise_user_emails skipped: {e}")
 
 
 @app.on_event("startup")
