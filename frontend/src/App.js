@@ -66,6 +66,9 @@ import AdminWithdrawalsPage from './pages/AdminWithdrawalsPage';
 import AdminAdsPage from './pages/AdminAdsPage';
 import BecomeAmbassadorPage from './pages/BecomeAmbassadorPage';
 import OwnerControlCenterPage from './pages/OwnerControlCenterPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
+import AdminLockedAccountsPage from './pages/AdminLockedAccountsPage';
 import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplicationsPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
@@ -195,7 +198,12 @@ function App() {
 
   if (!user) {
     // Show landing page for first-time visitors (but not on legal/admin/auth pages)
-    if (showOnboarding && !window.location.pathname.startsWith('/legal') && !window.location.pathname.startsWith('/admin') && !window.location.pathname.startsWith('/auth')) {
+    if (showOnboarding
+        && !window.location.pathname.startsWith('/legal')
+        && !window.location.pathname.startsWith('/admin')
+        && !window.location.pathname.startsWith('/auth')
+        && !window.location.pathname.startsWith('/forgot-password')
+        && !window.location.pathname.startsWith('/reset-password')) {
       return (
         <>
           <Toaster position="top-center" />
@@ -219,6 +227,9 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+
             <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
@@ -301,6 +312,11 @@ function App() {
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/admin/owner" element={<OwnerControlCenterPage user={user} />} />
+            <Route path="/admin/locked-accounts" element={<AdminLockedAccountsPage user={user} />} />
+
+            {/* Public auth pages — also reachable while logged in so email links work */}
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             <Route path="/join" element={<Navigate to="/" replace />} />
             <Route path="/join/:slug" element={<Navigate to="/" replace />} />

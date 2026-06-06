@@ -1,5 +1,40 @@
 # Network Capital — CHANGELOG
 
+## iter 47 (Feb, 2026) — Forgot Password + Account Lockout + Score table visibility
+
+### Score-table visibility (in-app)
+- `ActivityTrackerPage.js` "How to earn points" panel now mirrors the full server-side `SCORE_RULES` table verbatim — Community section (Stokvel join, Activity create/join, Place review, Connection, Job share), Milestones (profile completion, premium welcome, daily check-in, monthly streak, weekly resource drop), and an **Anti-abuse safeguards** block (24h same-source cooldown, ad-share diminishing ladder, > 80% single-action flag, real-ad-only enforcement). Premium/Founder 2× note retained.
+
+### Forgot-password flow (backend)
+- New endpoints (all in `server.py`):
+  - `POST /api/auth/forgot-password` — generic OK response (no email enumeration), generates `secrets.token_urlsafe(32)`, stores `bcrypt(token)` in `password_resets` with `expires_at = now + PASSWORD_RESET_TTL_MIN min` (default 60min, env-overridable), emails plain token via Brevo with the new `_password_reset_html` template.
+  - `POST /api/auth/reset-password` — accepts `{token, new_password}`. Scans recent unused/unexpired rows, bcrypt-compares the token. On success: updates `users.password`, marks row used + invalidates other live tokens, fires confirmation email via `_password_changed_html`, writes `AuditLog` row `auth.password_reset`.
+- Lockout: **5 reset requests in 7 days** → sets `users.account_locked=true` + `account_locked_reason` + `account_locked_at`. Login returns **HTTP 423** while locked. Lock-notification email (`_password_reset_lock_html`) sent to user, in-app notification (`type='account_locked'`) created for admin/super_admin review.
+- Audit: every request and reset attempt (success or fail) logged to a new `password_reset_attempts` collection — `{email, user_id, kind, outcome, ip, created_at}`.
+- Password policy: ≥ 8 chars + at least one letter + one digit. Enforced server-side in `_password_strength_ok`.
+- Admin endpoints:
+  - `GET /api/admin/locked-accounts` (admin/super_admin)
+  - `POST /api/admin/users/{id}/unlock-password-reset` (admin/super_admin) — writes `AuditLog` action `auth.account_unlock`.
+
+### Frontend — password security
+- **New reusable `PasswordField` component** (`components/PasswordField.js`) — drop-in `<input type="password">` replacement with eye toggle + optional inline strength meter (`PasswordStrengthMeter` + exported `scorePassword(pw)`).
+- **`AuthPage.js`** — `InputField` now renders an eye toggle inline on any password field (login + signup), added `autoComplete` attrs, added "Forgot password?" link, added dark-themed signup strength meter (`SignupStrengthMeter`).
+- **New `ForgotPasswordPage.js`** at `/forgot-password` — collects email, shows generic success state with 60-min link expiry copy + support email lockout warning.
+- **New `ResetPasswordPage.js`** at `/reset-password?token=...` — uses `PasswordField` with strength meter, double-entry confirm, friendly error state when token missing, success state directing to sign in.
+- **New `AdminLockedAccountsPage.js`** at `/admin/locked-accounts` — lists every locked user with search + one-click Unlock (prompts for reason → audit-logged). Linked from Owner Control Center "Users & roles" section as a danger-styled tile.
+- Routes added in `App.js` (both unauthenticated + authenticated trees) + the `showOnboarding` early-return now allows `/forgot-password` and `/reset-password` paths through.
+
+### Smoke + pytest results
+- `pytest /app/backend/tests/test_iter47_password_reset.py` — **6/6 PASS**:
+  - generic-OK for unknown + known emails
+  - bad-token returns 400
+  - weak-password rejected
+  - 5-request lockout → login 423 → admin unlock → login 200
+  - `/admin/locked-accounts` requires admin role (403 for users)
+- Brevo deliveries verified: reset email + lock email + password-changed email all show `[MAIL-SENT]` in logs.
+- UI screenshots confirm: AuthPage shows eye toggle + Forgot link, ForgotPasswordPage renders cleanly.
+
+
 ## iter 46 (Feb, 2026) — Sole Super Admin + Owner Control Center
 
 ### Sole super_admin enforced

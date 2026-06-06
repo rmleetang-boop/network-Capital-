@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, User, FileText, HelpCircle, Check, ExternalLink, ArrowLeft, ArrowRight, Users, Sparkles, ShieldCheck, Building2, Hash, Briefcase } from 'lucide-react';
+import { Mail, Lock, User, FileText, HelpCircle, Check, ExternalLink, ArrowLeft, ArrowRight, Users, Sparkles, ShieldCheck, Building2, Hash, Briefcase, Eye, EyeOff } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -245,7 +245,17 @@ const AuthPage = ({ onLogin }) => {
                 className="space-y-4"
               >
                 <InputField icon={Mail} name="email" type="email" placeholder="your@email.com" label="Email" value={formData.email} onChange={handleChange} testId="email-input" required />
-                <InputField icon={Lock} name="password" type="password" placeholder="••••••••" label="Password" value={formData.password} onChange={handleChange} testId="password-input" required />
+                <InputField icon={Lock} name="password" type="password" placeholder="••••••••" label="Password" value={formData.password} onChange={handleChange} testId="password-input" autoComplete="current-password" required />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/forgot-password')}
+                    className="text-xs font-semibold text-secondary hover:text-yellow-300 transition-colors"
+                    data-testid="forgot-password-link"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <button
                   type="submit"
                   disabled={loading}
@@ -268,7 +278,8 @@ const AuthPage = ({ onLogin }) => {
                   <p className="text-white/60 text-sm">Step 1 of 2 · Quick start</p>
                 </div>
                 <InputField icon={Mail} name="email" type="email" placeholder="your@email.com" label="Email" value={formData.email} onChange={handleChange} testId="email-input" required />
-                <InputField icon={Lock} name="password" type="password" placeholder="Create a password" label="Password" value={formData.password} onChange={handleChange} testId="password-input" required />
+                <InputField icon={Lock} name="password" type="password" placeholder="Create a password" label="Password" value={formData.password} onChange={handleChange} testId="password-input" autoComplete="new-password" required />
+                {formData.password && <SignupStrengthMeter password={formData.password} />}
 
                 <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                   <label className="flex items-start gap-3 cursor-pointer">
@@ -547,23 +558,67 @@ const AuthPage = ({ onLogin }) => {
   );
 };
 
-const InputField = ({ icon: Icon, name, type, placeholder, label, value, onChange, testId, required }) => (
-  <div>
-    <label className="block text-sm font-medium text-white/80 mb-1">{label}</label>
-    <div className="relative">
-      <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={20} />
-      <input
-        type={type}
-        name={name}
-        value={value}
-        onChange={onChange}
-        required={required}
-        className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/40 focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all"
-        placeholder={placeholder}
-        data-testid={testId}
-      />
+const SignupStrengthMeter = ({ password }) => {
+  // Mirrors the scoring used in /app/frontend/src/components/PasswordField.js.
+  let score = 0;
+  if (password?.length >= 8) score += 1;
+  if (password?.length >= 12) score += 1;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+  if (/\d/.test(password)) score += 1;
+  if (/[^A-Za-z0-9]/.test(password)) score += 1;
+  score = Math.min(score, 4);
+  const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+  const colors = ['bg-red-500', 'bg-red-500', 'bg-orange-400', 'bg-yellow-400', 'bg-green-500'];
+  return (
+    <div className="px-1" data-testid="signup-password-strength">
+      <div className="flex gap-1 mb-1">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className={`flex-1 h-1 rounded-full ${i < score ? colors[score] : 'bg-white/15'}`} />
+        ))}
+      </div>
+      <p className="text-[11px] text-white/55">
+        Strength: <span className={`font-bold ${score >= 3 ? 'text-green-300' : score >= 2 ? 'text-yellow-300' : 'text-red-300'}`}>{labels[score]}</span>
+        {score < 2 && <span className="ml-1 opacity-70">· min 8 chars, letter + digit</span>}
+      </p>
     </div>
-  </div>
-);
+  );
+};
+
+const InputField = ({ icon: Icon, name, type, placeholder, label, value, onChange, testId, required, autoComplete }) => {
+  const isPassword = type === 'password';
+  const [visible, setVisible] = React.useState(false);
+  const effectiveType = isPassword ? (visible ? 'text' : 'password') : type;
+  return (
+    <div>
+      <label className="block text-sm font-medium text-white/80 mb-1">{label}</label>
+      <div className="relative">
+        <Icon className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={20} />
+        <input
+          type={effectiveType}
+          name={name}
+          value={value}
+          onChange={onChange}
+          required={required}
+          autoComplete={autoComplete}
+          className={`w-full pl-10 ${isPassword ? 'pr-11' : 'pr-4'} py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/40 focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all`}
+          placeholder={placeholder}
+          data-testid={testId}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            tabIndex={-1}
+            aria-label={visible ? 'Hide password' : 'Show password'}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-white/55 hover:text-white rounded-full hover:bg-white/10 transition-colors"
+            data-testid={`${testId}-toggle`}
+          >
+            {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export default AuthPage;

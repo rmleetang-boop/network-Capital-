@@ -8,6 +8,13 @@ Refer to previous iteration logs. The current testing pattern relies on dynamica
 - **Platform Owner (production):** `rmleetang@gmail.com` — bootstrap_super_admin auto-promotes this email on startup. Not present in the dev DB by default.
 - To create a fresh admin: sign up via `/auth/progressive-signup`, set `email_verified=true` via mongosh, then `db.users.updateOne({id:'<uid>'},{$set:{role:'admin'}})`. For super_admin testing, use `role:'super_admin'` instead.
 
+
+## Password-reset configuration (iter47)
+- Reset link expires in **60 minutes** (`PASSWORD_RESET_TTL_MIN`, env-overridable)
+- Account auto-locks after **5 reset requests in 7 days** (`PASSWORD_RESET_LOCK_LIMIT` / `PASSWORD_RESET_LOCK_WINDOW_DAYS`)
+- Locked accounts must email `support@networkcapitalapp.co.za` to release. Admin/super_admin can unlock from `/admin/locked-accounts`.
+- Frontend reset link URL: `PASSWORD_RESET_FE_URL` env var (defaults to `https://networkcapitalapp.co.za/reset-password`)
+
 ## Note (iter 43+)
 Brevo is live — `/auth/send-otp` no longer returns `_mock_code` when delivery succeeds. For automated tests that don't need a real inbox, **mint a JWT directly using `JWT_SECRET_KEY` from `/app/backend/.env`** (HS256) — see `/app/backend/tests/test_iter35_platform_enhancements.py` for the helper.
 

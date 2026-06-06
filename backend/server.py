@@ -1038,6 +1038,15 @@ async def login(request: LoginRequest):
     if not user or not verify_password(request.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Hard account lock — set when a user exceeds the password-reset abuse threshold.
+    # Only an admin / super_admin can unlock via /admin/users/{id}/unlock-password-reset.
+    if user.get("account_locked"):
+        raise HTTPException(
+            status_code=423,
+            detail="Account locked due to too many password-reset attempts. "
+                   "Email support@networkcapitalapp.co.za to release the lock.",
+        )
+
     # Auto-reactivate: a successful login cancels a pending deactivation.
     # If the account is in deletion grace period, login also cancels that.
     auto_unset = {}
@@ -1061,6 +1070,269 @@ async def login(request: LoginRequest):
     token = create_access_token({"sub": user["id"]})
     user_response = {k: v for k, v in user.items() if k != "password"}
     return {"token": token, "user": user_response}
+
+
+# ============== PASSWORD RESET (Forgot password + lockout) =================
+# Spec:
+#   - "Forgot password" issues a single-use token, valid for PASSWORD_RESET_TTL_MIN minutes.
+#   - Token hash (bcrypt) is stored — the plain token is in the email link only.
+#   - All attempts (success + fail) logged to password_reset_attempts.
+#   - 5 requests in 7 days → account hard-lock (account_locked=true). Admin must release.
+#   - Successful password change fires a confirmation email + lifts the failed-attempts counter.
+# ============================================================================
+
+import secrets as _secrets
+
+PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "60"))
+PASSWORD_RESET_LOCK_LIMIT = int(os.environ.get("PASSWORD_RESET_LOCK_LIMIT", "5"))
+PASSWORD_RESET_LOCK_WINDOW_DAYS = int(os.environ.get("PASSWORD_RESET_LOCK_WINDOW_DAYS", "7"))
+PASSWORD_RESET_FE_URL = os.environ.get(
+    "PASSWORD_RESET_FE_URL",
+    "https://networkcapitalapp.co.za/reset-password",
+)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+def _password_strength_ok(pw: str) -> bool:
+    """Minimum policy: 8+ chars, at least one letter + one digit."""
+    return bool(pw) and len(pw) >= 8 and any(c.isalpha() for c in pw) and any(c.isdigit() for c in pw)
+
+
+async def _log_password_reset_attempt(
+    *, email: str, user_id: Optional[str], outcome: str, kind: str, ip: str = "",
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Append-only audit row for every reset request, success, or failure."""
+    try:
+        row = {
+            "id": str(uuid.uuid4()),
+            "email": (email or "").strip().lower(),
+            "user_id": user_id,
+            "kind": kind,             # 'request' | 'reset_success' | 'reset_fail'
+            "outcome": outcome,        # human-readable result
+            "ip": ip,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if extra:
+            row.update(extra)
+        await db.password_reset_attempts.insert_one(row)
+    except Exception as e:
+        logger.warning(f"password_reset_attempts log failed: {e}")
+
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(request: ForgotPasswordRequest, fastapi_request: Request):
+    """Issue a single-use reset link.  Always returns the same generic 200 so we
+    don't leak which emails exist on the platform.  Lock the account on the 5th
+    request in the last 7 days."""
+    email = request.email.strip().lower()
+    ip = (fastapi_request.client.host if fastapi_request and fastapi_request.client else "") or ""
+    user = await db.users.find_one(
+        {"email": email},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1, "account_locked": 1, "email_verified": 1},
+    )
+    GENERIC_OK = {"ok": True, "message": "If an account exists, a reset link has been sent."}
+
+    if not user:
+        await _log_password_reset_attempt(email=email, user_id=None, outcome="user_not_found", kind="request", ip=ip)
+        return GENERIC_OK
+
+    if user.get("account_locked"):
+        # Don't issue a new token while locked. Surface the same generic response.
+        await _log_password_reset_attempt(
+            email=email, user_id=user["id"], outcome="already_locked", kind="request", ip=ip,
+        )
+        return GENERIC_OK
+
+    # Brute-force / abuse limit — rolling 7-day window.
+    since = (datetime.now(timezone.utc) - timedelta(days=PASSWORD_RESET_LOCK_WINDOW_DAYS)).isoformat()
+    recent_count = await db.password_reset_attempts.count_documents({
+        "email": email, "kind": "request", "created_at": {"$gte": since},
+    })
+    # Note: this is the count BEFORE the current request. So when recent_count == limit-1,
+    # the *new* one we are about to record makes it == limit → lock.
+    will_lock = recent_count >= (PASSWORD_RESET_LOCK_LIMIT - 1)
+
+    if will_lock:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {
+                "account_locked": True,
+                "account_locked_reason": "Exceeded password-reset abuse threshold",
+                "account_locked_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        await _log_password_reset_attempt(
+            email=email, user_id=user["id"], outcome="account_locked", kind="request", ip=ip,
+            extra={"window_days": PASSWORD_RESET_LOCK_WINDOW_DAYS, "limit": PASSWORD_RESET_LOCK_LIMIT},
+        )
+        # Notify the user that their account is locked.
+        try:
+            if user.get("email_verified"):
+                await _send_branded_email(
+                    to=email,
+                    subject="Network Capital · Account locked",
+                    html=_password_reset_lock_html(
+                        name=(user.get("full_name") or user.get("username") or "there"),
+                    ),
+                    kind="password_lock",
+                )
+        except Exception as e:
+            logger.warning(f"lock-email failed: {e}")
+        # Flag for admin/super-admin review (notification doc).
+        try:
+            await db.notifications.insert_one({
+                "id": str(uuid.uuid4()),
+                "user_id": None,   # broadcast to admins via the AdminLockedAccounts page
+                "type": "account_locked",
+                "title": "Account locked — password reset abuse",
+                "message": f"{email} hit {PASSWORD_RESET_LOCK_LIMIT} reset requests in {PASSWORD_RESET_LOCK_WINDOW_DAYS}d.",
+                "target_user_id": user["id"],
+                "read": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
+        return GENERIC_OK
+
+    # Generate the token, store its hash, email the plain version.
+    plain_token = _secrets.token_urlsafe(32)
+    token_hash = hash_password(plain_token)
+    now = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(minutes=PASSWORD_RESET_TTL_MIN)).isoformat()
+    await db.password_resets.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user["id"],
+        "email": email,
+        "token_hash": token_hash,
+        "expires_at": expires_at,
+        "used_at": None,
+        "ip": ip,
+        "created_at": now.isoformat(),
+    })
+    await _log_password_reset_attempt(email=email, user_id=user["id"], outcome="link_sent", kind="request", ip=ip)
+
+    # Send the email (best-effort; never reveal failure to the requester).
+    reset_url = f"{PASSWORD_RESET_FE_URL}?token={plain_token}"
+    try:
+        await _send_branded_email(
+            to=email,
+            subject="Reset your Network Capital password",
+            html=_password_reset_html(
+                name=(user.get("full_name") or user.get("username") or "there"),
+                reset_url=reset_url,
+                expires_minutes=PASSWORD_RESET_TTL_MIN,
+            ),
+            kind="password_reset",
+        )
+    except Exception as e:
+        logger.warning(f"password reset email send failed: {e}")
+
+    return GENERIC_OK
+
+
+@api_router.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordRequest, fastapi_request: Request):
+    """Consume a single-use token + set new password.  Token validated by scanning
+    unused/unexpired rows and bcrypt-comparing — no plain token ever lands in the DB."""
+    ip = (fastapi_request.client.host if fastapi_request and fastapi_request.client else "") or ""
+    if not _password_strength_ok(payload.new_password):
+        raise HTTPException(status_code=400, detail="Password must be ≥ 8 chars and include a letter and a digit")
+
+    # Pull recent unused, unexpired rows (max 20 — keeps the bcrypt-compare bounded).
+    now_iso = datetime.now(timezone.utc).isoformat()
+    candidates = await db.password_resets.find(
+        {"used_at": None, "expires_at": {"$gt": now_iso}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(20).to_list(length=None)
+
+    matched = None
+    for row in candidates:
+        try:
+            if verify_password(payload.token, row["token_hash"]):
+                matched = row
+                break
+        except Exception:
+            continue
+
+    if not matched:
+        await _log_password_reset_attempt(
+            email="", user_id=None, outcome="invalid_or_expired_token", kind="reset_fail", ip=ip,
+        )
+        raise HTTPException(status_code=400, detail="Reset link is invalid or has expired. Request a new one.")
+
+    user = await db.users.find_one(
+        {"id": matched["user_id"]},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1, "email_verified": 1, "account_locked": 1},
+    )
+    if not user:
+        await _log_password_reset_attempt(
+            email=matched.get("email", ""), user_id=matched.get("user_id"),
+            outcome="user_missing", kind="reset_fail", ip=ip,
+        )
+        raise HTTPException(status_code=400, detail="Account no longer exists")
+    if user.get("account_locked"):
+        await _log_password_reset_attempt(
+            email=user["email"], user_id=user["id"], outcome="locked", kind="reset_fail", ip=ip,
+        )
+        raise HTTPException(status_code=423, detail="Account locked. Email support@networkcapitalapp.co.za to unlock.")
+
+    # Set new password + atomically mark token used.
+    new_hash = hash_password(payload.new_password)
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password": new_hash, "password_updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    await db.password_resets.update_one(
+        {"id": matched["id"]},
+        {"$set": {"used_at": datetime.now(timezone.utc).isoformat(), "used_ip": ip}},
+    )
+    # Invalidate any other still-active tokens for this user.
+    await db.password_resets.update_many(
+        {"user_id": user["id"], "used_at": None},
+        {"$set": {"used_at": datetime.now(timezone.utc).isoformat(), "invalidated": True}},
+    )
+
+    await _log_password_reset_attempt(
+        email=user["email"], user_id=user["id"], outcome="password_updated", kind="reset_success", ip=ip,
+    )
+    try:
+        await AuditLog.write(
+            actor_id=user["id"], actor_username=user.get("username") or "user",
+            action="auth.password_reset", target_type="user", target_id=user["id"],
+            metadata={"ip": ip},
+        )
+    except Exception:
+        pass
+
+    # Confirmation email — "your password was changed".
+    try:
+        if user.get("email_verified"):
+            await _send_branded_email(
+                to=user["email"],
+                subject="Your Network Capital password was changed",
+                html=_password_changed_html(
+                    name=(user.get("full_name") or user.get("username") or "there"),
+                    when_iso=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                    ip=ip,
+                ),
+                kind="password_changed",
+            )
+    except Exception as e:
+        logger.warning(f"password-changed email failed: {e}")
+
+    return {"ok": True, "message": "Password updated. You can now sign in."}
+
+
+# (locked-accounts endpoints moved below — they reference require_admin_user which is declared further down)
 
 @api_router.get("/users/me", response_model=User)
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -5160,6 +5432,66 @@ def _wallet_credit_html(*, name: str, amount_usd: float, reason: str, new_balanc
     )
 
 
+def _password_reset_html(*, name: str, reset_url: str, expires_minutes: int) -> str:
+    return _branded_email_html(
+        headline="Reset your Network Capital password",
+        body_html=(
+            f"<p>Hi {name},</p>"
+            f"<p>We received a request to reset the password on your Network Capital account.</p>"
+            f"<p>This link is valid for <strong style='color:#f5d76e;'>{expires_minutes} minutes</strong> and can be used <strong>once</strong>.</p>"
+            f"<p style='font-size:12px;color:#94a3b8;margin-top:14px;'>"
+            f"If you didn't ask for a password reset, you can safely ignore this email — "
+            f"your account is still protected."
+            f"</p>"
+        ),
+        cta_label="Reset password",
+        cta_url=reset_url,
+        kicker="Account security",
+    )
+
+
+def _password_changed_html(*, name: str, when_iso: str, ip: str = "") -> str:
+    return _branded_email_html(
+        headline="Your password was changed",
+        body_html=(
+            f"<p>Hi {name},</p>"
+            f"<p>Your Network Capital password was just updated successfully.</p>"
+            f"<p style='font-size:12px;color:#94a3b8;'>"
+            f"When: <strong style='color:#e2e8f0;'>{when_iso}</strong>"
+            f"{('<br/>From IP: ' + ip) if ip else ''}"
+            f"</p>"
+            f"<p style='font-size:12px;color:#fca5a5;margin-top:14px;'>"
+            f"<strong>Wasn't you?</strong> Reset your password immediately and contact "
+            f"<a href='mailto:support@networkcapitalapp.co.za' style='color:#f5d76e;'>support@networkcapitalapp.co.za</a>."
+            f"</p>"
+        ),
+        cta_label="Open Network Capital",
+        cta_url="https://networkcapitalapp.co.za/",
+        kicker="Account security",
+    )
+
+
+def _password_reset_lock_html(*, name: str) -> str:
+    return _branded_email_html(
+        headline="Account locked — too many reset attempts",
+        body_html=(
+            f"<p>Hi {name},</p>"
+            f"<p>Your account has been temporarily locked because <strong>5 password-reset "
+            f"requests</strong> were made in the last 7 days.</p>"
+            f"<p>To unlock your account, email <a href='mailto:support@networkcapitalapp.co.za' "
+            f"style='color:#f5d76e;'>support@networkcapitalapp.co.za</a> from the email address "
+            f"on the account. Our admin team will verify and release the lock.</p>"
+            f"<p style='font-size:12px;color:#94a3b8;margin-top:14px;'>"
+            f"If you didn't request these resets, please flag it in your support email — it may "
+            f"indicate someone is trying to access your account."
+            f"</p>"
+        ),
+        cta_label="Email support",
+        cta_url="mailto:support@networkcapitalapp.co.za",
+        kicker="Account security",
+    )
+
+
 def _official_broadcast_html(*, recipient_name: str, headline: str, content_preview: str, post_id: str) -> str:    return _branded_email_html(
         headline=headline,
         body_html=(
@@ -6468,6 +6800,56 @@ async def require_super_admin(current_user: dict = Depends(get_current_user)):
     if role != "super_admin":
         raise HTTPException(status_code=403, detail="Super-admin (platform owner) access required")
     return current_user
+
+
+# ---- ADMIN: Account-lock management (password-reset abuse) ---------------
+@api_router.get("/admin/locked-accounts")
+async def admin_list_locked_accounts(admin: dict = Depends(require_admin_user)):
+    """Lists users currently in the password-reset lock state."""
+    rows = await db.users.find(
+        {"account_locked": True},
+        {"_id": 0, "password": 0, "banking": 0, "photo": 0},
+    ).sort("account_locked_at", -1).limit(200).to_list(length=None)
+    return {"count": len(rows), "users": rows}
+
+
+@api_router.post("/admin/users/{user_id}/unlock-password-reset")
+async def admin_unlock_password_reset(
+    user_id: str,
+    payload: Dict[str, Any] = None,
+    admin: dict = Depends(require_admin_user),
+):
+    """Release a password-reset lock. Both admin and super_admin may unlock."""
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "email": 1, "account_locked": 1, "full_name": 1, "username": 1, "email_verified": 1},
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.get("account_locked"):
+        return {"ok": True, "already_unlocked": True}
+
+    reason = ((payload or {}).get("reason") or "").strip() or "Released by admin"
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "account_locked": False,
+            "account_locked_reason": None,
+            "account_unlocked_at": datetime.now(timezone.utc).isoformat(),
+            "account_unlocked_by": admin["id"],
+        }},
+    )
+    try:
+        await AuditLog.write(
+            actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+            action="auth.account_unlock", target_type="user", target_id=user_id,
+            reason=reason,
+        )
+    except Exception:
+        pass
+    return {"ok": True, "user_id": user_id}
+
+
 
 
 async def require_admin_or_password(

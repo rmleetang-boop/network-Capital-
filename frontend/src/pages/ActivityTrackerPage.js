@@ -282,15 +282,35 @@ const ActivityTrackerPage = ({ user }) => {
             <li>• Like a post: <strong className="text-white">+5</strong> <span className="opacity-60">(20/day)</span></li>
             <li>• Watch a video: <strong className="text-white">+10</strong> <span className="opacity-60">(10/day)</span></li>
           </ul>
-          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">New · iter 25</p>
-          <ul className="space-y-1 text-white/70 text-xs">
-            <li>• Post a Place review: <strong className="text-secondary">+40</strong> <span className="opacity-60">(10/day)</span></li>
-            <li>• Make a new connection (each side): <strong className="text-secondary">+25</strong></li>
+          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Community · Stokvels, Activities, People</p>
+          <ul className="space-y-1 text-white/70 text-xs mb-3">
+            <li>• First time joining a Stokvel: <strong className="text-secondary">+250</strong></li>
+            <li>• Create an Activity: <strong className="text-secondary">+150</strong></li>
+            <li>• Join an Activity: <strong className="text-secondary">+25</strong></li>
+            <li>• Post a Place review (with rating): <strong className="text-secondary">+40</strong> <span className="opacity-60">(10/day)</span></li>
+            <li>• Make a new connection (both sides earn): <strong className="text-secondary">+25</strong> <span className="opacity-60">(20/day)</span></li>
             <li>• Share a Job: <strong className="text-secondary">+20</strong> <span className="opacity-60">(10/day)</span></li>
-            <li className="pt-2 border-t border-white/10 mt-2 text-secondary">
-              <Sparkles size={12} className="inline mr-1" /> Premium & Founder windows double all gains (max 2×)
-            </li>
           </ul>
+          <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Milestones · one-time & streaks</p>
+          <ul className="space-y-1 text-white/70 text-xs mb-3">
+            <li>• Complete your profile: <strong className="text-white">+250</strong> <span className="opacity-60">(once)</span></li>
+            <li>• Premium welcome bonus: <strong className="text-white">+500</strong> <span className="opacity-60">(once)</span></li>
+            <li>• Daily check-in: <strong className="text-white">+10</strong> <span className="opacity-60">(1/day)</span></li>
+            <li>• Monthly streak: <strong className="text-white">+100</strong></li>
+            <li>• Weekly resource drop: <strong className="text-white">+30</strong></li>
+          </ul>
+          <div className="pt-3 border-t border-white/10 space-y-1.5">
+            <p className="text-white/50 text-[10px] uppercase tracking-wider font-bold mb-1.5">Anti-abuse safeguards</p>
+            <p className="text-white/65 text-[11px] leading-relaxed">
+              • <strong>24h cooldown</strong> on same source (one reward per post/ad/place).
+              <br />• <strong>Ad share ladder:</strong> same ad pays 300 → 150 → 50 → 50 → 50, then 0.
+              <br />• Score auto-flagged for review if <strong>{'>'}80%</strong> of monthly points come from one action type.
+              <br />• Real-ad-only: no points for opening an empty ad slot.
+            </p>
+            <p className="text-secondary text-[11px] pt-2 flex items-center gap-1">
+              <Sparkles size={12} /> Premium &amp; Founder windows multiply all gains 2× (stacking capped).
+            </p>
+          </div>
         </motion.div>
       </div>
     </div>

@@ -217,6 +217,7 @@ const UsersRolesSection = ({ overview }) => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
         <Tile to="/admin/users" icon={Users} title="All users" sub="Search, filter by Network Score, change roles" testid="users-all" />
         <Tile to="/admin/ambassador-applications" icon={Star} title="Ambassador applications" sub="Approve / reject" badge={overview?.content?.pending_ambassador_apps || 0} accent={(overview?.content?.pending_ambassador_apps || 0) > 0} testid="users-amb-apps" />
+        <Tile to="/admin/locked-accounts" icon={Lock} title="Locked accounts" sub="Released by admin · reset abuse lockout" danger testid="users-locked" />
         <Tile to="/admin/audit-log" icon={FileText} title="Audit log" sub="Every admin action ever taken" testid="users-audit" />
       </div>
     </section>
