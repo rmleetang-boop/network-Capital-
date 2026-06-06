@@ -6358,9 +6358,6 @@ def _june_payout_message() -> str:
 
 
 # ---- ROLE GATES (declared early so downstream endpoints can reference) ----
-# NOTE: `SUPER_ADMIN_EMAIL` / `require_admin_user` / `require_super_admin` are
-# also re-declared later in the file with identical bodies — both copies
-# resolve to the same import name so order doesn't matter at request time.
 SUPER_ADMIN_EMAIL = "rmleetang@gmail.com"  # Platform owner — single tenant
 
 
@@ -6685,6 +6682,14 @@ async def _check_ambassador_activity_unlock(user_id: str) -> bool:
 @api_router.get("/ambassador/incentive")
 async def my_ambassador_incentive(current_user: dict = Depends(get_current_user)):
     """Current user's Ambassador Incentive dashboard payload."""
+    # Idempotently check activity unlock so dashboard reflects state immediately
+    # (write hooks at post/like/share still fire — this is the safety net for the
+    # case where activity counts crossed the threshold via background flows).
+    try:
+        if current_user.get("is_ambassador"):
+            await _check_ambassador_activity_unlock(current_user["id"])
+    except Exception:
+        pass
     user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0, "banking": 0})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -7300,23 +7305,9 @@ async def seed_network_capital_job():
 # - moderator: content moderation only
 # - admin: user management, role changes (except super_admin grant), withdrawals, ads
 # - super_admin: PLATFORM OWNER — wallet balance adjustments, system-wide ops
-SUPER_ADMIN_EMAIL = "rmleetang@gmail.com"  # Platform owner — single tenant
-
-
-async def require_admin_user(current_user: dict = Depends(get_current_user)):
-    """JWT-based admin check (role ∈ {admin, moderator, super_admin})."""
-    role = current_user.get("role") or "user"
-    if role not in ("admin", "moderator", "super_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
-
-
-async def require_super_admin(current_user: dict = Depends(get_current_user)):
-    """Platform owner only. Standard admins are explicitly denied."""
-    role = current_user.get("role") or "user"
-    if role != "super_admin":
-        raise HTTPException(status_code=403, detail="Super-admin (platform owner) access required")
-    return current_user
+# NOTE: `SUPER_ADMIN_EMAIL`, `require_admin_user`, `require_super_admin` are
+# defined earlier in the file (near the June payout block) so downstream
+# endpoints can reference them. This block is kept as a structural marker.
 
 
 # ---- ADMIN: Account-lock management (password-reset abuse) ---------------

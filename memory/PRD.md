@@ -81,8 +81,8 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - **P1** Resend domain verification — add `mail.networkcapitalapp.co.za` on resend.com/domains (NOT just Domains.co.za) and verify all 4 records there before flipping `SENDER_EMAIL` back.
 - **P1** Paystack (NGN/GHS/KES/ZAR) — needs user test keys.
 - **P1** Carousel + Reels.
-- **P2** Modularise `server.py` (>8,200 lines, blocked 6+ iters).
-- **P2** CI lint to fail builds on duplicate `@api_router.<method>(<path>)` strings (would have caught 3 dup-handler regressions in iter25 alone).
+- **P2** Modularise `server.py` (>11,300 lines, blocked 7+ iters).
+- **P2** CI lint to fail builds on duplicate `@api_router.<method>(<path>)` strings.
 - **P2** Migrate base64 media to S3/R2.
 - **P2** Lifespan handler replacing `@app.on_event` (2 startup hooks added in iter29).
 - **P2** TTL index on `db.otps.expires_at`.
@@ -90,6 +90,32 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - **P2** Auto-dismiss / click-outside on FeatureIntroModal.
 - **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend).
 - **P3** Capacitor wrap, Driver Pool.
+
+## iter 48 (Feb 2026) — Ambassador Incentive Programme · Global Job Apps · User Cleanup
+### Ambassador Incentive (R8,500 ZAR)
+- `_allocate_ambassador_balance()` fires on every ambassador role grant (set-role, make-ambassador, application approve) — idempotent.
+- R5,000 referral pot immediately available; R3,500 activity pot unlocks at 20 posts + 100 likes + 5 ad shares (`_check_ambassador_activity_unlock` wired into create_post / like_post / claim_ad_reward + GET /ambassador/incentive).
+- Tiered withdrawals: 20→R500 / 40,60,80→20% of remaining / 100→full remaining.
+- June 30 2026 payout block respected.
+- Display block converts ZAR → user's preferred currency via SUPPORTED_CURRENCIES rates table (no conversion if pref=ZAR).
+- Endpoints: `GET /api/ambassador/incentive`, `POST /api/ambassador/incentive/withdraw`, super-admin `GET/PATCH /api/admin/ambassador/config`, `GET /api/admin/ambassador/audit`.
+- Frontend: `IncentivePanel` mounted inside `/ambassadors/me` (testids: incentive-available, incentive-activity-targets, incentive-tiers, incentive-withdraw-section).
+
+### Global Job Applications (admin)
+- `GET /api/admin/job-applications` (admin/super_admin) — global view with counts breakdown.
+- `POST /api/admin/job-applications/{id}/view` — marks viewed, fires "your application is under review" Brevo email (once).
+- `PATCH /api/admin/job-applications/{id}` — admin status change with applicant-facing email + audit log.
+- Frontend: `/admin/job-applications` page (testids: admin-job-applications-page, status-pill-{s}, app-row-{id}, btn-view-{id}, btn-hired-{id}, btn-reject-{id}).
+
+### Super Admin User Cleanup (hard delete)
+- `GET /api/admin/users/cleanup-candidates` — super-admin only, returns posts/jobs/stokvels counts + is_stale flag.
+- `POST /api/admin/users/cleanup-delete` — irreversible delete with 21-collection sweep. Requires reason ≥10 chars + email confirmation + zero wallet balance. Refuses admin/super_admin/platform-owner targets.
+- Frontend: `/admin/owner/cleanup` page with confirm modal (testids: owner-user-cleanup-page, cleanup-row-{id}, cleanup-delete-{id}, cleanup-confirm-modal, cleanup-reason, cleanup-confirm-email, cleanup-confirm).
+- Two new Owner Control Center tiles (testids: users-cleanup, users-job-apps).
+
+### Iter 48 testing
+- 27/27 backend tests PASS (`/app/backend/tests/test_iter48_ambassador_jobs_cleanup.py`).
+- Frontend testids source-verified. Live click-test deferred (auth bootstrap blocker carried over from iter35).
 
 ## Testing
 - iter22: 38/40 cumulative regressions.
