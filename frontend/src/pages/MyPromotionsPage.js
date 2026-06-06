@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Sparkles, Clock, Trophy, TrendingUp, Loader2, Users, Flame, Calendar } from 'lucide-react';
+import { ArrowLeft, Sparkles, Clock, Trophy, TrendingUp, Loader2, Users, Flame, Calendar, Share2 } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 
@@ -151,7 +151,40 @@ const PromoCard = ({ row, navigate }) => {
           ))}
         </div>
       )}
+
+      <PromotionShareButton promotionId={p.id} />
     </div>
+  );
+};
+
+const PromotionShareButton = ({ promotionId }) => {
+  const [loading, setLoading] = useState(false);
+  const handleShare = async () => {
+    setLoading(true);
+    try {
+      const r = await axiosInstance.get(`/promotions/${promotionId}/share-payload`);
+      const { url, share_text, title } = r.data;
+      if (navigator.share) {
+        try { await navigator.share({ title, text: share_text, url }); } catch { /* cancelled */ }
+      } else {
+        await navigator.clipboard.writeText(share_text);
+        toast.success('Share text copied to clipboard');
+      }
+      // Fire-and-forget +20 pts
+      axiosInstance.post(`/promotions/${promotionId}/share`).catch(() => {});
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not load share text');
+    } finally { setLoading(false); }
+  };
+  return (
+    <button
+      onClick={handleShare}
+      disabled={loading}
+      className="mt-3 w-full text-xs font-bold inline-flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-primary text-white hover:opacity-95 disabled:opacity-50"
+      data-testid={`promo-share-${promotionId}`}
+    >
+      <Share2 size={12} /> {loading ? 'Preparing…' : 'Share promotion (+20 pts)'}
+    </button>
   );
 };
 

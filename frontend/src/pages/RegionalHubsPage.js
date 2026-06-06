@@ -58,7 +58,8 @@ const RegionalHubsPage = ({ user }) => {
       const payloadCountry = country || cityMeta?.country || 'ZA';
       await axiosInstance.put('/users/me', { city: newCity, country: payloadCountry });
       setCity(newCity);
-      toast.success(`Set your hub to ${cityMeta?.label}`);
+      const niceLabel = cityMeta?.label || newCity.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      toast.success(`Set your hub to ${niceLabel}`);
     } catch {
       toast.error('Failed to update');
     } finally {
@@ -144,7 +145,7 @@ const RegionalHubsPage = ({ user }) => {
         featureKey="hubs"
         icon={<MapPin size={20} />}
         title="Regional Hubs"
-        subtitle="Find members in your city — and connect across 13 African countries."
+        subtitle="Find members in your city — across all 54 African countries."
         bullets={[
           { icon: <Users size={14} />, label: 'People near you', body: 'Pick a country, then a city to browse members in that hub.' },
           { icon: <Heart size={14} />, label: 'Three connection lanes', body: 'Send Social, Financial (Stokvel) or Professional connection requests — clearly labelled on every card.' },
@@ -171,7 +172,7 @@ const RegionalHubsPage = ({ user }) => {
               >
                 <SelectValue placeholder="Pick country" />
               </SelectTrigger>
-              <SelectContent className="bg-[#0a1628] border-white/20 text-white">
+              <SelectContent className="bg-[#0a1628] border-white/20 text-white max-h-[60vh]">
                 {countryOptions.map((c) => (
                   <SelectItem
                     key={c.value}
@@ -191,7 +192,7 @@ const RegionalHubsPage = ({ user }) => {
               >
                 <SelectValue placeholder={country ? 'Pick a city…' : 'Pick country first'} />
               </SelectTrigger>
-              <SelectContent className="bg-[#0a1628] border-white/20 text-white">
+              <SelectContent className="bg-[#0a1628] border-white/20 text-white max-h-[60vh]">
                 {visibleCities.map((c) => (
                   <SelectItem
                     key={c.value}
@@ -205,6 +206,12 @@ const RegionalHubsPage = ({ user }) => {
               </SelectContent>
             </Select>
           </div>
+          <CustomCityInput
+            country={country}
+            currentCity={city}
+            onSet={(typed) => handleSetMyCity(typed)}
+            saving={savingCity}
+          />
           <button
             onClick={() => navigate('/connections')}
             className="mt-2 w-full px-4 py-2.5 bg-secondary text-primary font-semibold rounded-xl hover:bg-secondary-hover transition-all flex items-center justify-center gap-1.5"
@@ -422,3 +429,56 @@ const RegionalHubsPage = ({ user }) => {
 };
 
 export default RegionalHubsPage;
+
+/* ────────────────────── Custom city input ──────────────────────── */
+const CustomCityInput = ({ country, currentCity, onSet, saving }) => {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState('');
+
+  if (!country) return null;
+  if (!open) {
+    return (
+      <button
+        onClick={() => { setOpen(true); setValue(currentCity || ''); }}
+        className="mt-2 text-[11px] font-semibold text-secondary/90 hover:text-secondary inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-white/5 border border-white/10"
+        data-testid="hub-add-custom-city"
+      >
+        + My city is not listed
+      </button>
+    );
+  }
+  const submit = () => {
+    const trimmed = (value || '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (trimmed.length < 2) return;
+    onSet(trimmed);
+    setOpen(false);
+  };
+  return (
+    <div className="mt-2 flex gap-2 items-center">
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        placeholder="Type your city (e.g. Libreville)"
+        className="flex-1 bg-white/10 border border-white/20 rounded-xl px-3 h-10 text-white placeholder-white/40 outline-none focus:border-secondary text-sm"
+        data-testid="hub-custom-city-input"
+      />
+      <button
+        onClick={submit}
+        disabled={saving || (value || '').trim().length < 2}
+        className="text-xs font-bold bg-secondary text-primary px-3 h-10 rounded-xl disabled:opacity-50"
+        data-testid="hub-custom-city-save"
+      >
+        Set
+      </button>
+      <button
+        onClick={() => setOpen(false)}
+        className="text-xs font-semibold text-white/60 px-2"
+        data-testid="hub-custom-city-cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+};

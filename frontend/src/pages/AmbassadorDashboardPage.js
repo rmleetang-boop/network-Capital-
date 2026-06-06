@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy, Coins, Lock, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy, Coins, Lock, AlertTriangle, Share2, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { axiosInstance } from '../App';
 
@@ -172,6 +172,73 @@ const AmbassadorDashboardPage = ({ user }) => {
 
 export default AmbassadorDashboardPage;
 
+/* ────────────────────── Share Link Card ──────────────────────────── */
+const ShareLinkCard = () => {
+  const [link, setLink] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    axiosInstance.get('/ambassador/share-link')
+      .then((r) => setLink(r.data))
+      .catch(() => { /* non-ambassadors won't render this card anyway */ });
+  }, []);
+
+  if (!link) return null;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(link.url);
+      setCopied(true);
+      toast.success('Link copied');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Copy failed — please copy manually');
+    }
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Network Capital', text: link.share_text, url: link.url });
+      } catch { /* user cancelled */ }
+    } else {
+      handleCopy();
+    }
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-primary via-[#0a1628] to-[#1e3a8a] text-white rounded-3xl p-4 sm:p-5 shadow-lg" data-testid="ambassador-share-card">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-10 h-10 rounded-full bg-secondary/20 flex items-center justify-center shrink-0">
+          <Share2 size={18} className="text-secondary" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-widest font-bold text-secondary mb-0.5">Your invite link</p>
+          <p className="text-sm sm:text-base font-heading font-bold leading-tight">Grow faster — every signup counts toward your next tier</p>
+        </div>
+      </div>
+      <div className="bg-black/30 rounded-xl px-3 py-2.5 mb-3 flex items-center gap-2 border border-white/10">
+        <p className="text-xs font-mono text-white/90 truncate flex-1" data-testid="ambassador-share-url">{link.url}</p>
+        <button
+          onClick={handleCopy}
+          className="text-[11px] font-bold inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/15 text-white border border-white/10 shrink-0"
+          data-testid="ambassador-share-copy"
+        >
+          {copied ? <Check size={11} className="text-emerald-300" /> : <Copy size={11} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <button
+        onClick={handleShare}
+        className="w-full bg-secondary text-primary font-bold py-2.5 rounded-full inline-flex items-center justify-center gap-2 text-sm hover:opacity-95"
+        data-testid="ambassador-share-btn"
+      >
+        <Share2 size={14} /> Share my link
+      </button>
+    </div>
+  );
+};
+
 /* ────────────────────── Incentive Panel ──────────────────────────── */
 const IncentivePanel = ({ incentive, onWithdraw, loading }) => {
   const disp = incentive.display || {};
@@ -186,6 +253,9 @@ const IncentivePanel = ({ incentive, onWithdraw, loading }) => {
 
   return (
     <div className="space-y-3" data-testid="ambassador-incentive-panel">
+      {/* Share-link CTA — turns the dashboard into a growth tool */}
+      <ShareLinkCard />
+
       {/* Balance hero */}
       <div className="bg-gradient-to-br from-secondary/20 via-white to-white border-2 border-secondary/30 rounded-3xl p-5 shadow-sm">
         <div className="flex items-center justify-between mb-2">

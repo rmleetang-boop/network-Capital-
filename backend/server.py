@@ -2755,6 +2755,50 @@ AFRICAN_REGIONS = {
             "southern": {"label": "Southern", "cities": ["huye", "muhanga"]},
         },
     },
+    # ── Remaining African Union members — capital + main cities. Users can
+    # also free-text any city via `POST /users/me/custom-city`.
+    "algeria":       {"label": "Algeria",       "provinces": {"algiers": {"label": "Algiers",       "cities": ["algiers", "oran", "constantine"]}}},
+    "angola":        {"label": "Angola",        "provinces": {"luanda": {"label": "Luanda",        "cities": ["luanda", "huambo", "lobito"]}}},
+    "benin":         {"label": "Benin",         "provinces": {"cotonou": {"label": "Littoral",     "cities": ["cotonou", "porto_novo", "parakou"]}}},
+    "botswana":      {"label": "Botswana",      "provinces": {"gaborone": {"label": "South-East",  "cities": ["gaborone", "francistown", "molepolole"]}}},
+    "burkina_faso":  {"label": "Burkina Faso",  "provinces": {"ouagadougou": {"label": "Centre",   "cities": ["ouagadougou", "bobo_dioulasso", "koudougou"]}}},
+    "burundi":       {"label": "Burundi",       "provinces": {"bujumbura": {"label": "Bujumbura Mairie","cities": ["bujumbura", "gitega", "muyinga"]}}},
+    "cameroon":      {"label": "Cameroon",      "provinces": {"yaounde": {"label": "Centre",       "cities": ["yaounde", "douala", "bamenda"]}}},
+    "cape_verde":    {"label": "Cape Verde",    "provinces": {"praia": {"label": "Santiago",       "cities": ["praia", "mindelo", "santa_maria"]}}},
+    "central_african_republic": {"label": "Central African Republic", "provinces": {"bangui": {"label": "Bangui","cities": ["bangui", "bimbo", "berberati"]}}},
+    "chad":          {"label": "Chad",          "provinces": {"ndjamena": {"label": "N'Djamena",   "cities": ["ndjamena", "moundou", "sarh"]}}},
+    "comoros":       {"label": "Comoros",       "provinces": {"moroni": {"label": "Grande Comore", "cities": ["moroni", "moutsamoudou"]}}},
+    "congo_republic":{"label": "Republic of the Congo","provinces": {"brazzaville": {"label": "Brazzaville","cities": ["brazzaville", "pointe_noire", "dolisie"]}}},
+    "drc":           {"label": "DR Congo",      "provinces": {"kinshasa": {"label": "Kinshasa",    "cities": ["kinshasa", "lubumbashi", "goma", "bukavu", "mbuji_mayi"]}}},
+    "cote_divoire":  {"label": "Côte d'Ivoire", "provinces": {"abidjan": {"label": "Abidjan",      "cities": ["abidjan", "yamoussoukro", "bouake", "san_pedro"]}}},
+    "djibouti":      {"label": "Djibouti",      "provinces": {"djibouti_city": {"label": "Djibouti","cities": ["djibouti", "ali_sabieh", "tadjoura"]}}},
+    "equatorial_guinea": {"label": "Equatorial Guinea","provinces": {"malabo": {"label": "Bioko Norte","cities": ["malabo", "bata", "ebebiyin"]}}},
+    "eritrea":       {"label": "Eritrea",       "provinces": {"asmara": {"label": "Maekel",        "cities": ["asmara", "keren", "massawa"]}}},
+    "eswatini":      {"label": "Eswatini",      "provinces": {"mbabane": {"label": "Hhohho",       "cities": ["mbabane", "manzini", "lobamba"]}}},
+    "gabon":         {"label": "Gabon",         "provinces": {"libreville": {"label": "Estuaire",  "cities": ["libreville", "port_gentil", "franceville", "oyem"]}}},
+    "gambia":        {"label": "Gambia",        "provinces": {"banjul": {"label": "Banjul",        "cities": ["banjul", "serekunda", "brikama"]}}},
+    "guinea":        {"label": "Guinea",        "provinces": {"conakry": {"label": "Conakry",      "cities": ["conakry", "nzerekore", "kankan"]}}},
+    "guinea_bissau": {"label": "Guinea-Bissau", "provinces": {"bissau": {"label": "Bissau",        "cities": ["bissau", "bafata", "gabu"]}}},
+    "lesotho":       {"label": "Lesotho",       "provinces": {"maseru": {"label": "Maseru",        "cities": ["maseru", "teyateyaneng", "mafeteng"]}}},
+    "liberia":       {"label": "Liberia",       "provinces": {"monrovia": {"label": "Montserrado", "cities": ["monrovia", "gbarnga", "kakata"]}}},
+    "libya":         {"label": "Libya",         "provinces": {"tripoli": {"label": "Tripoli",      "cities": ["tripoli", "benghazi", "misrata"]}}},
+    "madagascar":    {"label": "Madagascar",    "provinces": {"antananarivo": {"label": "Antananarivo","cities": ["antananarivo", "toamasina", "antsirabe"]}}},
+    "malawi":        {"label": "Malawi",        "provinces": {"lilongwe": {"label": "Central",     "cities": ["lilongwe", "blantyre", "mzuzu"]}}},
+    "mali":          {"label": "Mali",          "provinces": {"bamako": {"label": "Bamako",        "cities": ["bamako", "sikasso", "mopti"]}}},
+    "mauritania":    {"label": "Mauritania",    "provinces": {"nouakchott": {"label": "Nouakchott","cities": ["nouakchott", "nouadhibou", "kaedi"]}}},
+    "mauritius":     {"label": "Mauritius",     "provinces": {"port_louis": {"label": "Port Louis","cities": ["port_louis", "beau_bassin_rose_hill", "curepipe"]}}},
+    "mozambique":    {"label": "Mozambique",    "provinces": {"maputo": {"label": "Maputo",        "cities": ["maputo", "beira", "nampula"]}}},
+    "namibia":       {"label": "Namibia",       "provinces": {"windhoek": {"label": "Khomas",      "cities": ["windhoek", "walvis_bay", "swakopmund", "oshakati"]}}},
+    "niger":         {"label": "Niger",         "provinces": {"niamey": {"label": "Niamey",        "cities": ["niamey", "zinder", "maradi"]}}},
+    "sao_tome":      {"label": "São Tomé and Príncipe","provinces": {"sao_tome": {"label": "São Tomé","cities": ["sao_tome", "santo_amaro"]}}},
+    "seychelles":    {"label": "Seychelles",    "provinces": {"victoria": {"label": "Mahé",        "cities": ["victoria", "anse_boileau"]}}},
+    "sierra_leone":  {"label": "Sierra Leone",  "provinces": {"freetown": {"label": "Western Area","cities": ["freetown", "bo", "kenema"]}}},
+    "somalia":       {"label": "Somalia",       "provinces": {"mogadishu": {"label": "Banaadir",   "cities": ["mogadishu", "hargeisa", "bosaso"]}}},
+    "south_sudan":   {"label": "South Sudan",   "provinces": {"juba": {"label": "Central Equatoria","cities": ["juba", "malakal", "wau"]}}},
+    "sudan":         {"label": "Sudan",         "provinces": {"khartoum": {"label": "Khartoum",    "cities": ["khartoum", "omdurman", "port_sudan"]}}},
+    "togo":          {"label": "Togo",          "provinces": {"lome": {"label": "Maritime",        "cities": ["lome", "sokode", "kara"]}}},
+    "tunisia":       {"label": "Tunisia",       "provinces": {"tunis": {"label": "Tunis",          "cities": ["tunis", "sfax", "sousse"]}}},
+    "zambia":        {"label": "Zambia",        "provinces": {"lusaka": {"label": "Lusaka",        "cities": ["lusaka", "kitwe", "ndola", "livingstone"]}}},
     "other": {"label": "Other African Country", "provinces": {"other": {"label": "Other", "cities": ["other"]}}},
 }
 
@@ -6301,28 +6345,39 @@ async def bootstrap_super_admin():
     to plain ``admin`` automatically on each boot. Idempotent.
 
     Email lookup is CASE-INSENSITIVE so legacy records stored with mixed casing
-    (e.g. ``Rmleetang@gmail.com``) still resolve to the platform owner."""
+    (e.g. ``Rmleetang@gmail.com``) still resolve to the platform owner. The
+    promote operation is now **always** performed via an explicit `update_one`
+    with `$set: {role: 'super_admin'}` (no conditional guard) so production
+    operators can reliably see the write happen in the logs."""
     try:
         target_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
         if not target_email:
+            logger.warning("[BOOTSTRAP] SUPER_ADMIN_EMAIL not configured — skipping")
             return
-        # Anchored, case-insensitive regex match.
+
+        # Case-insensitive lookup so legacy mixed-case records still match.
         import re as _re
         owner = await db.users.find_one(
             {"email": {"$regex": f"^{_re.escape(target_email)}$", "$options": "i"}},
             {"_id": 0, "id": 1, "role": 1, "email": 1},
         )
-        if owner and owner.get("role") != "super_admin":
-            await db.users.update_one(
+        if not owner:
+            logger.warning(
+                f"[BOOTSTRAP] No user found for SUPER_ADMIN_EMAIL={target_email} — "
+                f"create the account first, then restart to auto-promote."
+            )
+        else:
+            # Explicit, unconditional promote (always writes role:super_admin + canonicalises email casing)
+            promote_res = await db.users.update_one(
                 {"id": owner["id"]},
                 {"$set": {"role": "super_admin", "is_ambassador": False,
                           "email": target_email}},
             )
-            logger.info(f"[BOOTSTRAP] Promoted {owner.get('email')} to super_admin (canonicalised to {target_email})")
-        elif owner:
-            # Normalise the stored email casing in-place so future lookups are exact-match.
-            if (owner.get("email") or "").strip().lower() != target_email or owner.get("email") != target_email:
-                await db.users.update_one({"id": owner["id"]}, {"$set": {"email": target_email}})
+            logger.info(
+                f"[BOOTSTRAP] Promote {target_email} to super_admin → "
+                f"matched={promote_res.matched_count}, modified={promote_res.modified_count}, "
+                f"prev_role={owner.get('role')}"
+            )
 
         # Enforce SOLE super_admin — demote any other super_admins to plain admin.
         owner_id = (owner or {}).get("id")
@@ -7382,13 +7437,60 @@ async def admin_bootstrap(
     current_user: dict = Depends(get_current_user),
     x_admin_password: str = Header(None),
 ):
-    """One-time bootstrap: any user can promote THEMSELVES to admin by providing
-    the legacy ADMIN_PASSWORD header. Idempotent."""
+    """One-time bootstrap (idempotent): if the caller provides the legacy
+    ADMIN_PASSWORD header, explicitly promote the configured SUPER_ADMIN_EMAIL
+    user (rmleetang@gmail.com) to ``super_admin``. The caller themselves is
+    NOT promoted — this endpoint is only a recovery path for re-asserting the
+    platform-owner role after a database restore or migration.
+
+    Returns the raw `update_one` result so the operator can verify the write
+    actually happened (`matched_count`, `modified_count`)."""
     expected = os.environ.get('ADMIN_PASSWORD')
     if not expected or x_admin_password != expected:
         raise HTTPException(status_code=403, detail="Invalid admin password")
-    await db.users.update_one({"id": current_user["id"]}, {"$set": {"role": "admin"}})
-    return {"ok": True, "user_id": current_user["id"], "role": "admin"}
+
+    target_email = (SUPER_ADMIN_EMAIL or "").strip().lower()
+    if not target_email:
+        raise HTTPException(status_code=500, detail="SUPER_ADMIN_EMAIL not configured on server")
+
+    import re as _re
+    target = await db.users.find_one(
+        {"email": {"$regex": f"^{_re.escape(target_email)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "email": 1, "role": 1},
+    )
+    if not target:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No user found for SUPER_ADMIN_EMAIL={target_email}. Create the account first.",
+        )
+
+    res = await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {"role": "super_admin", "is_ambassador": False, "email": target_email}},
+    )
+    logger.info(
+        f"[ADMIN-BOOTSTRAP] Promoted {target_email} to super_admin → "
+        f"matched={res.matched_count}, modified={res.modified_count}, prev_role={target.get('role')}"
+    )
+
+    # Also demote any other super_admins (sole-tenant invariant)
+    demoted = await db.users.update_many(
+        {"role": "super_admin", "id": {"$ne": target["id"]}},
+        {"$set": {"role": "admin"}},
+    )
+    if demoted.modified_count:
+        logger.warning(f"[ADMIN-BOOTSTRAP] Demoted {demoted.modified_count} non-owner super_admin(s)")
+
+    return {
+        "ok": True,
+        "target_email": target_email,
+        "target_user_id": target["id"],
+        "previous_role": target.get("role"),
+        "new_role": "super_admin",
+        "matched_count": res.matched_count,
+        "modified_count": res.modified_count,
+        "other_super_admins_demoted": demoted.modified_count,
+    }
 
 
 @api_router.patch("/admin/users/{user_id}/role")
@@ -7619,11 +7721,11 @@ async def admin_dashboard_metrics(
     role = current_user.get("role") or "user"
     expected = os.environ.get('ADMIN_PASSWORD')
     pw_ok = bool(expected) and (x_admin_password == expected)
-    if role not in ("admin", "moderator") and not pw_ok:
+    if role not in ("admin", "moderator", "super_admin") and not pw_ok:
         raise HTTPException(status_code=403, detail="Admin access required")
-    # If admin password matches, also auto-promote the current user to admin
-    if pw_ok and role == "user":
-        await db.users.update_one({"id": current_user["id"]}, {"$set": {"role": "admin"}})
+    # NOTE: do NOT silently promote the caller to admin here — role escalation
+    # must go through the explicit /api/admin/bootstrap endpoint (super_admin only)
+    # or PATCH /api/admin/users/{id}/role.
     now = datetime.now(timezone.utc)
     seven_d = (now - timedelta(days=7)).isoformat()
     thirty_d = (now - timedelta(days=30)).isoformat()
@@ -11310,6 +11412,128 @@ async def admin_cleanup_delete_user(
         },
     )
     return {"ok": True, "user_id": uid, "deletions": deletions}
+
+
+# ============== AMBASSADOR REFERRAL SHARE LINK ==========================
+SHARE_BASE_URL = "https://networkcapitalapp.co.za"
+
+
+@api_router.get("/ambassador/share-link")
+async def ambassador_share_link(current_user: dict = Depends(get_current_user)):
+    """Returns the canonical referral link + ready-to-post share text for an
+    ambassador. Format: https://networkcapitalapp.co.za/r/<username>
+    """
+    if not current_user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador role required")
+    user = await db.users.find_one(
+        {"id": current_user["id"]},
+        {"_id": 0, "username": 1, "full_name": 1, "share_code": 1},
+    )
+    if not user or not user.get("username"):
+        raise HTTPException(status_code=400, detail="Set a username before sharing your link")
+    name = user.get("full_name") or user.get("username")
+    url = f"{SHARE_BASE_URL}/r/{user['username']}"
+    share_text = (
+        f"Join me on Network Capital — Africa's community resource ecosystem. "
+        f"Build your Network Score, join savings circles, and unlock real opportunities. "
+        f"Use my link: {url}"
+    )
+    return {
+        "url": url,
+        "username": user["username"],
+        "share_text": share_text,
+        "share_code": user.get("share_code"),
+    }
+
+
+@api_router.get("/referral/{username}")
+async def referral_landing(username: str):
+    """Resolve a /r/<username> public landing payload — name, photo, intro copy.
+    The frontend route /r/:username calls this to render a polished invite page.
+    """
+    if not username or len(username) > 50:
+        raise HTTPException(status_code=404, detail="Invalid invite")
+    user = await db.users.find_one(
+        {"username": username},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1,
+         "is_ambassador": 1, "network_score": 1},
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    return {
+        "referrer_id": user["id"],
+        "username": user["username"],
+        "full_name": user.get("full_name") or user["username"],
+        "photo": user.get("photo") or "",
+        "is_ambassador": bool(user.get("is_ambassador")),
+        "network_score": int(user.get("network_score") or 0),
+        "url": f"{SHARE_BASE_URL}/r/{user['username']}",
+    }
+
+
+# ============== PROMOTION SHARING =======================================
+# Auto-generates a sharable description from title + reward + deadline so
+# every shared promotion has a polished blurb without admins writing copy.
+# =========================================================================
+
+def _promo_share_text(promo: Dict[str, Any]) -> str:
+    """Builds 'title — reward · ends DDD MMM' style share text under 240 chars."""
+    title = (promo.get("name") or "Network Capital Promotion").strip()
+    zpp = promo.get("zar_per_point") or 0
+    reward_line = ""
+    if zpp:
+        reward_line = f"Earn R{float(zpp):.2f} per Network Point"
+    min_score = promo.get("min_network_score") or 0
+    schedule = promo.get("schedule") or {}
+    end_iso = schedule.get("ends_at") or schedule.get("end_at") or promo.get("ends_at")
+    ends_line = ""
+    if end_iso:
+        try:
+            dt = datetime.fromisoformat(str(end_iso).replace("Z", "+00:00"))
+            ends_line = f" · Ends {dt.strftime('%d %b %Y')}"
+        except Exception:
+            pass
+    score_line = f" · Min Score {min_score:,}" if min_score else ""
+    parts = [title]
+    if reward_line:
+        parts.append(reward_line)
+    blurb = " — ".join(parts) + ends_line + score_line
+    return blurb[:240]
+
+
+@api_router.get("/promotions/{promotion_id}/share-payload")
+async def promotion_share_payload(promotion_id: str):
+    """Public — returns share URL + auto-generated description for any promotion.
+    Used by the frontend Share button on promotion cards / detail page.
+    """
+    promo = await db.promotions.find_one({"id": promotion_id}, {"_id": 0})
+    if not promo:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    url = f"{SHARE_BASE_URL}/promotions/{promotion_id}"
+    blurb = _promo_share_text(promo)
+    full_text = f"{blurb} → {url}"
+    return {
+        "promotion_id": promotion_id,
+        "url": url,
+        "title": promo.get("name") or "Network Capital Promotion",
+        "share_text": full_text,
+        "blurb": blurb,
+    }
+
+
+@api_router.post("/promotions/{promotion_id}/share")
+async def record_promotion_share(promotion_id: str, current_user: dict = Depends(get_current_user)):
+    """Award +20 pts (T3 job_share-equivalent, but for promotions) for sharing.
+    Cap 10/day, 24h cooldown on same promotion (re-uses post_share scoring rule)."""
+    promo = await db.promotions.find_one({"id": promotion_id}, {"_id": 0, "id": 1, "name": 1})
+    if not promo:
+        raise HTTPException(status_code=404, detail="Promotion not found")
+    awarded = await award_points(
+        current_user["id"], "post_share", 0,
+        source_id=f"promo:{promotion_id}",
+        message=f"Shared promotion: {promo.get('name', 'promotion')}",
+    )
+    return {"ok": True, "awarded": awarded, "promotion_id": promotion_id}
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

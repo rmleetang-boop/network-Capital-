@@ -48,7 +48,7 @@ const LandingPage = ({ onContinue }) => {
 
           <nav className="hidden md:flex items-center gap-8 text-sm text-white/80">
             <button onClick={() => scrollTo('about')} className="hover:text-white" data-testid="nav-about">About Us</button>
-            <button onClick={() => scrollTo('how')} className="hover:text-white" data-testid="nav-features">Features</button>
+            <button onClick={() => scrollTo('features')} className="hover:text-white" data-testid="nav-features">Features</button>
             <button onClick={() => scrollTo('ambassador')} className="hover:text-white" data-testid="nav-ambassador">Ambassador</button>
             <button onClick={() => scrollTo('contact')} className="hover:text-white" data-testid="nav-contact">Contact</button>
           </nav>
@@ -162,6 +162,64 @@ const LandingPage = ({ onContinue }) => {
           >
             <PhoneMockup />
           </motion.div>
+        </div>
+      </section>
+
+      {/* ─── FEATURES (premium) ─────────────────────────────────── */}
+      <section
+        id="features"
+        className="relative bg-[#04101e] text-white py-20 lg:py-24 overflow-hidden"
+        data-testid="landing-features-section"
+      >
+        {/* Halo accents */}
+        <div
+          className="absolute -top-32 -left-32 w-[480px] h-[480px] rounded-full pointer-events-none opacity-50 blur-3xl"
+          style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.18) 0%, transparent 65%)' }}
+        />
+        <div
+          className="absolute -bottom-40 right-0 w-[420px] h-[420px] rounded-full pointer-events-none opacity-40 blur-3xl"
+          style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(30,79,165,0.35) 0%, transparent 65%)' }}
+        />
+        {/* Subtle grid texture */}
+        <div
+          className="absolute inset-0 opacity-[0.04] pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px),'
+              + 'linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
+            backgroundSize: '64px 64px',
+          }}
+        />
+
+        <div className="relative max-w-6xl mx-auto px-6 lg:px-10">
+          <div className="text-center mb-12 lg:mb-16">
+            <div className="text-[11px] font-bold tracking-[0.3em] text-[#E8A817] mb-3">FEATURES</div>
+            <h2 className="font-heading font-bold text-3xl sm:text-4xl lg:text-5xl mb-4 leading-tight">
+              Everything you need to <span className="text-[#E8A817]">build influence</span><br className="hidden sm:block" />
+              across <span className="italic font-light">54</span> African countries.
+            </h2>
+            <p className="text-sm sm:text-base text-white/65 max-w-2xl mx-auto">
+              Network Capital pairs world-class community tools with locally-relevant rewards.
+              Every feature is built for engagement, recognition, and shared progression.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4" data-testid="features-grid">
+            {FEATURES.map((f, i) => <FeatureTile key={f.title} {...f} delay={i * 0.05} />)}
+          </div>
+
+          <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto" data-testid="features-trust">
+            {[
+              { icon: ShieldCheck, k: 'POPIA-aligned' },
+              { icon: Globe2, k: 'Pan-African (54 countries)' },
+              { icon: Crown, k: 'Premium for $10' },
+            ].map((b) => (
+              <div key={b.k} className="bg-white/[0.04] border border-white/10 rounded-2xl px-4 py-3 inline-flex items-center justify-center gap-2 text-xs sm:text-sm text-white/80">
+                <b.icon size={14} className="text-[#E8A817]" />
+                <span className="font-semibold">{b.k}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -322,6 +380,52 @@ const TRUST = [
   { title: 'Compliance Focused', body: 'Built with compliance, governance and transparency.', icon: ShieldIcon, testid: 'compliance' },
   { title: 'Built For Communities', body: 'Empowering individuals and communities to grow.', icon: Users2, testid: 'communities' },
 ];
+
+/* ──────────────────────────────────────────────────────────────
+   Premium features grid — mirrors in-app modules, dark palette,
+   gold accents. Each tile has icon halo + chevron + hover-lift.
+   ─────────────────────────────────────────────────────────── */
+const FEATURES = [
+  { icon: Users,        title: 'My Network',     body: 'Three-lane connection graph: social, financial, professional.', tag: 'CORE' },
+  { icon: Activity,     title: 'Activities',     body: 'Discover events, meetups and community moments near you.',     tag: 'COMMUNITY' },
+  { icon: Wallet,       title: 'Stokvel+ Wallet', body: 'Multi-currency wallet, group savings & shared backing pools.', tag: 'PREMIUM' },
+  { icon: BarChart3,    title: 'Net Worth',      body: 'Track your network capital across every relationship lane.',   tag: 'INSIGHTS' },
+  { icon: Trophy,       title: 'Score Tracker',  body: 'Earn Network Score from real engagement — uncapped & ranked.', tag: 'GAMIFIED' },
+  { icon: Briefcase,    title: 'Jobs',           body: 'Post & apply for roles — admins moderate every application.',  tag: 'OPPORTUNITY' },
+  { icon: MessageSquare,title: 'Direct Messages',body: 'Encrypted in-app messaging with media and stokvel handoffs.',  tag: 'COMMS' },
+  { icon: Crown,        title: 'Ambassador',     body: 'R8,500 ZAR allocation + tiered withdrawals on referral milestones.', tag: 'TOP TIER' },
+  { icon: Megaphone,    title: 'Promotions',     body: 'Time-windowed SAST campaigns. Earn at R10/100 pts conversion.', tag: 'REWARDS' },
+];
+
+const FeatureTile = ({ icon: Icon, title, body, tag, delay = 0 }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 16 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, amount: 0.4 }}
+    transition={{ duration: 0.5, delay, ease: 'easeOut' }}
+    whileHover={{ y: -4 }}
+    className="group relative bg-gradient-to-br from-white/[0.06] to-white/[0.02] hover:from-[#E8A817]/[0.10] hover:to-white/[0.04] border border-white/10 hover:border-[#E8A817]/40 rounded-3xl p-5 sm:p-6 transition-all duration-300 cursor-default overflow-hidden"
+    data-testid={`feature-tile-${title.toLowerCase().replace(/\s+/g, '-')}`}
+  >
+    {/* gold halo on hover */}
+    <div
+      className="absolute -top-10 -right-10 w-32 h-32 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+      style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.35) 0%, transparent 70%)' }}
+    />
+    <div className="relative flex items-start justify-between mb-4">
+      <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-[#E8A817]/30 to-[#E8A817]/5 border border-[#E8A817]/30 flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] group-hover:scale-110 transition-transform duration-300">
+        <Icon size={20} className="text-[#E8A817]" />
+      </div>
+      <span className="text-[9px] font-bold tracking-widest text-[#E8A817]/80 bg-[#E8A817]/10 border border-[#E8A817]/20 px-2 py-0.5 rounded-full">
+        {tag}
+      </span>
+    </div>
+    <h3 className="relative font-heading font-bold text-base sm:text-lg text-white mb-1.5">{title}</h3>
+    <p className="relative text-xs sm:text-sm text-white/60 leading-relaxed">{body}</p>
+    <ArrowRight size={14} className="relative mt-3 text-white/30 group-hover:text-[#E8A817] group-hover:translate-x-1 transition-all duration-300" />
+  </motion.div>
+);
+
 
 /* ──────────────────────────────────────────────────────────────
    Phone mockup — pure CSS, mirrors the in-app dashboard tile grid.

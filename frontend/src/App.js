@@ -72,6 +72,7 @@ import AdminLockedAccountsPage from './pages/AdminLockedAccountsPage';
 import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplicationsPage';
 import AdminJobApplicationsPage from './pages/AdminJobApplicationsPage';
 import OwnerUserCleanupPage from './pages/OwnerUserCleanupPage';
+import ReferralLandingPage from './pages/ReferralLandingPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -237,6 +238,7 @@ function App() {
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/join" element={<JoinHandler />} />
             <Route path="/join/:slug" element={<JoinHandler />} />
+            <Route path="/r/:username" element={<ReferralLandingPage />} />
             <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -324,6 +326,7 @@ function App() {
 
             <Route path="/join" element={<Navigate to="/" replace />} />
             <Route path="/join/:slug" element={<Navigate to="/" replace />} />
+            <Route path="/r/:username" element={<ReferralLandingPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>

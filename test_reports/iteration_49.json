@@ -1,0 +1,46 @@
+{
+  "summary": "ITER 49 — Backend testing for role-management bug fixes (heartbeat/PUT users-me/admin-bootstrap/dashboard-metrics/startup bootstrap log), ambassador share-link, public referral landing, promotion share-payload + /share +20pts cooldown, and /hubs/regions=55. 17/17 backend tests PASS end-to-end against the public ingress URL. Frontend: source-verified all required data-testids exist (referral-landing-page+referral-card+referral-cta+referral-error; ambassador-share-card+share-url+share-copy+share-btn inside IncentivePanel→ShareLinkCard; promo-share-<id>; hub-add/input/save/cancel-custom-city; landing-features-section+features-grid with exactly 9 feature-tile-<slug> children + features-trust). LandingPage features section renders correctly in live click-test (verified 9 tiles + 1 features-trust block). FOUND ONE FRONTEND BUG: /r/:username route is missing from the first-time-visitor route tree (App.js L213-222 — the showOnboarding branch), so a brand-new unauthenticated visitor clicking a referral link is bounced into LandingPage instead of ReferralLandingPage. The /r/:username route is only registered in the post-onboarding unauth tree (L241) and the authed tree (L329). Confirmed by hitting https://stokvel-plus.preview.emergentagent.com/r/<bogus> as a clean visitor — URL stays at /r/... but body renders the LandingPage hero, not the referral-landing-page testid (count=0).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Referral landing for first-time visitors", "issue": "/r/:username route NOT registered in the first-time-visitor route tree (App.js L213-222, the showOnboarding branch). Unauthenticated brand-new visitors clicking a referral link get the LandingPage instead of ReferralLandingPage because the wildcard <Route path='*' element={<LandingPage/>}> swallows the /r/* path. Add <Route path='/r/:username' element={<ReferralLandingPage/>} /> above the wildcard in the showOnboarding branch.", "affected_selectors": ["[data-testid='referral-landing-page']", "[data-testid='referral-card']", "[data-testid='referral-cta']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter49_role_share_promotions.py",
+    "/app/test_reports/pytest/iter49_results.xml"
+  ],
+  "action_items": [
+    "FRONTEND BUG (priority HIGH): App.js — add <Route path='/r/:username' element={<ReferralLandingPage/>}/> inside the showOnboarding=true route block (around L219) so first-time visitors clicking a referral link land on ReferralLandingPage instead of the marketing LandingPage. Currently the wildcard '*' catches it.",
+    "(Carry-over from iter48 — still UNFIXED) server.py L7919 PUT /admin/feature-flags/{key}: change `if admin.get('role') != 'admin'` to `if admin.get('role') not in ('admin','super_admin')`.",
+    "(Carry-over from iter35 — still UNFIXED) server.py L2842 create_post uses `current_user['photo']` — KeyError risk on legacy users; switch to `.get('photo','')`.",
+    "(Carry-over) Promotion notifier still uses `async for uid in db.promotion_events.distinct(...)` which is broken — distinct returns a List, not async-iterable.",
+    "(Optional) duplicate require_admin_user/require_super_admin definitions (L6367+L7306 / L6375+L7314) still present — consolidate to a single definition."
+  ],
+  "critical_code_review_comments": [
+    "server.py L11418 redefines SHARE_BASE_URL='https://networkcapitalapp.co.za' even though the same constant was already defined at L8218. Harmless (same value) but a footgun if one is ever updated and the other isn't — consolidate to a single module-level constant.",
+    "server.py L11531 record_promotion_share reuses scoring rule 'post_share' (which awards +20 pts and has built-in 24h same-source cooldown). Spec asks for +20 pts and 24h cooldown — both verified correct. However the daily-cap of 10 is shared with actual post_share events, so an ambassador who has already done 10 post-shares today will not earn anything for additional promotion-shares. Product should confirm whether promotion-shares should have their own bucket or share post_share's 10/day cap.",
+    "server.py L11460-11470 /referral/{username} is intentionally PUBLIC (no Depends(get_current_user)) — verified. Returns enough PII (full_name, photo, network_score) for a public profile preview; ensure this is the intended exposure. No email/phone leaked.",
+    "server.py /admin/bootstrap (L7435) correctly promotes ONLY the configured SUPER_ADMIN_EMAIL, never the caller. Verified: caller with role='user' stays 'user' after a successful 200 response. Response includes matched_count, modified_count, target_email, target_user_id, previous_role, new_role per spec.",
+    "server.py /admin/dashboard/metrics (L7714) no longer auto-promotes the caller to admin when they present a valid X-Admin-Password — verified by reading user.role from mongo before/after the call. Previously this endpoint was a silent role-escalation vector.",
+    "server.py heartbeat (L1762) only writes last_session_date and session_minutes_today — confirmed no role write. user.role survives 3 consecutive heartbeats for super_admin, admin, AND fresh user. The iter48 role-flip bug is fixed.",
+    "server.py UpdateProfileRequest (L156) has a strict Pydantic allowlist with no 'role' field — extra fields are silently ignored by Pydantic v2 default, so PUT /users/me {role:'super_admin', city:'gabon'} succeeds 200 with city updated and role untouched. Verified.",
+    "Bootstrap startup log line `[BOOTSTRAP] Promote rmleetang@gmail.com to super_admin → matched=N, modified=N, prev_role=...` confirmed in /var/log/supervisor/backend.err.log after restart. Operator can verify the write happened from logs alone.",
+    "Frontend App.js routing has the /r/:username route in 2 of 3 route trees but NOT in the first-time-visitor (showOnboarding) tree — see action items."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter49_role_share_promotions.py (NEW — 8 test classes, 17 tests, all PASS in 4.36s)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "95% source-verified all data-testids + live-verified landing-features + 9 tiles + features-trust; 1 routing bug found for first-time-visitor /r/:username"},
+  "test_credentials": "Platform Owner rmleetang@gmail.com (super_admin, auto-bootstrapped). Standing Admin rmleetang+nctest1780423349@gmail.com (admin, is_ambassador=true). ADMIN_PASSWORD=NetworkCapital2025! (from /app/backend/.env). Fresh per-test users minted via direct pymongo insert with TEST_iter49_ prefix and JWT tokens signed with JWT_SECRET_KEY.",
+  "seed_data_creation": "fresh_user fixture creates a per-test 'user' role user (uuid + TEST_iter49_ email prefix) with all fields needed for /users/me response model (bio, photo, network_score, rank, referral_code) and tears down via db.users.delete_one + point_transactions cleanup. seeded_promo fixture inserts a promotion with name='Iter49 Test Promo', zar_per_point=0.10, min_network_score=500, schedule.ends_at='2026-12-31T23:59:59Z' and tears it down.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app && python -m pytest backend/tests/test_iter49_role_share_promotions.py -v (~4.4s, 17 tests, all PASS). Important: TestBootstrapLog grep depends on the bootstrap log line being present in /var/log/supervisor/backend.err.log — if the log has been rotated, restart backend with `sudo supervisorctl restart backend` to regenerate the line. The /admin/bootstrap test mutates the super_admin user (rmleetang@gmail.com) by re-promoting to super_admin — idempotent, no side effects on other users. The standing admin (rmleetang+nctest1780423349) has is_ambassador set to True if not already, but this is the documented iter48 state. After main agent fixes the App.js routing bug for /r/:username in the showOnboarding branch, re-run the live browser check: navigate to /r/<bogus> as an unauthenticated brand-new visitor and assert data-testid='referral-landing-page' is present.",
+  "rca_of_the_issue": "All 5 backend role bugs from iter48 are CONFIRMED FIXED: (1) heartbeat doesn't touch role; (2) PUT /users/me strict allowlist drops 'role'; (3) /admin/bootstrap explicitly promotes SUPER_ADMIN_EMAIL not caller, returns matched/modified counts; (4) /admin/dashboard/metrics no longer auto-promotes caller; (5) bootstrap_super_admin logs explicit update_one result. Only NEW issue found is the frontend routing gap: when the React app shows the first-time-visitor landing page (i.e. user is null AND showOnboarding=true, controlled by a localStorage flag), the route tree at App.js L213-222 has only /legal, /admin, /onboarding, /join, /join/:slug — everything else falls through to a wildcard catch-all that renders LandingPage. The /r/:username route is correctly registered in the post-onboarding unauth tree (L241) and the authed tree (L329) but is missing from the first-time-visitor tree. Repro: clear localStorage, hit /r/<any> — get LandingPage instead of ReferralLandingPage. Fix: add `<Route path='/r/:username' element={<ReferralLandingPage/>}/>` to the showOnboarding route block above the wildcard."
+}
