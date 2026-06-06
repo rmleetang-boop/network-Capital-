@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Wallet, Plus, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight, Banknote } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight, Banknote } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useCurrency } from '../context/CurrencyContext';
@@ -14,10 +14,8 @@ const WalletPage = ({ user }) => {
   const [wallet, setWallet] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [depositAmount, setDepositAmount] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [payoutLock, setPayoutLock] = useState(null);
 
   useEffect(() => {
     fetchWalletData();
@@ -52,27 +50,8 @@ const WalletPage = ({ user }) => {
     setLoading(false);
   };
 
-  const handleDeposit = async () => {
-    if (!depositAmount || parseFloat(depositAmount) <= 0) {
-      toast.error('Please enter a valid amount');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await axiosInstance.post('/wallet/deposit', {
-        amount: parseFloat(depositAmount),
-      });
-      toast.success('Funds added successfully!');
-      setDepositAmount('');
-      setShowDepositModal(false);
-      fetchWalletData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add funds');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  // Self-deposit removed per platform policy. Wallet balances only change via approved
+  // payments, system rewards, or super-admin credit grants.
 
   if (loading) {
     return (
@@ -106,7 +85,6 @@ const WalletPage = ({ user }) => {
         title="Your Wallet"
         subtitle="Track funds, premium-tier access, and your contribution history."
         bullets={[
-          { icon: <Plus size={14} />, label: 'Add funds (Premium)', body: 'Premium members can top up to participate in Stokvels and pooled access.' },
           { icon: <TrendingUp size={14} />, label: 'Transparent ledger', body: 'Every contribution and shared-access disbursement is itemised below.' },
           { icon: <DollarSign size={14} />, label: 'Multi-currency', body: 'Switch displayed currency across 10 supported regions in the header.' },
         ]}
@@ -124,16 +102,6 @@ const WalletPage = ({ user }) => {
               <p className="text-xs text-white/60">Manage your funds</p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              if (!premiumUnlocked) { toast.error('Unlock premium to add funds'); return; }
-              setShowDepositModal(true);
-            }}
-            className="bg-secondary hover:bg-secondary-hover text-primary p-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all"
-            data-testid="add-funds-button"
-          >
-            <Plus size={20} />
-          </button>
         </div>
       </div>
 
@@ -143,7 +111,7 @@ const WalletPage = ({ user }) => {
           <CurrencySwitcher compact testId="wallet-currency-switcher" />
         </div>
 
-        {!premiumUnlocked && <PremiumPaywall featureName="wallet deposits" />}
+        {!premiumUnlocked && <PremiumPaywall featureName="premium-tier features" />}
 
         {/* Balance Card */}
         <motion.div
@@ -252,71 +220,6 @@ const WalletPage = ({ user }) => {
           </div>
         </motion.div>
       </div>
-
-      {/* Deposit Modal */}
-      {showDepositModal && (
-        <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setShowDepositModal(false)}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-heading font-bold mb-4">Add Funds</h2>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-text-primary mb-2">
-                Amount (USD)
-              </label>
-              <div className="relative">
-                <DollarSign
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-                  size={20}
-                />
-                <input
-                  type="number"
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                  min="0"
-                  step="0.01"
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                  placeholder="10.00"
-                  data-testid="deposit-amount-input"
-                />
-              </div>
-              <p className="text-xs text-text-muted mt-2">
-                Minimum deposit: $1.00
-              </p>
-            </div>
-
-            <div className="bg-primary/5 rounded-xl p-3 mb-4">
-              <p className="text-xs text-text-secondary">
-                In a real application, this would integrate with a payment processor like Stripe or PayPal. For this demo, funds are added instantly.
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDepositModal(false)}
-                className="flex-1 bg-gray-100 hover:bg-gray-200 text-text-primary font-medium py-3 rounded-full transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeposit}
-                disabled={submitting}
-                className="flex-1 bg-primary hover:bg-primary-hover text-white font-medium py-3 rounded-full transition-all active:scale-95 disabled:opacity-50"
-                data-testid="confirm-deposit-button"
-              >
-                {submitting ? 'Processing...' : 'Add Funds'}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
 
       {showWithdrawModal && (
         <WithdrawalRequestModal

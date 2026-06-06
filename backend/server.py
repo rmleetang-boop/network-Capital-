@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 import os
 import logging
 from pathlib import Path
@@ -1515,21 +1516,91 @@ class AdWatchPayload(BaseModel):
 
 @api_router.post("/ads/watch")
 async def watch_ad(payload: AdWatchPayload, current_user: dict = Depends(get_current_user)):
-    """MOCK ad reward. with_engagement=True (product/service conversion) → 500 pts.
-    with_share=True only → 100 pts. Otherwise → 0."""
-    if payload.with_engagement:
-        action, base = "ad_engagement", 500
-    elif payload.with_share:
-        action, base = "ad_share", 100
-    else:
-        return {"points": 0, "reason": "Watch fully + share or engage to earn points"}
+    """Reward a user for engaging with or sharing a real, active advertisement.
 
+    SECURITY: Validates the ad actually exists, is active, has reward inventory,
+    and the user has not already claimed for the same ad / event in cooldown.
+    No points are awarded for merely opening the feed.
+    """
+    # Must reference a real ad.
+    if not payload.ad_id:
+        return {"points": 0, "reason": "No active rewarded advertisements available.", "awarded": False}
+
+    ad = await db.ads.find_one({"id": payload.ad_id}, {"_id": 0})
+    if not ad:
+        return {"points": 0, "reason": "No active rewarded advertisements available.", "awarded": False}
+
+    # Must be active. Block any moderated/draft/expired campaigns.
+    is_active = bool(ad.get("is_active", True))
+    if not is_active or ad.get("status") in ("draft", "paused", "expired"):
+        return {"points": 0, "reason": "This advertisement is not currently rewarding points.", "awarded": False}
+
+    # Time-window guard if the campaign defines start/end.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if ad.get("starts_at") and now_iso < str(ad["starts_at"]):
+        return {"points": 0, "reason": "Campaign has not started yet.", "awarded": False}
+    if ad.get("ends_at") and now_iso > str(ad["ends_at"]):
+        return {"points": 0, "reason": "Campaign has ended.", "awarded": False}
+
+    # Reward-inventory guard. Admins can set max_rewards on the ad doc; falls back to
+    # unlimited if not set so legacy campaigns continue to work.
+    max_rewards = ad.get("max_rewards")
+    if isinstance(max_rewards, int) and max_rewards > 0:
+        rewards_used = int(ad.get("rewards_used", 0))
+        if rewards_used >= max_rewards:
+            return {"points": 0, "reason": "Reward inventory exhausted for this ad.", "awarded": False}
+
+    # Action + base
+    if payload.with_engagement:
+        score_action, base = "ad_watch_engage", 500
+        event_kind = "engage"
+    elif payload.with_share:
+        score_action, base = "ad_watch_share", 100
+        event_kind = "share"
+    else:
+        return {"points": 0, "reason": "Watch fully + share or engage to earn points.", "awarded": False}
+
+    # ── DEDUPLICATION ────────────────────────────────────────────────────
+    # 1 reward per (user, ad, event_kind). Enforced atomically via an upsert into
+    # ad_reward_claims so concurrent requests can't double-claim.
+    dedup_key = f"{current_user['id']}|{payload.ad_id}|{event_kind}"
+    try:
+        await db.ad_reward_claims.insert_one({
+            "id": str(uuid.uuid4()),
+            "key": dedup_key,
+            "user_id": current_user["id"],
+            "ad_id": payload.ad_id,
+            "event_kind": event_kind,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except DuplicateKeyError:
+        return {"points": 0, "reason": "Reward already claimed for this ad.", "awarded": False, "duplicate": True}
+    except Exception:
+        # If the unique index is not yet built, fall back to a soft check (still safer than nothing).
+        existing = await db.ad_reward_claims.find_one({"key": dedup_key})
+        if existing:
+            return {"points": 0, "reason": "Reward already claimed for this ad.", "awarded": False, "duplicate": True}
+        await db.ad_reward_claims.insert_one({
+            "id": str(uuid.uuid4()), "key": dedup_key,
+            "user_id": current_user["id"], "ad_id": payload.ad_id,
+            "event_kind": event_kind, "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    # Award via the same award_points pipeline (daily caps + 24h same-source cooldown still apply).
     awarded = await award_points(
-        current_user["id"], action, base,
+        current_user["id"], score_action, base,
         source_id=payload.ad_id,
-        message=f"Watched ad + {'engagement' if payload.with_engagement else 'share'} +{base}"
+        message=f"Ad {event_kind} reward +{base}",
     )
-    return {"points": awarded, "action": action, "mocked": True}
+
+    # Mark inventory consumption on the ad doc.
+    if awarded > 0:
+        await db.ads.update_one(
+            {"id": payload.ad_id},
+            {"$inc": {"rewards_used": 1, "engagements" if event_kind == "engage" else "shares": 1}},
+        )
+
+    return {"points": awarded, "action": score_action, "ad_id": payload.ad_id, "awarded": awarded > 0}
 
 
 @api_router.get("/score/summary")
@@ -3188,36 +3259,23 @@ async def get_wallet(current_user: dict = Depends(get_current_user)):
         "pending": 0.0,
     }
 
+
+# DEPRECATED — replaced by approved payment & admin credit-grant flows.
+# Kept stub for back-compat; returns 410 GONE so any old client surfaces a clear error.
 @api_router.post("/wallet/deposit")
-async def deposit_funds(request: DepositRequest, current_user: dict = Depends(get_current_user)):
-    require_premium(current_user)
-    if request.amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be positive")
-    
-    transaction_id = str(uuid.uuid4())
-    transaction = {
-        "id": transaction_id,
-        "user_id": current_user["id"],
-        "type": "deposit",
-        "amount": request.amount,
-        "description": "Wallet deposit",
-        "status": "completed",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.transactions.insert_one(transaction)
-    
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {
-            "$inc": {
-                "wallet_balance": request.amount,
-                "total_earned": request.amount
-            }
-        }
+async def deposit_funds_disabled(_: DepositRequest, current_user: dict = Depends(get_current_user)):
+    """[REMOVED 2026-Q1] Self-credit endpoint disabled platform-wide.
+
+    Per platform policy, users may no longer add credits to their own wallet.
+    Wallet balances increase only via:
+      • Approved payment transactions (Stripe / Paystack)
+      • Approved system rewards (referrals, cashback, withdrawals)
+      • Super-admin credit grants (POST /api/admin/credit-grants)
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Self-deposit is disabled. Wallet balances can only be adjusted by approved payments or the platform owner.",
     )
-    
-    return {"message": "Deposit successful", "new_balance": (current_user.get("wallet_balance", 0) + request.amount)}
 
 @api_router.get("/wallet/transactions")
 async def get_transactions(current_user: dict = Depends(get_current_user)):
@@ -5819,6 +5877,24 @@ async def cancel_deletion(current_user: dict = Depends(get_current_user)):
 
 
 @app.on_event("startup")
+async def ensure_indexes():
+    """Idempotent index creation for security-critical collections.
+
+    ``ad_reward_claims.key`` MUST be unique to atomically prevent duplicate ad-reward
+    claims (race-condition proof).  Also indexes the wallet adjustment audit log."""
+    try:
+        await db.ad_reward_claims.create_index("key", unique=True, background=True)
+    except Exception as e:
+        logger.warning(f"ad_reward_claims index ensure failed: {e}")
+    try:
+        await db.wallet_adjustments_audit.create_index("created_at", background=True)
+        await db.wallet_adjustments_audit.create_index("target_user_id", background=True)
+    except Exception as e:
+        logger.warning(f"wallet_adjustments_audit index ensure failed: {e}")
+
+
+
+@app.on_event("startup")
 async def bootstrap_super_admin():
     """Ensure the Platform Owner has the `super_admin` role.
     Idempotent — runs once per startup, only touches the single configured email."""
@@ -7624,7 +7700,9 @@ async def admin_create_credit_grant(payload: CreditGrantRequest, admin: dict = D
 
 
 @api_router.post("/admin/credit-grants/{grant_id}/co-approve")
-async def admin_co_approve_grant(grant_id: str, admin: dict = Depends(require_admin_user)):
+async def admin_co_approve_grant(grant_id: str, admin: dict = Depends(require_super_admin)):
+    # Co-approval also restricted to super_admin per platform policy:
+    # only the Platform Owner can move money.
     grant = await db.credit_grants.find_one({"id": grant_id}, {"_id": 0})
     if not grant:
         raise HTTPException(status_code=404, detail="Grant not found")
@@ -7637,10 +7715,36 @@ async def admin_co_approve_grant(grant_id: str, admin: dict = Depends(require_ad
 
 
 async def _apply_credit_grant(grant: dict, admin: dict) -> None:
-    """Apply the signed delta to user.wallet_balance or stokvel.total_pool."""
+    """Apply the signed delta to user.wallet_balance or stokvel.total_pool.
+    Writes a full audit row (prev/new balance, actor, reason) to
+    ``wallet_adjustments_audit`` for security/compliance review."""
     amount_usd = grant["usd_equiv"]
     if grant["target_type"] == "user":
+        prev_user = await db.users.find_one(
+            {"id": grant["target_id"]},
+            {"_id": 0, "id": 1, "email": 1, "username": 1, "wallet_balance": 1},
+        ) or {}
+        prev_balance = float(prev_user.get("wallet_balance", 0.0))
         await db.users.update_one({"id": grant["target_id"]}, {"$inc": {"wallet_balance": amount_usd}})
+        new_balance = round(prev_balance + amount_usd, 2)
+        # Wallet-adjustment audit row (immutable, append-only).
+        await db.wallet_adjustments_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "grant_id": grant.get("id"),
+            "target_user_id": grant["target_id"],
+            "target_email": prev_user.get("email"),
+            "target_username": prev_user.get("username"),
+            "amount_usd": amount_usd,
+            "currency": grant.get("currency"),
+            "amount_native": grant.get("amount"),
+            "previous_balance_usd": prev_balance,
+            "new_balance_usd": new_balance,
+            "actor_id": admin["id"],
+            "actor_username": admin.get("username"),
+            "actor_role": admin.get("role"),
+            "reason": grant.get("reason"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
         if amount_usd > 0:
             await _notify_wallet_credit(grant["target_id"], float(amount_usd), f"Admin credit — {grant.get('reason','')[:80]}")
         # In-app notification (include `points` for forward-compat with strict NotificationModel)
@@ -7847,7 +7951,7 @@ async def admin_announce_as_network_capital(
     admin: dict = Depends(require_admin_user),
 ):
     """Publish a feed post authored by the Network Capital system account."""
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can announce as Network Capital")
     sys_uid = await _ensure_system_account()
     # IMPORTANT: shape must match the existing Post pydantic model to avoid
@@ -7895,7 +7999,7 @@ async def admin_dm_as_network_capital(
     admin: dict = Depends(require_admin_user),
 ):
     """Send a direct message from the Network Capital system account."""
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can DM as Network Capital")
     target = await db.users.find_one({"id": payload.to_user_id}, {"_id": 0, "id": 1})
     if not target:
@@ -8091,17 +8195,32 @@ async def admin_make_ambassador(
     payload: Dict[str, Any] = None,
     admin: dict = Depends(require_admin_user),
 ):
-    if admin.get("role") != "admin":
+    if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can grant ambassador status")
-    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    target = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "email": 1, "is_ambassador": 1, "role": 1, "full_name": 1, "username": 1, "email_verified": 1},
+    )
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     is_amb = bool((payload or {}).get("ambassador", True))
+    prev_was_ambassador = bool(target.get("is_ambassador"))
     await db.users.update_one({"id": user_id}, {"$set": {
         "is_ambassador": is_amb,
         "ambassador_rank": "Rising Star" if is_amb else None,
         "ambassador_granted_at": datetime.now(timezone.utc).isoformat() if is_amb else None,
     }})
+    # Role-change email + notification + audit (only when the flag actually changes).
+    if prev_was_ambassador != is_amb:
+        try:
+            prev_label = "ambassador" if prev_was_ambassador else (target.get("role") or "user")
+            new_label = "ambassador" if is_amb else (target.get("role") or "user")
+            await _notify_role_change(
+                user=target, previous_role=prev_label, new_role=new_label,
+                actor_username=admin.get("username") or "admin",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[ROLE-EMAIL-FAIL] make-ambassador user={user_id} err={exc}")
     await AuditLog.write(actor_id=admin["id"], actor_username=admin.get("username") or "admin",
         action="user.ambassador_set", target_type="user", target_id=user_id,
         metadata={"is_ambassador": is_amb})
@@ -9685,10 +9804,35 @@ async def admin_approve_ambassador(application_id: str, payload: AmbassadorDecis
         {"$set": {"status": "approved", "decided_by": admin.get("username") or admin["id"],
                   "decided_at": now, "admin_note": payload.note or "", "updated_at": now}},
     )
+    target_user = await db.users.find_one(
+        {"id": app_row["user_id"]},
+        {"_id": 0, "id": 1, "email": 1, "is_ambassador": 1, "role": 1, "full_name": 1, "username": 1, "email_verified": 1},
+    )
+    was_amb = bool((target_user or {}).get("is_ambassador"))
     await db.users.update_one(
         {"id": app_row["user_id"]},
-        {"$set": {"is_ambassador": True, "ambassador_rank": "Rising Star"}},
+        {"$set": {"is_ambassador": True, "ambassador_rank": "Rising Star",
+                  "ambassador_granted_at": now}},
     )
+    # Fire role-change email + notification (skip if they were already an ambassador).
+    if target_user and not was_amb:
+        try:
+            await _notify_role_change(
+                user=target_user,
+                previous_role=(target_user.get("role") or "user"),
+                new_role="ambassador",
+                actor_username=admin.get("username") or "admin",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[ROLE-EMAIL-FAIL] ambassador-approve user={app_row['user_id']} err={exc}")
+    try:
+        await AuditLog.write(
+            actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+            action="ambassador.approve", target_type="user", target_id=app_row["user_id"],
+            reason=payload.note or "approved", metadata={"application_id": application_id},
+        )
+    except Exception:
+        pass
     await db.notifications.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": app_row["user_id"],
