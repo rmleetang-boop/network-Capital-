@@ -6336,6 +6336,396 @@ def _june_payout_message() -> str:
             "Requests submitted earlier remain pending until the release date.")
 
 
+
+# ============== AMBASSADOR INCENTIVE PROGRAM =========================
+# Per spec:
+# - R8,500 starting balance allocated once on ambassador role grant (ZAR for all users)
+# - Split: R5,000 referrals pot (unlocked immediately) + R3,500 activity pot
+#   (unlocked after 20 posts + 100 likes given + 5 ad shares since grant)
+# - Withdrawal tiers (based on direct referrals with Network Score >= 1000):
+#     20 referrals → R500 fixed
+#     40 referrals → 20% of available remaining
+#     60 referrals → 20% of available remaining
+#     80 referrals → 20% of available remaining
+#    100 referrals → 100% of remaining
+# - Each referral counted once. June 30 lock applies. Super-admin can tune everything.
+# =====================================================================
+
+AMBASSADOR_CONFIG_DEFAULT = {
+    "enabled": True,
+    "starting_balance_zar": 8500.0,
+    "referral_pot_zar": 5000.0,
+    "activity_pot_zar": 3500.0,
+    "first_withdrawal_zar": 500.0,
+    "next_withdrawal_percent": 20.0,
+    "tier_referrals_required": [20, 40, 60, 80, 100],
+    "referral_min_score": 1000,
+    "activity_targets": {"posts": 20, "likes": 100, "ad_shares": 5},
+}
+
+
+async def _get_ambassador_config() -> dict:
+    """Singleton config doc. Defaults seed automatically."""
+    cfg = await db.ambassador_config.find_one({"id": "singleton"}, {"_id": 0})
+    if not cfg:
+        cfg = {"id": "singleton", **AMBASSADOR_CONFIG_DEFAULT,
+               "updated_at": datetime.now(timezone.utc).isoformat()}
+        await db.ambassador_config.insert_one(cfg)
+    # Fill in any missing keys from defaults so old configs upgrade gracefully.
+    for k, v in AMBASSADOR_CONFIG_DEFAULT.items():
+        cfg.setdefault(k, v)
+    return cfg
+
+
+async def _count_ambassador_activity(user_id: str, since_iso: Optional[str]) -> dict:
+    """Counts ambassador's posts/likes-given/ad-shares since they were granted the role."""
+    since = since_iso or datetime(2000, 1, 1, tzinfo=timezone.utc).isoformat()
+    posts = await db.posts.count_documents({"user_id": user_id, "created_at": {"$gte": since}})
+    # Likes given: posts where likes array contains user_id (no created_at filter — likes don't carry timestamps).
+    likes = await db.posts.count_documents({"likes": user_id})
+    ad_shares = await db.ad_reward_claims.count_documents({
+        "user_id": user_id, "event_kind": "share", "created_at": {"$gte": since},
+    })
+    return {"posts": posts, "likes": likes, "ad_shares": ad_shares}
+
+
+async def _qualified_referrals(user_id: str, min_score: int) -> List[dict]:
+    """Direct referrals who hit the score threshold.  Excludes deactivated /
+    pending-deletion / suspended accounts."""
+    cur = db.users.find(
+        {
+            "referred_by": user_id,
+            "network_score": {"$gte": min_score},
+            "$and": [
+                {"$or": [{"deactivated": {"$exists": False}}, {"deactivated": False}]},
+                {"$or": [{"pending_deletion": {"$exists": False}}, {"pending_deletion": False}]},
+                {"$or": [{"suspended": {"$exists": False}}, {"suspended": False}]},
+            ],
+        },
+        {"_id": 0, "id": 1, "username": 1, "network_score": 1, "created_at": 1},
+    )
+    return await cur.to_list(length=None)
+
+
+async def _ambassador_state(user: dict) -> dict:
+    """Pure read — used by both the user dashboard and admin views."""
+    cfg = await _get_ambassador_config()
+    starting = float(user.get("ambassador_balance_zar") or cfg["starting_balance_zar"])
+    paid = float(user.get("ambassador_paid_zar") or 0)
+    activity_unlocked = bool(user.get("ambassador_activity_unlocked"))
+    referral_pot = float(cfg["referral_pot_zar"])
+    activity_pot = float(cfg["activity_pot_zar"])
+    available = (referral_pot + (activity_pot if activity_unlocked else 0.0)) - paid
+    if available < 0:
+        available = 0.0
+
+    qualified = await _qualified_referrals(user["id"], int(cfg["referral_min_score"]))
+    qcount = len(qualified)
+
+    tiers = list(cfg["tier_referrals_required"])
+    tiers_completed = int(user.get("ambassador_tiers_completed") or 0)
+    next_tier_idx = tiers_completed  # 0 means "not unlocked first tier yet"
+    next_required = tiers[next_tier_idx] if next_tier_idx < len(tiers) else None
+    eligible_to_request = (
+        cfg["enabled"]
+        and next_required is not None
+        and qcount >= next_required
+        and available > 0
+    )
+    if next_tier_idx == 0:
+        next_amount = float(cfg["first_withdrawal_zar"])
+    elif next_tier_idx >= len(tiers) - 1:
+        next_amount = available
+    else:
+        next_amount = round(available * (float(cfg["next_withdrawal_percent"]) / 100.0), 2)
+    next_amount = min(next_amount, available)
+
+    activity = await _count_ambassador_activity(
+        user["id"], user.get("ambassador_role_granted_at"),
+    )
+    a_target = cfg["activity_targets"]
+    activity_progress = {
+        "posts": [activity["posts"], a_target["posts"]],
+        "likes": [activity["likes"], a_target["likes"]],
+        "ad_shares": [activity["ad_shares"], a_target["ad_shares"]],
+        "unlocked": activity_unlocked,
+    }
+    return {
+        "enabled": cfg["enabled"],
+        "is_ambassador": bool(user.get("is_ambassador")),
+        "starting_balance_zar": starting,
+        "paid_zar": paid,
+        "available_zar": round(available, 2),
+        "referral_pot_zar": referral_pot,
+        "activity_pot_zar": activity_pot,
+        "activity_unlocked": activity_unlocked,
+        "qualified_referrals_count": qcount,
+        "qualified_referrals_sample": qualified[:10],
+        "tiers_completed": tiers_completed,
+        "tier_referrals_required": tiers,
+        "next_tier_required": next_required,
+        "next_amount_zar": round(next_amount, 2) if eligible_to_request else 0.0,
+        "eligible_to_withdraw": eligible_to_request,
+        "activity_progress": activity_progress,
+        "config_snapshot": {k: cfg[k] for k in (
+            "first_withdrawal_zar", "next_withdrawal_percent", "referral_min_score",
+            "activity_targets",
+        )},
+    }
+
+
+async def _allocate_ambassador_balance(user_id: str, actor_username: str = "system") -> bool:
+    """One-shot allocation when ambassador role is granted.  Idempotent — if the user
+    already has an ambassador_balance_zar set, we leave it alone."""
+    cfg = await _get_ambassador_config()
+    if not cfg["enabled"]:
+        return False
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1, "email_verified": 1,
+         "ambassador_balance_zar": 1, "ambassador_role_granted_at": 1},
+    )
+    if not user:
+        return False
+    if user.get("ambassador_balance_zar"):
+        return False  # already allocated
+    starting = float(cfg["starting_balance_zar"])
+    grant_at = user.get("ambassador_role_granted_at") or datetime.now(timezone.utc).isoformat()
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "ambassador_balance_zar": starting,
+            "ambassador_paid_zar": 0.0,
+            "ambassador_tiers_completed": 0,
+            "ambassador_activity_unlocked": False,
+            "ambassador_role_granted_at": grant_at,
+        }},
+    )
+    # Audit row + email
+    await db.ambassador_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "event": "balance_allocated",
+        "amount_zar": starting,
+        "actor": actor_username,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    try:
+        if (user.get("email") or "") and user.get("email_verified"):
+            await _send_branded_email(
+                to=user["email"],
+                subject="Welcome to the Ambassador Incentive Programme",
+                html=_branded_email_html(
+                    headline="R8,500 has been allocated to your Ambassador account",
+                    body_html=(
+                        f"<p>Hi {user.get('full_name') or user.get('username') or 'there'},</p>"
+                        f"<p>Welcome to the Network Capital Ambassador Programme.  We've "
+                        f"allocated <strong style='color:#f5d76e;'>R{starting:,.0f}</strong> "
+                        f"to your Ambassador account.</p>"
+                        f"<p style='margin-top:14px;'>This is how it unlocks:</p>"
+                        f"<ul style='color:#cbd5e1;font-size:13px;line-height:22px;'>"
+                        f"<li><strong>R{cfg['referral_pot_zar']:,.0f}</strong> referrals pot — already "
+                        f"part of your balance.</li>"
+                        f"<li><strong>R{cfg['activity_pot_zar']:,.0f}</strong> activity pot — unlocks "
+                        f"after you create {cfg['activity_targets']['posts']} posts, give "
+                        f"{cfg['activity_targets']['likes']} likes, and share "
+                        f"{cfg['activity_targets']['ad_shares']} ads.</li>"
+                        f"</ul>"
+                        f"<p style='margin-top:14px;'>To withdraw, refer new members who reach a "
+                        f"Network Score of <strong>{cfg['referral_min_score']:,}</strong> points:</p>"
+                        f"<ul style='color:#cbd5e1;font-size:13px;line-height:22px;'>"
+                        f"<li>20 qualified referrals → <strong>R{cfg['first_withdrawal_zar']:,.0f}</strong></li>"
+                        f"<li>40 / 60 / 80 qualified → <strong>{cfg['next_withdrawal_percent']:.0f}%</strong> of remaining balance each time</li>"
+                        f"<li>100 qualified → <strong>full remaining balance</strong></li>"
+                        f"</ul>"
+                        f"<p style='font-size:12px;color:#94a3b8;margin-top:14px;'>"
+                        f"All withdrawals are processed from 30 June 2026 onwards.  Track your "
+                        f"progress and request withdrawals from the Ambassador Dashboard inside the app."
+                        f"</p>"
+                    ),
+                    cta_label="Open Ambassador Dashboard",
+                    cta_url="https://networkcapitalapp.co.za/ambassadors/dashboard",
+                    kicker="Ambassador Programme",
+                ),
+                kind="ambassador_allocate",
+            )
+    except Exception as e:
+        logger.warning(f"ambassador_allocate email failed: {e}")
+    return True
+
+
+async def _check_ambassador_activity_unlock(user_id: str) -> bool:
+    """Idempotently check the activity-pot unlock condition and flip the flag if met."""
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1, "email_verified": 1,
+         "is_ambassador": 1, "ambassador_activity_unlocked": 1, "ambassador_role_granted_at": 1},
+    )
+    if not user or not user.get("is_ambassador") or user.get("ambassador_activity_unlocked"):
+        return False
+    cfg = await _get_ambassador_config()
+    a_target = cfg["activity_targets"]
+    activity = await _count_ambassador_activity(user_id, user.get("ambassador_role_granted_at"))
+    if (activity["posts"] >= a_target["posts"]
+            and activity["likes"] >= a_target["likes"]
+            and activity["ad_shares"] >= a_target["ad_shares"]):
+        await db.users.update_one({"id": user_id}, {"$set": {
+            "ambassador_activity_unlocked": True,
+            "ambassador_activity_unlocked_at": datetime.now(timezone.utc).isoformat(),
+        }})
+        await db.ambassador_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "event": "activity_pot_unlocked",
+            "amount_zar": float(cfg["activity_pot_zar"]),
+            "actor": "system",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        try:
+            if user.get("email") and user.get("email_verified"):
+                await _send_branded_email(
+                    to=user["email"],
+                    subject="🎉 Activity pot unlocked — R3,500 now available",
+                    html=_branded_email_html(
+                        headline=f"R{cfg['activity_pot_zar']:,.0f} added to your withdrawable balance",
+                        body_html=(
+                            f"<p>Hi {user.get('full_name') or user.get('username') or 'there'},</p>"
+                            f"<p>Congrats — you hit all three activity milestones since becoming an "
+                            f"Ambassador.  Your <strong style='color:#f5d76e;'>R"
+                            f"{cfg['activity_pot_zar']:,.0f}</strong> activity pot is now part of your "
+                            f"withdrawable balance.</p>"
+                            f"<p style='font-size:12px;color:#94a3b8;'>You can still grow withdrawals "
+                            f"by referring members who reach a Network Score of "
+                            f"{cfg['referral_min_score']:,} points each.</p>"
+                        ),
+                        cta_label="Open Ambassador Dashboard",
+                        cta_url="https://networkcapitalapp.co.za/ambassadors/dashboard",
+                        kicker="Ambassador Programme",
+                    ),
+                    kind="ambassador_activity_unlocked",
+                )
+        except Exception as e:
+            logger.warning(f"activity unlock email failed: {e}")
+        return True
+    return False
+
+
+@api_router.get("/ambassador/incentive")
+async def my_ambassador_incentive(current_user: dict = Depends(get_current_user)):
+    """Current user's Ambassador Incentive dashboard payload."""
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0, "banking": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await _ambassador_state(user)
+
+
+@api_router.post("/ambassador/incentive/withdraw")
+async def request_ambassador_withdrawal(current_user: dict = Depends(get_current_user)):
+    """Request the next available ambassador-incentive payout.
+
+    Enforces: ambassador role, 30-Jun lock, referrals count + score, tier order,
+    and configured amount.  Creates a `withdrawals` row in pending state — paid
+    out via the standard withdrawals/approve admin flow.
+    """
+    if _is_june_payout_locked():
+        raise HTTPException(status_code=403, detail=_june_payout_message())
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
+    if not user or not user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador role required")
+    state = await _ambassador_state(user)
+    if not state["enabled"]:
+        raise HTTPException(status_code=403, detail="Ambassador incentive programme is disabled")
+    if not state["eligible_to_withdraw"]:
+        raise HTTPException(status_code=400, detail=(
+            f"Not eligible. Need {state['next_tier_required']} qualified referrals "
+            f"(currently {state['qualified_referrals_count']})."
+        ))
+
+    amount = float(state["next_amount_zar"])
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="No balance available to withdraw")
+
+    # Insert a withdrawal row (uses existing schema; source='ambassador_incentive')
+    withdrawal_id = str(uuid.uuid4())
+    await db.withdrawals.insert_one({
+        "id": withdrawal_id,
+        "user_id": current_user["id"],
+        "username": current_user.get("username"),
+        "email": current_user.get("email"),
+        "source": "ambassador_incentive",
+        "amount_zar": amount,
+        "amount_usd": round(amount / 18.5, 2),  # rough; real FX done at payout time
+        "currency": "ZAR",
+        "status": "pending",
+        "tier_index": state["tiers_completed"],
+        "qualified_referrals_at_request": state["qualified_referrals_count"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # Optimistically mark the tier consumed + add to paid_zar so subsequent calls
+    # advance to the next tier. If admin rejects later, that flow will refund.
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$inc": {"ambassador_tiers_completed": 1, "ambassador_paid_zar": amount}},
+    )
+    await db.ambassador_audit.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": current_user["id"],
+        "event": "withdrawal_requested",
+        "amount_zar": amount,
+        "withdrawal_id": withdrawal_id,
+        "tier_index": state["tiers_completed"],
+        "actor": current_user.get("username") or current_user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True, "withdrawal_id": withdrawal_id, "amount_zar": amount}
+
+
+# ---- SUPER ADMIN: config ---------------------------------------------------
+@api_router.get("/admin/ambassador/config")
+async def admin_get_ambassador_config(admin: dict = Depends(require_super_admin)):
+    return await _get_ambassador_config()
+
+
+@api_router.patch("/admin/ambassador/config")
+async def admin_update_ambassador_config(
+    payload: Dict[str, Any],
+    admin: dict = Depends(require_super_admin),
+):
+    allowed = {
+        "enabled", "starting_balance_zar", "referral_pot_zar", "activity_pot_zar",
+        "first_withdrawal_zar", "next_withdrawal_percent", "tier_referrals_required",
+        "referral_min_score", "activity_targets",
+    }
+    upd = {k: v for k, v in (payload or {}).items() if k in allowed}
+    if not upd:
+        raise HTTPException(status_code=400, detail="No editable fields supplied")
+    upd["updated_at"] = datetime.now(timezone.utc).isoformat()
+    upd["updated_by"] = admin.get("username") or admin["id"]
+    await db.ambassador_config.update_one(
+        {"id": "singleton"}, {"$set": upd}, upsert=True,
+    )
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "owner",
+        action="ambassador.config_update", target_type="config", target_id="singleton",
+        metadata=upd,
+    )
+    return await _get_ambassador_config()
+
+
+@api_router.get("/admin/ambassador/audit")
+async def admin_ambassador_audit(
+    user_id: Optional[str] = None,
+    limit: int = 200,
+    admin: dict = Depends(require_admin_user),
+):
+    q: Dict[str, Any] = {}
+    if user_id:
+        q["user_id"] = user_id
+    rows = await db.ambassador_audit.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500)).to_list(length=None)
+    return {"count": len(rows), "rows": rows}
+
+
+
 @app.on_event("startup")
 async def purge_overdue_deletions():
     """Hard-delete user docs whose 30-day deletion grace has elapsed."""
