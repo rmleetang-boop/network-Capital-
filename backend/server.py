@@ -3186,10 +3186,25 @@ async def delete_photo(photo_id: str, current_user: dict = Depends(get_current_u
 
 @api_router.get("/users/{user_id}/photos")
 async def list_photos(user_id: str):
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "photos": 1})
-    if not user:
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "photos": 1})
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return {"photos": user.get("photos", [])}
+    return {"photos": user.get("photos") or []}
+
+
+@api_router.get("/users/{user_id}/posts")
+async def list_user_posts(user_id: str, limit: int = 60):
+    """Return a user's feed posts in reverse-chronological order. Used by the
+    Instagram-style public profile page at /u/:username for the GRID tab."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    posts = await db.posts.find(
+        {"user_id": user_id},
+        {"_id": 0, "id": 1, "content": 1, "image": 1, "video": 1,
+         "is_official": 1, "created_at": 1, "likes": 1, "comments": 1},
+    ).sort("created_at", -1).limit(min(limit, 200)).to_list(length=None)
+    return {"posts": posts, "count": len(posts)}
 
 @api_router.post("/users/me/videos")
 async def upload_video(payload: MediaUpload, current_user: dict = Depends(get_current_user)):

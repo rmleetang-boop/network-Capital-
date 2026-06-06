@@ -11,10 +11,16 @@ const Layout = ({ children, user, onLogout }) => {
     { icon: Compass, label: 'Explore', path: '/explore' },
     { icon: MapPin, label: 'Hubs', path: '/hubs' },
     { icon: Briefcase, label: 'Stokvel+', path: '/stokvels' },
-    { icon: User, label: 'Profile', path: '/profile' },
+    // Profile tab → Instagram-style public view at /u/:username (falls back to /profile if no username yet)
+    { icon: User, label: 'Profile', path: user?.username ? `/u/${user.username}` : '/profile' },
   ];
 
-  const isActive = (path) => location.pathname === path;
+  const isActive = (path) => {
+    if (path.startsWith('/u/')) {
+      return location.pathname.startsWith('/u/') || location.pathname === '/profile';
+    }
+    return location.pathname === path;
+  };
   // Hide bottom nav on DM pages (Instagram-style full-screen chat)
   const hideBottomNav = location.pathname.startsWith('/messages');
 

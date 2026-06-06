@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, MessageCircle, UserPlus, UserCheck, Crown, Star, MoreVertical, MapPin, Briefcase, Grid3x3, Bookmark, Share2, Loader2, Sparkles, Image as ImageIcon, Camera } from 'lucide-react';
+import { ArrowLeft, MessageCircle, UserPlus, UserCheck, Crown, Star, MoreVertical, MapPin, Briefcase, Grid3x3, Bookmark, Share2, Loader2, Sparkles, Image as ImageIcon, Camera, Users, Wallet, Package, TrendingUp, Activity, Trophy, Bell, HelpCircle, Settings, Shield, MessageCircle as MessageCircleIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { axiosInstance } from '../App';
 
@@ -32,8 +32,10 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
       try {
         const r = await axiosInstance.get(`/users/by-username/${encodeURIComponent(username)}`);
         setProfile(r.data);
-        const ph = await axiosInstance.get(`/users/${r.data.id}/photos`);
-        setPosts(ph.data?.photos || ph.data || []);
+        try {
+          const ph = await axiosInstance.get(`/users/${r.data.id}/posts`);
+          setPosts(ph.data?.posts || []);
+        } catch { /* posts optional — render profile anyway */ }
       } catch (e) {
         toast.error(e.response?.data?.detail || 'Profile not found');
       } finally { setLoading(false); }
@@ -186,6 +188,27 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
           </div>
         )}
 
+        {/* Own-profile action row */}
+        {isOwnProfile && (
+          <>
+            <div className="grid grid-cols-2 gap-2 pb-4" data-testid="own-action-row">
+              <button onClick={() => navigate('/profile')}
+                      className="bg-white/[0.08] hover:bg-white/[0.12] text-white font-bold text-xs sm:text-sm py-2.5 rounded-xl border border-white/10 inline-flex items-center justify-center gap-1.5"
+                      data-testid="btn-edit-profile">
+                <UserCheck size={13} /> Edit profile
+              </button>
+              <button onClick={handleShare}
+                      className="bg-[#E8A817] text-[#04101e] font-bold text-xs sm:text-sm py-2.5 rounded-xl inline-flex items-center justify-center gap-1.5"
+                      data-testid="btn-share">
+                <Share2 size={13} /> Share my profile
+              </button>
+            </div>
+
+            {/* Dark navy module grid — only for own profile */}
+            <OwnModuleGrid profile={profile} navigate={navigate} />
+          </>
+        )}
+
         {/* Highlights row — last 4 posts as round thumbnails */}
         {hasPosts && (
           <div className="flex gap-3 overflow-x-auto pb-4 mb-2 no-scrollbar" data-testid="highlights-row">
@@ -295,3 +318,62 @@ const PostEmptyState = ({ isOwn, navigate }) => (
 );
 
 export default UserPublicProfilePage;
+
+/* ─────────── Dark-navy module grid — shown only on own /u/:me ─────────── */
+const OwnModuleGrid = ({ profile, navigate }) => {
+  const tiles = [
+    { icon: Users, label: 'My Network', path: '/network' },
+    { icon: MapPin, label: 'My Places', path: '/places' },
+    { icon: MessageCircleIcon, label: 'Messages', path: '/messages' },
+    { icon: Sparkles, label: 'Activities', path: '/activities' },
+    { icon: Wallet, label: 'Wallet', path: '/wallet' },
+    { icon: Package, label: 'Products', path: '/products' },
+    { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
+    { icon: Activity, label: 'Score Tracker', path: '/tracker' },
+    { icon: Briefcase, label: 'Jobs', path: '/jobs' },
+    { icon: Sparkles, label: 'Promotions', path: '/promotions/me' },
+    { icon: Star, label: 'Become Ambassador', path: '/ambassadors/apply' },
+    { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
+    { icon: Bell, label: 'Notifications', path: '/notifications' },
+    { icon: HelpCircle, label: 'Help', path: '/help' },
+    { icon: Settings, label: 'Settings', path: '/settings' },
+    ...(profile?.is_ambassador ? [{ icon: Trophy, label: 'Ambassador', path: '/ambassadors/me', highlight: true }] : []),
+    ...(['admin', 'moderator', 'super_admin'].includes(profile?.role) ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard', highlight: true }] : []),
+    ...(profile?.role === 'super_admin' ? [{ icon: Crown, label: 'Owner Center', path: '/admin/owner/pin', highlight: true }] : []),
+  ];
+
+  return (
+    <div className="relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#0a1f3a] to-[#04101e] border border-white/10 p-4" data-testid="own-module-grid">
+      <div className="absolute -top-16 -right-16 w-56 h-56 rounded-full pointer-events-none opacity-40 blur-3xl"
+           style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.25) 0%, transparent 65%)' }} />
+      <div className="relative flex items-center justify-between mb-3">
+        <p className="text-[10px] uppercase tracking-[0.25em] font-bold text-[#E8A817]">Your modules</p>
+        <span className="text-[10px] uppercase tracking-wider text-white/40">{tiles.length} tools</span>
+      </div>
+      <div className="relative grid grid-cols-3 gap-2.5">
+        {tiles.map((t) => {
+          const TIcon = t.icon;
+          return (
+            <button
+              key={t.path + t.label}
+              onClick={() => navigate(t.path)}
+              className={`group relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-200 active:scale-95 ${
+                t.highlight
+                  ? 'bg-gradient-to-br from-[#E8A817]/20 to-[#E8A817]/5 border-[#E8A817]/40'
+                  : 'bg-white/[0.06] border-white/10 hover:bg-white/[0.10] hover:border-[#E8A817]/30'
+              }`}
+              data-testid={`module-${t.label.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                t.highlight ? 'bg-[#E8A817]/15 border-[#E8A817]/40' : 'bg-white/5 border-white/10 group-hover:border-[#E8A817]/40 group-hover:bg-[#E8A817]/10'
+              } transition-colors`}>
+                <TIcon size={18} className={t.highlight ? 'text-[#E8A817]' : 'text-white/85 group-hover:text-[#E8A817]'} />
+              </div>
+              <span className="text-[11px] font-semibold leading-tight text-center text-white/85 group-hover:text-white">{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};

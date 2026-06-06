@@ -91,6 +91,18 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend).
 - **P3** Capacitor wrap, Driver Pool.
 
+## iter 50.1 (Feb 2026) — Instagram-feel profile rollout + bug fixes
+
+### Bug fixes (P0)
+- **`/u/:username` was failing with "User not found"** — the `/users/{user_id}/photos` endpoint returned 404 for any user without a `photos` field due to a falsy `if not user` check after projection. Replaced with explicit `is None`. Added new dedicated `/api/users/{user_id}/posts` endpoint so the public profile loads real feed posts (not the profile-photo album).
+- **Profile bottom-nav now routes to `/u/<my-username>`** (Instagram-style) instead of the old `/profile` editable view. Old view still accessible via "Edit profile" CTA on the new page.
+- **Own-profile `/u/:me` adds** the full dark-navy module grid (17 tiles: My Network, Wallet, Net Worth, Score Tracker, Jobs, Leaderboards, Notifications, Settings, …, with Ambassador/Admin/Owner Center highlighted in gold). All previous functionality preserved — no need to ever leave the Instagram view.
+- Added "Edit profile" + "Share my profile" buttons on own-profile action row.
+
+### Live-verified (preview)
+- /u/owner renders: dark navy bg · gradient ring avatar · 3-stat triplet · "Platform Owner" name + OWNER pill · 17-tile module grid · GRID/TAGGED tabs · "Create my first post (+50 pts)" empty-state CTA.
+- Profile bottom-nav highlights when on `/u/:username`.
+
 ## iter 50 (Feb 2026) — Super-admin password gate · Premium dark grid · Instagram-feel profile · Clickable everywhere
 
 ### Super-admin password gate (P0)
