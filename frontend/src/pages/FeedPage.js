@@ -280,7 +280,20 @@ const FeedPage = ({ user }) => {
             onLike={handleLike}
             onComment={handleComment}
             onShare={handleShare}
-            onUserClick={(userId, username) => navigate(username ? `/u/${username}` : `/profile/${userId}`)}
+            onUserClick={async (userId, username) => {
+              if (username) {
+                navigate(`/u/${username}`);
+                return;
+              }
+              // Username missing on post — look it up so we always land on /u/:username
+              try {
+                const r = await axiosInstance.get(`/users/${userId}`);
+                if (r.data?.username) navigate(`/u/${r.data.username}`);
+                else navigate(`/profile/${userId}`);
+              } catch {
+                navigate(`/profile/${userId}`);
+              }
+            }}
             onDeletePost={handleDeletePost}
             onEditPost={handleEditPost}
             onDeleteComment={handleDeleteComment}

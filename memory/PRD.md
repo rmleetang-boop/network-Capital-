@@ -91,6 +91,39 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - **P2** Mobile Agent rebuild (Expo + reuse FastAPI backend).
 - **P3** Capacitor wrap, Driver Pool.
 
+## iter 50 (Feb 2026) — Super-admin password gate · Premium dark grid · Instagram-feel profile · Clickable everywhere
+
+### Super-admin password gate (P0)
+- **One-time-set PIN** stored as bcrypt hash on the platform-owner user row (`super_admin_pin_hash`). Can NEVER be reset via the app — only via direct mongosh write.
+- Endpoints: `GET /api/admin/super-pin/status`, `POST /api/admin/super-pin/set` (returns 409 once set), `POST /api/admin/super-pin/verify` (returns a 15-min HS256 JWT).
+- `/admin/users/cleanup-delete` now requires the `X-Super-Pin-Token` header in addition to super_admin role — destructive ops cannot be performed by a hijacked super-admin session.
+- Frontend `SuperPinPage` at `/admin/owner/pin` handles both first-time set and subsequent verify flows. Token + expiry stored in `sessionStorage` and auto-attached to every axios request via the interceptor.
+- Owner Center tile in profile grid now routes to `/admin/owner/pin` first (must verify PIN to proceed).
+
+### Super admin inherits all admin functionality
+- Fixed 7 admin pages whose `isAdmin` check excluded `super_admin`: AdminWithdrawalsPage, AdminAdsPage, AdminAnnouncePage, AdminAmbassadorApplicationsPage, PromotionsListPage, PromotionDetailPage, AdminListPages, AdminStokvelsPage, AdminMetricsDashboardPage, AdminAuditLogPage.
+- Backend already had super_admin in `require_admin_user` — no backend changes needed.
+
+### Premium dark-navy profile feature grid
+- Replaced the flat light-gray 3-col grid with a wrapped dark-navy gradient card. Halo accents, gold-on-dark icon containers, gold "highlight" treatment for Ambassador/Admin/Owner-Center tiles. Hover lifts icon to gold + scales border.
+- Header pill: "YOUR MODULES" in gold ALL-CAPS · "Tap to open" sub-label.
+
+### Instagram-feel public profile (`/u/:username`)
+- New `UserPublicProfilePage` — gradient ring avatar (gold when user has posts), 3-stat triplet (posts · connections · score), identity block with role/ambassador/founder pills, Connect/Message/Share action row, **Highlights row** (last 4 posts as ringed circles — original twist), GRID/TAGGED tabs, square 3-col posts grid with Official badges.
+- Encourage-to-post empty state when user has zero posts. CTA "Create my first post (+50 pts)" on own profile.
+- Backend support: `GET /api/users/by-username/{username}` returns hydrated payload with `posts_count` + `connections_count` and strips sensitive fields (password, banking, super_admin_pin_hash, email, phone, id_number).
+- Legacy `/profile/:userId` auto-redirects to `/u/:username` when viewing another user with a non-empty username.
+
+### Clickable profile everywhere
+- LeaderboardsPage + LeaderboardPage entries → `/u/:username` (fallback to `/profile/:userId` when username missing).
+- FeedPage avatar + username clicks navigate to `/u/:username` (with `/users/:userId` lookup fallback when username missing from payload).
+- RegionalHubsPage member rows → `/u/:username` (fallback to `/profile/:userId`).
+- ProfilePage own-profile preserved (full editable view); other-user view auto-redirects to `/u/:username`.
+
+### Iter 50 testing
+- 15/15 backend tests PASS (`/app/test_reports/iteration_50.json`).
+- 4 frontend bugs found by testing agent: (1) missing `data-testid='avatar'` on hero ring — fixed. (2) leaderboard click — added username fallback to userId. (3) feed avatar click landed on home — added async `/users/:userId` lookup fallback. (4) `/profile/:userId` self-view doesn't redirect — confirmed as intended (own profile keeps editable view).
+
 ## iter 49 (Feb 2026) — Share growth · Pan-African expansion · Premium Features · Role-mgmt hardening
 
 ### Role management bug fixes (P0 — user-blocker)

@@ -123,7 +123,7 @@ const LeaderboardsPage = ({ user }) => {
                   className={`rounded-2xl p-4 hover:shadow-lg transition-all cursor-pointer ${
                     getRankStyle(entry.rank)
                   } ${isCurrentUser ? 'ring-2 ring-secondary' : ''}`}
-                  onClick={() => navigate(`/u/${entry.username}`)}
+                  onClick={() => navigate(entry.username ? `/u/${entry.username}` : `/profile/${entry.user_id}`)}
                   data-testid={`leaderboard-entry-${entry.user_id}`}
                 >
                   <div className="flex items-center gap-4">

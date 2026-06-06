@@ -3,9 +3,9 @@
 ## Existing accounts
 Refer to previous iteration logs. The current testing pattern relies on dynamically generated users.
 
-## Standing test users (iter 48 — still valid)
-- **Platform Owner (Super Admin):** `rmleetang@gmail.com` / `OwnerTest123!` — auto-bootstrapped as `super_admin` on startup (sole super admin). Use this for all super-admin-only endpoints (`/admin/ambassador/config`, `/admin/users/cleanup-candidates`, `/admin/users/cleanup-delete`, `/admin/owner/overview`).
-- **Standing Admin user:** `rmleetang+nctest1780423349@gmail.com` / `Test123!` — role `admin` (bootstrap demotes any non-owner super_admin → admin on every restart). Use for admin-only endpoints. Was granted ambassador role for iter48 testing — has R8,500 ZAR ambassador balance allocated.
+## Standing test users (iter 50 — still valid)
+- **Platform Owner (Super Admin):** `rmleetang@gmail.com` / `OwnerTest123!` · **Super-Admin PIN: `NCowner!2026`** (set once, immutable via app). Auto-bootstrapped as `super_admin` on every backend restart.
+- **Standing Admin user:** `rmleetang+nctest1780423349@gmail.com` / `Test123!` — role `admin`. Was granted ambassador role in iter48 — has R8,500 ZAR ambassador balance allocated.
 - To create a fresh admin: sign up via `/auth/progressive-signup`, set `email_verified=true` via mongosh, then `db.users.updateOne({id:'<uid>'},{$set:{role:'admin'}})`. Bootstrap will keep them as admin (cannot grant additional super_admin).
 
 

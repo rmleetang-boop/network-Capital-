@@ -111,10 +111,10 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
       <main className="max-w-2xl mx-auto px-4">
         {/* Hero band */}
         <div className="flex items-center gap-5 sm:gap-8 py-5">
-          <div className={`relative shrink-0 ${hasPosts ? 'p-[3px] rounded-full bg-gradient-to-tr from-[#E8A817] via-fuchsia-500 to-[#1e4fa5]' : ''}`}>
+          <div className={`relative shrink-0 ${hasPosts ? 'p-[3px] rounded-full bg-gradient-to-tr from-[#E8A817] via-fuchsia-500 to-[#1e4fa5]' : ''}`} data-testid="avatar">
             <div className="rounded-full bg-[#04101e] p-[2px]">
               {profile.photo ? (
-                <img src={profile.photo} alt="" className="w-20 h-20 sm:w-28 sm:h-28 rounded-full object-cover" data-testid="avatar" />
+                <img src={profile.photo} alt="" className="w-20 h-20 sm:w-28 sm:h-28 rounded-full object-cover" />
               ) : (
                 <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-[#1e4fa5] to-[#0a1f3a] flex items-center justify-center text-3xl font-bold">
                   {(profile.full_name || profile.username || '?')[0].toUpperCase()}
