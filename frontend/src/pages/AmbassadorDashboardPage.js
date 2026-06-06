@@ -1,18 +1,46 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy } from 'lucide-react';
+import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy, Coins, Lock, AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
 import { axiosInstance } from '../App';
 
 const AmbassadorDashboardPage = ({ user }) => {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [incentive, setIncentive] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  const loadIncentive = async () => {
+    try {
+      const r = await axiosInstance.get('/ambassador/incentive');
+      setIncentive(r.data);
+    } catch (e) { /* silent — non-ambassadors get 404/403 here */ }
+  };
 
   useEffect(() => {
     axiosInstance.get('/ambassadors/me')
       .then((r) => setData(r.data))
       .catch((e) => setError(e.response?.data?.detail || 'Could not load ambassador dashboard'));
+    loadIncentive();
   }, []);
+
+  const handleWithdraw = async () => {
+    if (!window.confirm(
+      `Request withdrawal of R${incentive?.next_amount_zar?.toLocaleString()}?\n\n` +
+      `This will queue a payout for admin approval. Funds are released on/after 30 June 2026.`
+    )) return;
+    setWithdrawing(true);
+    try {
+      const r = await axiosInstance.post('/ambassador/incentive/withdraw');
+      toast.success(`Withdrawal queued — R${r.data.amount_zar.toLocaleString()}`);
+      loadIncentive();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not submit withdrawal');
+    } finally {
+      setWithdrawing(false);
+    }
+  };
 
   if (error) {
     return (
@@ -64,6 +92,10 @@ const AmbassadorDashboardPage = ({ user }) => {
             </div>
           </div>
         </div>
+
+        {incentive && incentive.is_ambassador && (
+          <IncentivePanel incentive={incentive} onWithdraw={handleWithdraw} loading={withdrawing} />
+        )}
 
         {/* Monthly targets */}
         <div className="bg-white rounded-2xl border border-gray-100 p-4">
@@ -139,3 +171,155 @@ const AmbassadorDashboardPage = ({ user }) => {
 };
 
 export default AmbassadorDashboardPage;
+
+/* ────────────────────── Incentive Panel ──────────────────────────── */
+const IncentivePanel = ({ incentive, onWithdraw, loading }) => {
+  const disp = incentive.display || {};
+  const sym = disp.symbol || 'R';
+  const cur = disp.currency || 'ZAR';
+  const fmt = (v) => `${sym}${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmtZar = (v) => `R${Number(v || 0).toLocaleString()}`;
+  const act = incentive.activity_progress || { posts: [0, 20], likes: [0, 100], ad_shares: [0, 5] };
+  const tiers = incentive.tier_referrals_required || [20, 40, 60, 80, 100];
+  const completed = incentive.tiers_completed || 0;
+  const qcount = incentive.qualified_referrals_count || 0;
+
+  return (
+    <div className="space-y-3" data-testid="ambassador-incentive-panel">
+      {/* Balance hero */}
+      <div className="bg-gradient-to-br from-secondary/20 via-white to-white border-2 border-secondary/30 rounded-3xl p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] uppercase tracking-widest font-bold text-text-muted inline-flex items-center gap-1.5">
+            <Coins size={12} className="text-secondary" /> Ambassador incentive balance
+          </p>
+          {cur !== 'ZAR' && (
+            <span className="text-[10px] text-text-muted">≈ {cur} · stored in ZAR</span>
+          )}
+        </div>
+        <p className="text-4xl font-heading font-bold text-primary leading-tight" data-testid="incentive-available">
+          {fmt(disp.available ?? incentive.available_zar)}
+        </p>
+        {cur !== 'ZAR' && (
+          <p className="text-[11px] text-text-muted mt-0.5">{fmtZar(incentive.available_zar)} (ZAR)</p>
+        )}
+        <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+          <div className="bg-white rounded-xl p-2 border border-gray-100">
+            <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold">Starting</p>
+            <p className="text-sm font-bold text-primary">{fmt(disp.starting_balance ?? incentive.starting_balance_zar)}</p>
+          </div>
+          <div className="bg-white rounded-xl p-2 border border-gray-100">
+            <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold">Withdrawn</p>
+            <p className="text-sm font-bold text-emerald-600">{fmt(disp.paid ?? incentive.paid_zar)}</p>
+          </div>
+          <div className={`rounded-xl p-2 border ${incentive.activity_unlocked ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+            <p className="text-[9px] uppercase tracking-wider text-text-muted font-semibold">Activity pot</p>
+            <p className={`text-sm font-bold ${incentive.activity_unlocked ? 'text-emerald-700' : 'text-amber-700'}`}>
+              {incentive.activity_unlocked ? 'Unlocked' : fmt(disp.activity_pot ?? incentive.activity_pot_zar)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Activity targets */}
+      {!incentive.activity_unlocked && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-4" data-testid="incentive-activity-targets">
+          <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3 inline-flex items-center gap-1.5">
+            <TrendingUp size={12} /> Unlock the {fmt(disp.activity_pot ?? incentive.activity_pot_zar)} activity pot
+          </p>
+          {[
+            { key: 'posts', label: 'Create posts', cur: act.posts[0], goal: act.posts[1] },
+            { key: 'likes', label: 'Like other posts', cur: act.likes[0], goal: act.likes[1] },
+            { key: 'ad_shares', label: 'Share ads', cur: act.ad_shares[0], goal: act.ad_shares[1] },
+          ].map((t) => {
+            const pct = Math.min(100, Math.round((t.cur / Math.max(t.goal, 1)) * 100));
+            const done = t.cur >= t.goal;
+            return (
+              <div key={t.key} className="py-2 border-b border-gray-50 last:border-0" data-testid={`incentive-${t.key}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm inline-flex items-center gap-1.5">
+                    {done ? <CheckCircle2 size={14} className="text-emerald-600" /> : <Circle size={14} className="text-gray-300" />}
+                    {t.label}
+                  </p>
+                  <span className={`text-xs font-bold ${done ? 'text-emerald-700' : 'text-text-primary'}`}>{t.cur}/{t.goal}</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className={`h-full ${done ? 'bg-emerald-500' : 'bg-secondary'}`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Referral tiers */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4" data-testid="incentive-tiers">
+        <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-3 inline-flex items-center gap-1.5">
+          <Users size={12} /> Withdrawal tiers · {qcount} qualified referrals
+        </p>
+        <div className="grid grid-cols-5 gap-1.5 mb-3">
+          {tiers.map((t, idx) => {
+            const reached = qcount >= t;
+            const isNext = completed === idx;
+            const used = idx < completed;
+            return (
+              <div key={t} className={`text-center rounded-xl p-2 border ${
+                used ? 'bg-emerald-50 border-emerald-200' :
+                reached && isNext ? 'bg-secondary/15 border-secondary' :
+                reached ? 'bg-gray-50 border-gray-200' :
+                'bg-gray-50 border-gray-100 opacity-60'
+              }`} data-testid={`tier-${t}`}>
+                <p className="text-base font-heading font-bold text-primary">{t}</p>
+                <p className="text-[9px] uppercase tracking-wider text-text-muted">
+                  {idx === 0 ? `${sym}500` : idx === tiers.length - 1 ? '100%' : '20%'}
+                </p>
+                {used && <CheckCircle2 size={10} className="mx-auto text-emerald-600 mt-1" />}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-text-muted">
+          Direct referrals must reach a Network Score of <strong>{incentive.config_snapshot?.referral_min_score?.toLocaleString?.() ?? '1,000'}</strong> to count.
+        </p>
+      </div>
+
+      {/* Withdraw CTA */}
+      <div className="bg-white rounded-2xl border-2 border-secondary/30 p-4" data-testid="incentive-withdraw-section">
+        {incentive.june_payout_locked && (
+          <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-2.5 mb-3">
+            <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-800 leading-snug">
+              Payouts release on <strong>30 June 2026</strong>. You can still queue requests now — they&apos;ll be processed automatically after that date.
+            </p>
+          </div>
+        )}
+        {incentive.eligible_to_withdraw ? (
+          <>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-text-muted mb-1">Ready to claim</p>
+            <p className="text-2xl font-heading font-bold text-primary mb-2" data-testid="incentive-next-amount">
+              {fmt(disp.next_amount ?? incentive.next_amount_zar)}
+            </p>
+            <button
+              onClick={onWithdraw}
+              disabled={loading}
+              className="w-full bg-secondary text-primary font-bold py-3 rounded-full hover:opacity-95 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+              data-testid="incentive-withdraw-btn"
+            >
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <Coins size={16} />}
+              Request {fmt(disp.next_amount ?? incentive.next_amount_zar)} withdrawal
+            </button>
+          </>
+        ) : (
+          <div className="text-center py-2">
+            <Lock size={20} className="mx-auto text-text-muted mb-2" />
+            <p className="text-sm font-semibold text-text-primary">Not yet eligible</p>
+            <p className="text-[11px] text-text-muted mt-1">
+              {incentive.next_tier_required
+                ? `Refer ${incentive.next_tier_required - qcount} more qualified members to unlock the next withdrawal.`
+                : 'You have claimed all available withdrawal tiers.'}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

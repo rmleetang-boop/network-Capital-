@@ -70,6 +70,8 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import AdminLockedAccountsPage from './pages/AdminLockedAccountsPage';
 import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplicationsPage';
+import AdminJobApplicationsPage from './pages/AdminJobApplicationsPage';
+import OwnerUserCleanupPage from './pages/OwnerUserCleanupPage';
 import PremiumLoadingScreen from './components/PremiumLoadingScreen';
 import useHeartbeat from './hooks/useHeartbeat';
 import Layout from './components/Layout';
@@ -313,6 +315,8 @@ function App() {
             <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="/admin/owner" element={<OwnerControlCenterPage user={user} />} />
             <Route path="/admin/locked-accounts" element={<AdminLockedAccountsPage user={user} />} />
+            <Route path="/admin/job-applications" element={<AdminJobApplicationsPage user={user} />} />
+            <Route path="/admin/owner/cleanup" element={<OwnerUserCleanupPage user={user} />} />
 
             {/* Public auth pages — also reachable while logged in so email links work */}
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />

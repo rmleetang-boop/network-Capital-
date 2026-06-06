@@ -5,7 +5,7 @@ import {
   Crown, Users, Wallet, ShieldCheck, Megaphone, Star, Sparkles, Settings,
   ArrowRight, ArrowLeft, AlertTriangle, RefreshCw, RotateCcw, Filter, Loader2,
   TrendingUp, FileText, Briefcase, MessageSquare, ChevronRight, Lock,
-  CheckCircle2, XCircle, Search, Activity, BarChart3, Banknote,
+  CheckCircle2, XCircle, Search, Activity, BarChart3, Banknote, Trash2,
 } from 'lucide-react';
 import { axiosInstance } from '../App';
 
@@ -219,6 +219,8 @@ const UsersRolesSection = ({ overview }) => {
         <Tile to="/admin/ambassador-applications" icon={Star} title="Ambassador applications" sub="Approve / reject" badge={overview?.content?.pending_ambassador_apps || 0} accent={(overview?.content?.pending_ambassador_apps || 0) > 0} testid="users-amb-apps" />
         <Tile to="/admin/locked-accounts" icon={Lock} title="Locked accounts" sub="Released by admin · reset abuse lockout" danger testid="users-locked" />
         <Tile to="/admin/audit-log" icon={FileText} title="Audit log" sub="Every admin action ever taken" testid="users-audit" />
+        <Tile to="/admin/owner/cleanup" icon={Trash2} title="User cleanup" sub="Hard-delete test users + content (irreversible)" danger testid="users-cleanup" />
+        <Tile to="/admin/job-applications" icon={Briefcase} title="Job applications" sub="Global view · email applicants on review" accent testid="users-job-apps" />
       </div>
     </section>
   );

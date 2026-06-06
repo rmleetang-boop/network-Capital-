@@ -1883,6 +1883,13 @@ async def watch_ad(payload: AdWatchPayload, current_user: dict = Depends(get_cur
             {"$inc": {"rewards_used": 1, "engagements" if event_kind == "engage" else "shares": 1}},
         )
 
+    # Ambassador activity-pot unlock check (5 ad shares)
+    try:
+        if event_kind == "share" and current_user.get("is_ambassador"):
+            await _check_ambassador_activity_unlock(current_user["id"])
+    except Exception:
+        pass
+
     return {"points": awarded, "action": score_action, "ad_id": payload.ad_id, "awarded": awarded > 0}
 
 
@@ -3210,6 +3217,13 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
     await db.posts.insert_one(post_data)
     await award_points(current_user["id"], "post_create", 0, source_id=post_data["id"], message="Posted new content")
 
+    # Ambassador activity-pot unlock check (idempotent — no-op for non-ambassadors)
+    try:
+        if current_user.get("is_ambassador"):
+            await _check_ambassador_activity_unlock(current_user["id"])
+    except Exception:
+        pass
+
     # Fire-and-forget broadcast email fan-out for official posts.
     if is_official:
         try:
@@ -3394,6 +3408,13 @@ async def like_post(post_id: str, current_user: dict = Depends(get_current_user)
                 source_id=post_id,
                 message="You liked a post",
             )
+
+        # Ambassador activity-pot unlock check
+        try:
+            if current_user.get("is_ambassador"):
+                await _check_ambassador_activity_unlock(current_user["id"])
+        except Exception:
+            pass
 
         return {"liked": True, "likes_count": len(likes)}
 
@@ -6336,6 +6357,29 @@ def _june_payout_message() -> str:
             "Requests submitted earlier remain pending until the release date.")
 
 
+# ---- ROLE GATES (declared early so downstream endpoints can reference) ----
+# NOTE: `SUPER_ADMIN_EMAIL` / `require_admin_user` / `require_super_admin` are
+# also re-declared later in the file with identical bodies — both copies
+# resolve to the same import name so order doesn't matter at request time.
+SUPER_ADMIN_EMAIL = "rmleetang@gmail.com"  # Platform owner — single tenant
+
+
+async def require_admin_user(current_user: dict = Depends(get_current_user)):
+    """JWT-based admin check (role ∈ {admin, moderator, super_admin})."""
+    role = current_user.get("role") or "user"
+    if role not in ("admin", "moderator", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+async def require_super_admin(current_user: dict = Depends(get_current_user)):
+    """Platform owner only. Standard admins are explicitly denied."""
+    role = current_user.get("role") or "user"
+    if role != "super_admin":
+        raise HTTPException(status_code=403, detail="Super-admin (platform owner) access required")
+    return current_user
+
+
 
 # ============== AMBASSADOR INCENTIVE PROGRAM =========================
 # Per spec:
@@ -6368,9 +6412,11 @@ async def _get_ambassador_config() -> dict:
     """Singleton config doc. Defaults seed automatically."""
     cfg = await db.ambassador_config.find_one({"id": "singleton"}, {"_id": 0})
     if not cfg:
-        cfg = {"id": "singleton", **AMBASSADOR_CONFIG_DEFAULT,
-               "updated_at": datetime.now(timezone.utc).isoformat()}
-        await db.ambassador_config.insert_one(cfg)
+        seed = {"id": "singleton", **AMBASSADOR_CONFIG_DEFAULT,
+                "updated_at": datetime.now(timezone.utc).isoformat()}
+        await db.ambassador_config.insert_one(seed)
+        cfg = await db.ambassador_config.find_one({"id": "singleton"}, {"_id": 0})
+    cfg.pop("_id", None)
     # Fill in any missing keys from defaults so old configs upgrade gracefully.
     for k, v in AMBASSADOR_CONFIG_DEFAULT.items():
         cfg.setdefault(k, v)
@@ -6450,6 +6496,30 @@ async def _ambassador_state(user: dict) -> dict:
         "ad_shares": [activity["ad_shares"], a_target["ad_shares"]],
         "unlocked": activity_unlocked,
     }
+
+    # Display currency conversion. Stored values are ZAR. Convert to the user's
+    # preferred currency at view time using the in-memory SUPPORTED_CURRENCIES table.
+    pref = (user.get("currency") or "ZAR").upper()
+    if pref not in SUPPORTED_CURRENCIES:
+        pref = "ZAR"
+    pref_meta = SUPPORTED_CURRENCIES[pref]
+    zar_meta = SUPPORTED_CURRENCIES["ZAR"]
+    # 1 ZAR = (pref_rate / zar_rate) units of pref currency
+    factor = float(pref_meta["rate"]) / float(zar_meta["rate"]) if pref != "ZAR" else 1.0
+    def _to_display(z: float) -> float:
+        return round(float(z) * factor, 2)
+    display = {
+        "currency": pref,
+        "symbol": pref_meta["symbol"],
+        "rate_from_zar": round(factor, 6),
+        "starting_balance": _to_display(starting),
+        "paid": _to_display(paid),
+        "available": _to_display(available),
+        "referral_pot": _to_display(referral_pot),
+        "activity_pot": _to_display(activity_pot),
+        "next_amount": _to_display(next_amount if eligible_to_request else 0.0),
+    }
+
     return {
         "enabled": cfg["enabled"],
         "is_ambassador": bool(user.get("is_ambassador")),
@@ -6467,6 +6537,8 @@ async def _ambassador_state(user: dict) -> dict:
         "next_amount_zar": round(next_amount, 2) if eligible_to_request else 0.0,
         "eligible_to_withdraw": eligible_to_request,
         "activity_progress": activity_progress,
+        "display": display,
+        "june_payout_locked": _is_june_payout_locked(),
         "config_snapshot": {k: cfg[k] for k in (
             "first_withdrawal_zar", "next_withdrawal_percent", "referral_min_score",
             "activity_targets",
@@ -7365,11 +7437,18 @@ async def admin_set_user_role(
         await db.users.update_one(
             {"id": user_id},
             {"$set": {"role": "user", "is_ambassador": True,
-                      "ambassador_rank": target.get("ambassador_rank") or "Rising Star"}},
+                      "ambassador_rank": target.get("ambassador_rank") or "Rising Star",
+                      "ambassador_role_granted_at": target.get("ambassador_role_granted_at")
+                          or datetime.now(timezone.utc).isoformat()}},
         )
         new_role_label = "ambassador"
         new_role_actual = "user"
         new_is_ambassador = True
+        # Allocate the R8,500 incentive balance (idempotent — no-op if already set)
+        try:
+            await _allocate_ambassador_balance(user_id, actor_username=admin.get("username") or "admin")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AMBASSADOR-ALLOC-FAIL] user={user_id} err={exc}")
     else:
         await db.users.update_one({"id": user_id}, {"$set": {"role": payload.role, "is_ambassador": False}})
         new_role_label = payload.role
@@ -9260,11 +9339,22 @@ async def admin_make_ambassador(
         raise HTTPException(status_code=404, detail="User not found")
     is_amb = bool((payload or {}).get("ambassador", True))
     prev_was_ambassador = bool(target.get("is_ambassador"))
-    await db.users.update_one({"id": user_id}, {"$set": {
+    set_doc = {
         "is_ambassador": is_amb,
         "ambassador_rank": "Rising Star" if is_amb else None,
         "ambassador_granted_at": datetime.now(timezone.utc).isoformat() if is_amb else None,
-    }})
+    }
+    if is_amb:
+        # also stamp ambassador_role_granted_at so the activity tracker has a since-anchor
+        set_doc["ambassador_role_granted_at"] = (
+            target.get("ambassador_role_granted_at") or datetime.now(timezone.utc).isoformat()
+        )
+    await db.users.update_one({"id": user_id}, {"$set": set_doc})
+    if is_amb and not prev_was_ambassador:
+        try:
+            await _allocate_ambassador_balance(user_id, actor_username=admin.get("username") or "admin")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AMBASSADOR-ALLOC-FAIL] make-ambassador user={user_id} err={exc}")
     # Role-change email + notification + audit (only when the flag actually changes).
     if prev_was_ambassador != is_amb:
         try:
@@ -10867,8 +10957,14 @@ async def admin_approve_ambassador(application_id: str, payload: AmbassadorDecis
     await db.users.update_one(
         {"id": app_row["user_id"]},
         {"$set": {"is_ambassador": True, "ambassador_rank": "Rising Star",
-                  "ambassador_granted_at": now}},
+                  "ambassador_granted_at": now,
+                  "ambassador_role_granted_at": (target_user or {}).get("ambassador_role_granted_at") or now}},
     )
+    if not was_amb:
+        try:
+            await _allocate_ambassador_balance(app_row["user_id"], actor_username=admin.get("username") or "admin")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[AMBASSADOR-ALLOC-FAIL] approve user={app_row['user_id']} err={exc}")
     # Fire role-change email + notification (skip if they were already an ambassador).
     if target_user and not was_amb:
         try:
@@ -10928,6 +11024,301 @@ async def admin_reject_ambassador(application_id: str, payload: AmbassadorDecisi
         "created_at": now,
     })
     return {"ok": True, "status": "rejected"}
+
+
+# ============== ADMIN: GLOBAL JOB APPLICATIONS ==========================
+# Any admin (admin / super_admin) can list every job application across the platform,
+# filter by status / job / employer, and update the status — same email triggers fire
+# as the employer-only flow at /jobs/{job_id}/applications/{app_id}.
+# =========================================================================
+
+@api_router.get("/admin/job-applications")
+async def admin_list_job_applications(
+    status_filter: Optional[str] = None,
+    job_id: Optional[str] = None,
+    employer_id: Optional[str] = None,
+    limit: int = 200,
+    admin: dict = Depends(require_admin_user),
+):
+    q: Dict[str, Any] = {}
+    if status_filter and status_filter != "all":
+        q["status"] = status_filter
+    if job_id:
+        q["job_id"] = job_id
+    if employer_id:
+        # match via job join
+        emp_jobs = await db.jobs.find({"employer_id": employer_id}, {"_id": 0, "id": 1}).to_list(length=None)
+        q["job_id"] = {"$in": [j["id"] for j in emp_jobs]} if emp_jobs else "__none__"
+
+    rows = await db.job_applications.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 1000)).to_list(length=None)
+
+    # Hydrate with job title + employer info for the admin UI
+    job_ids = list({r.get("job_id") for r in rows if r.get("job_id")})
+    jobs_by_id: Dict[str, Dict[str, Any]] = {}
+    if job_ids:
+        async for j in db.jobs.find({"id": {"$in": job_ids}},
+                                     {"_id": 0, "id": 1, "title": 1, "employer_id": 1,
+                                      "employer_username": 1, "currency": 1, "rate_amount": 1}):
+            jobs_by_id[j["id"]] = j
+
+    out = []
+    for r in rows:
+        j = jobs_by_id.get(r.get("job_id"), {})
+        out.append({**r,
+                    "job_title": j.get("title"),
+                    "employer_id": j.get("employer_id"),
+                    "employer_username": j.get("employer_username"),
+                    "job_currency": j.get("currency"),
+                    "job_rate_amount": j.get("rate_amount")})
+
+    counts = {
+        "all": await db.job_applications.count_documents({}),
+        "new": await db.job_applications.count_documents({"status": "new"}),
+        "shortlisted": await db.job_applications.count_documents({"status": "shortlisted"}),
+        "interview": await db.job_applications.count_documents({"status": "interview"}),
+        "hired": await db.job_applications.count_documents({"status": "hired"}),
+        "rejected": await db.job_applications.count_documents({"status": "rejected"}),
+    }
+    return {"rows": out, "count": len(out), "counts": counts}
+
+
+@api_router.post("/admin/job-applications/{app_id}/view")
+async def admin_mark_application_viewed(
+    app_id: str,
+    admin: dict = Depends(require_admin_user),
+):
+    """Mark an application as 'viewed by admin' and (once per admin per app) email the applicant."""
+    app_doc = await db.job_applications.find_one({"id": app_id}, {"_id": 0})
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    viewed_by = app_doc.get("admin_viewed_by") or []
+    already_viewed = admin["id"] in viewed_by
+    if not already_viewed:
+        viewed_by.append(admin["id"])
+        await db.job_applications.update_one(
+            {"id": app_id},
+            {"$set": {"admin_viewed_by": viewed_by, "admin_viewed_at": now_iso}},
+        )
+        # Fire applicant-facing email — only the first time any admin opens the application
+        if not app_doc.get("applicant_viewed_email_sent"):
+            try:
+                job = await db.jobs.find_one({"id": app_doc.get("job_id")}, {"_id": 0, "title": 1})
+                applicant = await db.users.find_one({"id": app_doc.get("applicant_id")},
+                                                     {"_id": 0, "email": 1, "full_name": 1, "username": 1,
+                                                      "email_verified": 1})
+                if applicant and applicant.get("email") and applicant.get("email_verified"):
+                    await _send_branded_email(
+                        to=applicant["email"],
+                        subject=f"Your application is being reviewed — {(job or {}).get('title', 'a Network Capital job')}",
+                        html=_branded_email_html(
+                            headline="Your application is under review",
+                            body_html=(
+                                f"<p>Hi {applicant.get('full_name') or applicant.get('username') or 'there'},</p>"
+                                f"<p>Good news — the Network Capital review team has opened your "
+                                f"application for <strong>{(job or {}).get('title', 'this role')}</strong>. "
+                                f"We will get back to you with the next step shortly.</p>"
+                                f"<p style='font-size:12px;color:#94a3b8;'>You can track the status at any "
+                                f"time inside the app under Jobs → My applications.</p>"
+                            ),
+                            cta_label="Open My Applications",
+                            cta_url="https://networkcapitalapp.co.za/jobs/applications",
+                            kicker="Network Capital Jobs",
+                        ),
+                        kind="job_application_viewed",
+                    )
+                    await db.job_applications.update_one(
+                        {"id": app_id},
+                        {"$set": {"applicant_viewed_email_sent": True}},
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[JOB-APP-VIEW-EMAIL-FAIL] app={app_id} err={exc}")
+    return {"ok": True, "already_viewed": already_viewed}
+
+
+@api_router.patch("/admin/job-applications/{app_id}")
+async def admin_update_application(
+    app_id: str,
+    req: UpdateApplicationRequest,
+    admin: dict = Depends(require_admin_user),
+):
+    """Admin-only counterpart of /jobs/{job_id}/applications/{app_id} — same email
+    fire on status change, but accessible from the Owner Control Center without
+    needing to be the employer."""
+    if req.status not in ("new", "shortlisted", "interview", "rejected", "hired"):
+        raise HTTPException(status_code=400, detail="Invalid status.")
+    existing = await db.job_applications.find_one({"id": app_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Application not found")
+    upd = {"status": req.status, "updated_at": datetime.now(timezone.utc).isoformat(),
+           "admin_decided_by": admin.get("username") or admin["id"]}
+    if req.note is not None:
+        upd["employer_note"] = req.note[:1000]
+    await db.job_applications.update_one({"id": app_id}, {"$set": upd})
+    updated = await db.job_applications.find_one({"id": app_id}, {"_id": 0})
+
+    # Email the applicant about their status change (mirrors employer flow)
+    try:
+        applicant = await db.users.find_one({"id": updated["applicant_id"]}, {"_id": 0, "email": 1})
+        job = await db.jobs.find_one({"id": updated["job_id"]}, {"_id": 0, "title": 1})
+        if applicant and applicant.get("email"):
+            await _send_branded_email(
+                to=applicant["email"].strip().lower(),
+                subject=f"Application update — {(job or {}).get('title', 'your application')}",
+                html=_job_application_status_email_html(
+                    job_title=(job or {}).get("title") or "your application",
+                    new_status=req.status,
+                    job_id=updated["job_id"],
+                ),
+                kind="job_application_status",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="job_application.status_change", target_type="job_application", target_id=app_id,
+        metadata={"new_status": req.status, "job_id": updated.get("job_id")},
+    )
+    return updated
+
+
+# ============== SUPER ADMIN: USER CLEANUP TOOL ==========================
+# Permanently delete test / inactive accounts along with their content.
+# Hard delete (per user spec). Super admin only. Full audit trail kept.
+# =========================================================================
+
+@api_router.get("/admin/users/cleanup-candidates")
+async def admin_cleanup_candidates(
+    q: Optional[str] = None,
+    days_inactive: int = 30,
+    only_unverified: bool = False,
+    limit: int = 100,
+    admin: dict = Depends(require_super_admin),
+):
+    """Returns users that look like test / abandoned accounts, never including
+    super-admin or admin accounts. Each row carries enough metadata for the
+    super admin to make an informed delete decision."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=max(0, days_inactive))).isoformat()
+    query: Dict[str, Any] = {
+        "role": {"$nin": ["super_admin", "admin"]},
+        "email": {"$ne": (SUPER_ADMIN_EMAIL or "").strip().lower()},
+    }
+    if only_unverified:
+        query["$or"] = [{"email_verified": {"$exists": False}}, {"email_verified": False}]
+    if q:
+        rx = {"$regex": q.strip(), "$options": "i"}
+        query["$and"] = [{"$or": [{"email": rx}, {"username": rx}, {"full_name": rx}]}]
+
+    cursor = db.users.find(
+        query,
+        {"_id": 0, "id": 1, "email": 1, "username": 1, "full_name": 1, "role": 1,
+         "is_ambassador": 1, "created_at": 1, "last_login_at": 1, "network_score": 1,
+         "email_verified": 1, "wallet_balance_usd": 1, "photo": 1},
+    ).sort("created_at", -1).limit(min(limit, 500))
+    rows = await cursor.to_list(length=None)
+
+    # Hydrate with content counts so super admin sees blast radius before deleting
+    out = []
+    for u in rows:
+        uid = u["id"]
+        posts = await db.posts.count_documents({"user_id": uid})
+        jobs_count = await db.jobs.count_documents({"employer_id": uid})
+        stokvels_count = await db.stokvels.count_documents({"members.user_id": uid})
+        last_login = u.get("last_login_at") or u.get("created_at")
+        is_stale = False
+        try:
+            if last_login and last_login < cutoff:
+                is_stale = True
+        except Exception:
+            pass
+        out.append({**u, "posts_count": posts, "jobs_count": jobs_count,
+                    "stokvels_count": stokvels_count, "is_stale": is_stale})
+
+    return {"rows": out, "count": len(out), "days_inactive": days_inactive}
+
+
+class CleanupDeleteIn(BaseModel):
+    user_id: str
+    reason: str
+    confirm_email: str  # must match the target's email — second confirmation
+
+
+@api_router.post("/admin/users/cleanup-delete")
+async def admin_cleanup_delete_user(
+    payload: CleanupDeleteIn,
+    admin: dict = Depends(require_super_admin),
+):
+    """Hard-delete a non-admin user account and ALL of their content.
+    Refuses to delete admins, super admin, or the platform owner email.
+    Writes a full audit row that records every collection touched.
+    """
+    if not payload.reason or len(payload.reason.strip()) < 10:
+        raise HTTPException(status_code=400, detail="A clear deletion reason (≥10 chars) is required.")
+    target = await db.users.find_one({"id": payload.user_id}, {"_id": 0, "password": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if (target.get("role") or "user") in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Cannot delete admin accounts via cleanup tool.")
+    if (target.get("email") or "").strip().lower() == (SUPER_ADMIN_EMAIL or "").strip().lower():
+        raise HTTPException(status_code=403, detail="Cannot delete the platform owner account.")
+    if (payload.confirm_email or "").strip().lower() != (target.get("email") or "").strip().lower():
+        raise HTTPException(status_code=400, detail="Confirmation email does not match target user.")
+    if target.get("wallet_balance_usd") and float(target.get("wallet_balance_usd") or 0) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"User has ${float(target['wallet_balance_usd']):.2f} in wallet — drain or refund before deleting.",
+        )
+
+    uid = target["id"]
+    deletions: Dict[str, int] = {}
+
+    collections = [
+        ("posts", {"user_id": uid}),
+        ("comments", {"user_id": uid}),
+        ("post_reactions", {"user_id": uid}),
+        ("stories", {"user_id": uid}),
+        ("messages", {"$or": [{"sender_id": uid}, {"recipient_id": uid}]}),
+        ("connections", {"$or": [{"requester_id": uid}, {"target_id": uid}, {"a": uid}, {"b": uid}]}),
+        ("activities", {"creator_id": uid}),
+        ("score_events", {"user_id": uid}),
+        ("notifications", {"user_id": uid}),
+        ("jobs", {"employer_id": uid}),
+        ("job_applications", {"applicant_id": uid}),
+        ("places", {"created_by": uid}),
+        ("place_reviews", {"user_id": uid}),
+        ("place_claims", {"user_id": uid}),
+        ("ad_reward_claims", {"user_id": uid}),
+        ("withdrawals", {"user_id": uid, "status": {"$in": ["pending", "rejected"]}}),
+        ("ambassador_applications", {"user_id": uid}),
+        ("ambassador_audit", {"user_id": uid}),
+        ("otps", {"email": (target.get("email") or "").lower()}),
+        ("password_reset_tokens", {"email": (target.get("email") or "").lower()}),
+        ("login_attempts", {"email": (target.get("email") or "").lower()}),
+    ]
+    for coll, q in collections:
+        try:
+            res = await db[coll].delete_many(q)
+            deletions[coll] = res.deleted_count
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[CLEANUP-DEL-FAIL] coll={coll} user={uid} err={exc}")
+            deletions[coll] = -1
+
+    # Finally delete the user row
+    res = await db.users.delete_one({"id": uid})
+    deletions["users"] = res.deleted_count
+
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "owner",
+        action="cleanup.user_delete", target_type="user", target_id=uid,
+        reason=payload.reason.strip(),
+        metadata={
+            "deleted_email": target.get("email"),
+            "deleted_username": target.get("username"),
+            "deletions": deletions,
+        },
+    )
+    return {"ok": True, "user_id": uid, "deletions": deletions}
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the
