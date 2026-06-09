@@ -1324,9 +1324,10 @@ async def reset_password(payload: ResetPasswordRequest, fastapi_request: Request
     except Exception:
         pass
 
-    # Confirmation email — "your password was changed".
+    # Confirmation email — "your password was changed". Sent regardless of
+    # email verification status: this is a security-critical communication.
     try:
-        if user.get("email_verified"):
+        if user.get("email"):
             await _send_branded_email(
                 to=user["email"],
                 subject="Your Network Capital password was changed",
@@ -5634,7 +5635,9 @@ async def _notify_wallet_credit(user_id: str, amount_usd: float, reason: str) ->
             {"id": user_id},
             {"_id": 0, "email": 1, "full_name": 1, "username": 1, "wallet_balance": 1, "email_verified": 1},
         )
-        if not user or not user.get("email") or not user.get("email_verified"):
+        # Critical credit notification — sent to any email on file. Brevo handles
+        # bounces; verifying email should not block awareness of a money event.
+        if not user or not user.get("email"):
             return
         await _send_branded_email(
             to=str(user["email"]).strip().lower(),
@@ -5701,8 +5704,10 @@ async def _notify_role_change(*, user: dict, previous_role: str, new_role: str, 
             "read": False,
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-        if not email or not user.get("email_verified"):
+        if not email:
             return
+        # Role changes are critical communications — send to any address on file.
+        # If the user hasn't verified yet, the email itself is a nudge to come back.
         await _send_branded_email(
             to=email,
             subject=f"Your Network Capital role is now: {new_role.replace('_',' ').title()}",
@@ -6674,7 +6679,9 @@ async def _allocate_ambassador_balance(user_id: str, actor_username: str = "syst
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     try:
-        if (user.get("email") or "") and user.get("email_verified"):
+        # Ambassador grants are a major life-event for the user — send even if their
+        # email isn't verified yet. The welcome email itself encourages re-engagement.
+        if user.get("email"):
             await _send_branded_email(
                 to=user["email"],
                 subject="Welcome to the Ambassador Incentive Programme",
@@ -6745,7 +6752,7 @@ async def _check_ambassador_activity_unlock(user_id: str) -> bool:
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         try:
-            if user.get("email") and user.get("email_verified"):
+            if user.get("email"):
                 await _send_branded_email(
                     to=user["email"],
                     subject="🎉 Activity pot unlocked — R3,500 now available",
@@ -11239,7 +11246,7 @@ async def admin_mark_application_viewed(
                 applicant = await db.users.find_one({"id": app_doc.get("applicant_id")},
                                                      {"_id": 0, "email": 1, "full_name": 1, "username": 1,
                                                       "email_verified": 1})
-                if applicant and applicant.get("email") and applicant.get("email_verified"):
+                if applicant and applicant.get("email"):
                     await _send_branded_email(
                         to=applicant["email"],
                         subject=f"Your application is being reviewed — {(job or {}).get('title', 'a Network Capital job')}",
@@ -11671,6 +11678,53 @@ async def super_pin_verify(payload: VerifySuperAdminPinIn, current_user: dict = 
         SECRET_KEY, algorithm=ALGORITHM,
     )
     return {"ok": True, "token": token, "expires_in_minutes": 15}
+
+
+@api_router.get("/admin/email-health")
+async def admin_email_health(current_user: dict = Depends(get_current_user)):
+    """Diagnostic endpoint for admins/super-admin: confirms the Brevo API is
+    reachable from this container and reports the egress IP Brevo sees. Use this
+    to immediately spot 401 'unrecognised IP' issues."""
+    role = current_user.get("role") or "user"
+    if role not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    out: Dict[str, Any] = {
+        "brevo_configured": bool(os.environ.get("BREVO_API_KEY")),
+        "sender_email": os.environ.get("SENDER_EMAIL") or "",
+        "egress_ip": None,
+        "brevo_status": None,
+        "brevo_message": None,
+    }
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=8.0) as client:
+            ip_resp = await client.get("https://api.ipify.org?format=json")
+            out["egress_ip"] = ip_resp.json().get("ip")
+    except Exception as exc:  # noqa: BLE001
+        out["egress_ip"] = f"lookup_failed: {exc}"
+    try:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.brevo.com/v3/account",
+                headers={"api-key": os.environ.get("BREVO_API_KEY") or "", "accept": "application/json"},
+            )
+            out["brevo_status"] = r.status_code
+            if r.status_code == 200:
+                out["brevo_message"] = "OK — API key valid and IP authorised."
+            elif r.status_code == 401:
+                out["brevo_message"] = (
+                    "BREVO 401: API key invalid OR IP authorisation is enabled and this container's "
+                    "egress IP is NOT in the allow-list. Visit "
+                    "https://app.brevo.com/security/authorised_ips and EITHER add the egress_ip "
+                    "shown above, OR disable IP authorisation entirely (recommended for SaaS apps "
+                    "with dynamic IPs)."
+                )
+            else:
+                out["brevo_message"] = f"Unexpected status {r.status_code}: {r.text[:200]}"
+    except Exception as exc:  # noqa: BLE001
+        out["brevo_message"] = f"Brevo call failed: {exc}"
+    return out
 
 
 async def require_super_pin(
