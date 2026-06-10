@@ -58,6 +58,7 @@ import AdminProfileDetailPage from './pages/AdminProfileDetailPage';
 import AdminAnnouncePage from './pages/AdminAnnouncePage';
 import { AdminJobsPage, AdminPlacesPage, AdminActivitiesPage } from './pages/AdminListPages';
 import AmbassadorDashboardPage from './pages/AmbassadorDashboardPage';
+import AmbassadorCommandCenterPage from './pages/AmbassadorCommandCenterPage';
 import AmbassadorLeaderboardPage from './pages/AmbassadorLeaderboardPage';
 import PromotionsListPage from './pages/PromotionsListPage';
 import PromotionDetailPage from './pages/PromotionDetailPage';
@@ -335,6 +336,9 @@ function App() {
             <Route path="/ambassadors/apply" element={<BecomeAmbassadorPage user={user} />} />
             <Route path="/promotions/me" element={<MyPromotionsPage user={user} />} />
             <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
+            {/* Iter 53 — Dashboard 2.0 Command Center */}
+            <Route path="/ambassadors/command-center" element={<AmbassadorCommandCenterPage user={user} />} />
+            <Route path="/ambassador-dashboard" element={<AmbassadorDashboardPage user={user} />} />
             <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
             <Route path="/legal" element={<LegalDocumentsPage />} />
             <Route path="/admin" element={<AdminDashboardPage />} />

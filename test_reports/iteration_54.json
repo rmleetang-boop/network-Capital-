@@ -1,0 +1,69 @@
+{
+  "summary": "Iter 54 — Ambassador Dashboard 2.0 Command Center backend + frontend e2e tests. Backend: 22/22 pytest PASS (payload shape, stage classification, engagement score↔color thresholds, 6-stage funnel with pct-relative-to-Registered, 30 heatmap entries, level card, autopilot toggle, engage endpoint 400/404, engagement-log scoped+newest-first, regression on /ambassadors/me and /ambassador/incentive). Frontend: command-center-page loads, all 8 KPI testids render, network graph shows 14 color-coded nodes, 5 insights, 6 funnel stages, 30 heatmap cells, hidden-bonus-card + level-card render, node-click opens ref-detail-drawer with all 5 engage buttons, engage POST round-trips with toast. CRITICAL BUG: the engage endpoint at server.py:10925 imports a non-existent symbol `send_email` from services.email_service (actual name is `send_transactional_email` with a different signature). Every engagement-email attempt therefore lands as status='failed' with last_error='cannot import name send_email from services.email_service' — which means the feature has NEVER actually attempted to deliver via Brevo. The internal error message is also leaked to end-users via the toast. CTA button `ambassador-go-command-center` is present on /ambassador-dashboard and navigates correctly.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/ambassador/referrals/{uid}/engage",
+        "issue": "server.py:10925 does `from services.email_service import send_email` — but that symbol does NOT exist in /app/backend/services/email_service.py (only `send_transactional_email` is exported, with kwargs `html_content`/`text_content`, not `body_text`). The ImportError is silently caught at server.py:10931-10932 so every engage call records status='failed' with last_error='cannot import name send_email …'. The 'Brevo blocked' state described in the spec is therefore never even reached — emails never attempt to send.",
+        "priority": "HIGH",
+        "fix": "Replace lines 10925-10930 with `from services.email_service import send_transactional_email` and call `delivered = await send_transactional_email(to_email=referral.get('email'), subject=subject, html_content=body, text_content=body)`. Body is plain text — pass it as both html_content (or wrap in <pre>) and text_content."
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AmbassadorCommandCenterPage — engagement toast",
+        "issue": "When engagement send fails (which is currently 100% of the time due to the import bug), the toast surfaces the raw Python ImportError to end users: 'Queued — provider returned a soft failure, the row is logged. cannot import name send_email from services.email_service (/app/backend/serv…'. Backend should sanitize last_error before returning, OR the FE should map known internal errors to a friendly message.",
+        "selector": "engage-motivation toast",
+        "priority": "HIGH"
+      },
+      {
+        "component": "AmbassadorCommandCenterPage — Email log drawer",
+        "issue": "Clicking [data-testid=toggle-log] did NOT open [data-testid=email-log-drawer] in this test run (drawer queryselector returned null and 0 log rows). The button is `hidden sm:inline-flex` so it's correctly visible at 1920px. May be a state/race issue where another in-flight toast/drawer interaction interfered. Backend GET /api/ambassador/engagement-log works and returns rows correctly (pytest confirms). Needs a manual re-check in isolation — possibly intermittent.",
+        "selector": "[data-testid='toggle-log'] → [data-testid='email-log-drawer']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "engage referral → email send",
+        "issue": "Frontend toast + status badge will ALWAYS show 'failed' until the backend import is fixed. Even after fix, since Brevo is blocked, behaviour will switch to status='failed' with last_error mentioning Brevo — matching the original spec.",
+        "affected_selectors": ["engage-motivation", "engage-reminder", "engage-profile", "engage-verification", "engage-reengagement"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter54_command_center.py",
+    "/app/test_reports/pytest/iter54_command_center.xml"
+  ],
+  "action_items": [
+    "FIX server.py:10925 — `from services.email_service import send_email` is wrong. Use `send_transactional_email(to_email, subject, html_content, text_content=...)`. Also wrap the body as basic HTML (`<pre>{body}</pre>` or convert \\n to <br/>) so Brevo accepts it. After this fix the row will correctly land as 'failed' with a real Brevo 403/block error in last_error, matching the iter53 spec.",
+    "Sanitize `last_error` before returning to FE — never leak Python import errors or stack traces to clients. Map internal errors to a generic 'Email delivery failed — see logs' string and log the full error server-side.",
+    "Re-verify the [data-testid=email-log-drawer] open flow manually — backend list endpoint works (pytest passes); FE state may have a click/race issue when another action is in flight.",
+    "Optional: surface a user-friendly toast like 'Email queued · provider unavailable' instead of the raw `last_error`."
+  ],
+  "critical_code_review_comments": [
+    "server.py:10590-10620 _level_for — current/next mapping iterates LEVEL_NAMES and assigns current whenever EITHER recruit_count OR contribution exceeds the threshold. This means a user with high contribution but zero recruits would jump levels — acceptable for gamification but a single OR may inflate levels unexpectedly. Worth product confirmation.",
+    "server.py:10622-10633 _classify_referral_stage — correct order of checks confirmed by tests (unverified→'registered', verified→'verified', profile+no-score→'profile_completed', score 1-999→'active', ≥1000→'qualified').",
+    "server.py:10636-10643 _engagement_score_for — 15+25+min(30,score/100)+min(30,activity*3) caps at 100. Verified by node-level color/threshold assertion in pytest.",
+    "server.py:10773-10786 funnel — `invited = max(len(referred), 1)` is a placeholder (real invite tracking pending). Verified=Profile=Active=Qualified pct is relative to len(referred), matching the spec (vs Registered). Good.",
+    "server.py:10788-10805 heatmap — counts (1) posts by referred users on that day and (2) new referred-user registrations. The spec also lists 'comments' but the heatmap aggregation only iterates posts + new users — comments are excluded. Comments ARE included in per-node activity_30d but NOT in heatmap. This is a minor spec deviation — confirm with product whether heatmap should include comments.",
+    "server.py:10925 (CRITICAL) — `from services.email_service import send_email` — symbol does not exist. The actual exported name is `send_transactional_email`. This is silently swallowed by the try/except → engagement emails never deliver and toast leaks the import error.",
+    "server.py:10952-10972 toggle_ambassador_autopilot — clean idempotent update, preserves last_run / sent_30d. Pytest confirmed toggle reflects in /command-center next request.",
+    "AmbassadorCommandCenterPage.js:410 toast — passes `last_error` directly to `toast.message(...)`, which exposes raw Python errors to end users. Bad UX.",
+    "AmbassadorCommandCenterPage.js — 597 LOC, approaching the 700-line split threshold but still within bounds. KpiCard / drawer / log-drawer are sub-components defined inline; if more features added, consider splitting."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter54_command_center.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (22/22 pytest)", "frontend": "≈ 92% — KPIs, network, insights, funnel, heatmap, level, hidden-bonus, autopilot, node drawer, engage buttons all render; email log drawer open intermittent; engage toast leaks raw error"},
+  "test_credentials": "Standing ambassador: rmleetang+nctest1780423349@gmail.com / Test123! (is_ambassador=True, 14 seeded TEST_iter53_ref_* users) — confirmed. Owner super_admin: rmleetang@gmail.com / OwnerTest123! — confirmed (not an ambassador → 403 on all four new endpoints, as expected).",
+  "seed_data_creation": "Test wrote 5 rows to engagement_emails collection (one per email type) plus a few more from FE round-trip. All rows have ambassador_id=<standing-ambassador-id> and status='failed' with last_error containing the ImportError message. Cleanup query if needed: db.engagement_emails.deleteMany({ambassador_id:'<uid>', last_error:/send_email/}).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/test_iter54_command_center.py — 22 tests, ~4s. Two issues to verify after main agent's fix: (1) /api/ambassador/referrals/{uid}/engage should return last_error mentioning Brevo (e.g., '403', 'API key', 'rejected') and NOT mention 'send_email' or 'import'; (2) FE toast should show a friendly message, not the raw last_error. Email log drawer FE intermittent — re-test in isolation. All Iter53 ambassador endpoints (27/27) still PASS per regression coverage in this file.",
+  "rca of the issue": "The engagement-email feature was wired to a non-existent helper `send_email` in services.email_service. The actual helper is `send_transactional_email(to_email, subject, html_content, *, text_content=...)`. The try/except wrapper in server.py:10924-10932 caught the ImportError and put it into last_error, so the surface API contract (200 OK + status='failed' + last_error populated) looked plausible — but the real Brevo call never executed. Reproduction: any POST /api/ambassador/referrals/{uid}/engage; observe response.log.last_error starts with 'cannot import name send_email…'. Mitigation: change line 10925 to `from services.email_service import send_transactional_email` and update call signature accordingly (pass text body via text_content kwarg, convert plain body to minimal HTML for html_content)."
+}

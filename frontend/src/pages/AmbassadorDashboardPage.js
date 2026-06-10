@@ -59,6 +59,12 @@ const AmbassadorDashboardPage = ({ user }) => {
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={20} /></button>
         <h1 className="text-base font-heading font-bold text-primary flex-1">Ambassador dashboard</h1>
         <button
+          onClick={() => navigate('/ambassadors/command-center')}
+          className="text-xs font-semibold bg-primary text-white px-3 py-1.5 rounded-full inline-flex items-center gap-1 mr-1.5"
+          data-testid="ambassador-go-command-center">
+          <Star size={12} /> Command center
+        </button>
+        <button
           onClick={() => navigate('/ambassadors/leaderboard')}
           className="text-xs font-semibold bg-secondary text-primary px-3 py-1.5 rounded-full inline-flex items-center gap-1"
           data-testid="ambassador-go-leaderboard">
