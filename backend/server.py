@@ -34,6 +34,9 @@ api_router = APIRouter(prefix="/api")
 UPLOAD_DIR = ROOT_DIR / "uploads"
 (UPLOAD_DIR / "posts").mkdir(parents=True, exist_ok=True)
 (UPLOAD_DIR / "announcements").mkdir(parents=True, exist_ok=True)
+# Iter 52 — product images + downloadable files (PDF/PPT/EPUB/...)
+(UPLOAD_DIR / "products").mkdir(parents=True, exist_ok=True)
+(UPLOAD_DIR / "files").mkdir(parents=True, exist_ok=True)
 
 SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"
@@ -175,6 +178,9 @@ class UpdateProfileRequest(BaseModel):
     user_kind: Optional[str] = None  # "social" | "professional"
     skills: Optional[List[str]] = None
     experience: Optional[List[Dict[str, Any]]] = None
+    # Iter 52 — Creator v2
+    creator_type: Optional[str] = None             # "independent" | "growth"
+    creator_classification: Optional[str] = None   # entrepreneur, freelancer, …
 
 # ============== CURRENCY & PREMIUM ==============
 
@@ -357,11 +363,33 @@ class CreateProductRequest(BaseModel):
     currency: Optional[str] = None  # auto-defaults to creator country if not set
     availability: Optional[str] = "available_now"  # available_now | available_in_days | preorder | on_request
     availability_days: Optional[int] = None  # used when availability == "available_in_days"
+    # Iter 52 — Creator v2: discoverability + per-product classification + downloadable files
+    classification: Optional[str] = None       # override creator's profile classification
+    tags: Optional[List[str]] = None
+    website: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    location: Optional[str] = None
+    price_min: Optional[float] = None          # public price range (display only)
+    price_max: Optional[float] = None
+    # Support request (Growth Creators only — silently dropped for Independents)
+    support_needed: Optional[bool] = False
+    support_categories: Optional[List[str]] = None
+    support_message: Optional[str] = None
+    # Downloadable asset (PDF/PPT/EPUB/ZIP/etc.)
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    file_mime: Optional[str] = None
+    file_access: Optional[str] = None          # "free" | "email_gated" | "paid"
+    file_price: Optional[float] = None         # required when file_access == "paid"
 
 class Product(BaseModel):
     id: str
     creator_id: str
     creator_name: str
+    creator_username: Optional[str] = None
+    slug: Optional[str] = None
     name: str
     problem_solved: str
     description: str
@@ -382,6 +410,27 @@ class Product(BaseModel):
     currency: Optional[str] = "USD"
     availability: Optional[str] = "available_now"
     availability_days: Optional[int] = None
+    # Iter 52
+    classification: Optional[str] = None
+    tags: Optional[List[str]] = None
+    website: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    location: Optional[str] = None
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    support_needed: Optional[bool] = False
+    support_categories: Optional[List[str]] = None
+    support_message: Optional[str] = None
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    file_mime: Optional[str] = None
+    file_access: Optional[str] = None
+    file_price: Optional[float] = None
+    download_count: Optional[int] = 0
+    view_count: Optional[int] = 0
+    creator_type: Optional[str] = None          # snapshot of creator_type at create time
 
 class ProductFollower(BaseModel):
     id: str
@@ -1410,6 +1459,22 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
         update_data["skills"] = [str(s).strip() for s in request.skills if str(s).strip()][:30]
     if request.experience is not None:
         update_data["experience"] = request.experience[:20]
+    # Iter 52 — Creator v2
+    if request.creator_type is not None:
+        ct = request.creator_type.strip().lower()
+        if ct not in ("independent", "growth"):
+            raise HTTPException(status_code=400, detail="creator_type must be 'independent' or 'growth'")
+        update_data["creator_type"] = ct
+    if request.creator_classification is not None:
+        ALLOWED_CLASS = {
+            "entrepreneur", "freelancer", "consultant", "coach", "artist",
+            "developer", "designer", "agency", "small_business", "startup",
+            "professional_service", "other",
+        }
+        cc = request.creator_classification.strip().lower().replace(" ", "_")
+        if cc not in ALLOWED_CLASS:
+            raise HTTPException(status_code=400, detail=f"Unknown creator_classification: {cc}")
+        update_data["creator_classification"] = cc
 
     if update_data:
         await db.users.update_one({"id": current_user["id"]}, {"$set": update_data})
@@ -3300,8 +3365,26 @@ async def list_articles(user_id: str):
 # Returns a URL the frontend can attach to a slide or to AdminAnnounceRequest.
 _ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 _ALLOWED_VIDEO_MIME = {"video/mp4", "video/webm", "video/quicktime", "video/x-m4v"}
+# Iter 52 — downloadable products: PDFs, slide decks, ebooks, archives.
+_ALLOWED_DOC_MIME = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+    "application/vnd.ms-powerpoint",                                              # .ppt
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",    # .docx
+    "application/msword",                                                         # .doc
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",          # .xlsx
+    "application/vnd.ms-excel",                                                   # .xls
+    "application/epub+zip",                                                       # .epub
+    "application/zip",
+    "application/x-zip-compressed",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+}
 _MAX_UPLOAD_IMAGE_BYTES = 11 * 1024 * 1024     # 11 MB
 _MAX_UPLOAD_VIDEO_BYTES = 50 * 1024 * 1024     # 50 MB (30s @ ~13 Mbps headroom)
+_MAX_UPLOAD_DOC_BYTES = 100 * 1024 * 1024      # 100 MB for downloadable assets
+_UPLOAD_SCOPES = {"posts", "announcements", "products", "files"}
 
 
 def _ext_from_filename(name: str, fallback: str) -> str:
@@ -3319,12 +3402,15 @@ async def upload_media(
 ):
     """Streams a single image or video to disk and returns a public-facing URL.
 
-    Scopes: ``posts`` (default) and ``announcements`` (admin-only). The returned
-    URL is mounted via StaticFiles at ``/api/uploads/<scope>/<filename>`` so the
-    frontend can drop it straight into a slide's ``image`` / ``video`` field
-    or onto an ``AdminAnnounceRequest`` payload."""
+    Scopes (iter 52):
+      • ``posts`` (default) — any authenticated user (Feed)
+      • ``products`` — any authenticated user (product hero images)
+      • ``announcements`` — admin/super_admin only
+      • ``files`` — see ``POST /uploads/file`` for downloadable assets
 
-    if scope not in {"posts", "announcements"}:
+    The returned URL is mounted via StaticFiles at ``/api/uploads/<scope>/<filename>``."""
+
+    if scope not in _UPLOAD_SCOPES or scope == "files":
         raise HTTPException(status_code=400, detail="Unknown upload scope")
     if scope == "announcements" and current_user.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Announcement uploads are admin-only")
@@ -3373,6 +3459,59 @@ async def upload_media(
         "kind": "image" if is_image else "video",
         "size_bytes": total,
         "filename": filename,
+        "mime": mime,
+    }
+
+
+@api_router.post("/uploads/file")
+async def upload_file_asset(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Iter 52 — Streams a downloadable asset (PDF/PPT/EPUB/ZIP/...) to disk.
+
+    Returns the URL plus the metadata the Product form needs (file_name,
+    file_size_bytes, file_mime). Used for the "files as products" flow."""
+    mime = (file.content_type or "").lower()
+    if mime not in _ALLOWED_DOC_MIME:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type: {mime or 'unknown'}. Allowed: PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, EPUB, ZIP, TXT, MD, CSV.",
+        )
+    safe_name = (file.filename or "download").rsplit("/", 1)[-1][:120]
+    ext = _ext_from_filename(safe_name, "bin")
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    target_dir = UPLOAD_DIR / "files"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / filename
+
+    total = 0
+    try:
+        with open(target, "wb") as out:
+            while True:
+                chunk = await file.read(1 << 20)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_UPLOAD_DOC_BYTES:
+                    out.close()
+                    try:
+                        target.unlink()
+                    except Exception:
+                        pass
+                    raise HTTPException(status_code=413, detail="File exceeds the 100 MB limit.")
+                out.write(chunk)
+    finally:
+        try:
+            await file.close()
+        except Exception:
+            pass
+
+    return {
+        "url": f"/api/uploads/files/{filename}",
+        "kind": "file",
+        "file_name": safe_name,
+        "size_bytes": total,
         "mime": mime,
     }
 
@@ -4892,7 +5031,14 @@ async def get_my_badges(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/products")
 async def create_product(request: CreateProductRequest, current_user: dict = Depends(get_current_user)):
-    """Create a new product (goes to pending review)"""
+    """Create a new product.
+
+    Iter 52 — Creator v2:
+    • Independent Creators (`creator_type == 'independent'`) → status='approved' immediately.
+    • Growth Creators → status='pending_review' (admin moderation).
+    • If the creator has no `creator_type` set yet, default them to **independent** (new spec).
+    • Slug is auto-generated from the name + a short uniqueness suffix.
+    """
     product_id = str(uuid.uuid4())
 
     # Auto-default currency to creator's country if not provided
@@ -4921,10 +5067,50 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         except (TypeError, ValueError):
             avail_days = 7
 
+    # ── Creator type (Iter 52) — default to Independent for first-time creators
+    creator_type = (current_user.get("creator_type") or "independent").strip().lower()
+    if creator_type not in ("independent", "growth"):
+        creator_type = "independent"
+
+    # ── Support request handling — Growth creators only
+    support_needed = bool(request.support_needed) and creator_type == "growth"
+    support_categories: List[str] = []
+    if support_needed and request.support_categories:
+        ALLOWED_SUPPORT = {
+            "funding", "partnerships", "mentorship", "customers",
+            "marketing", "team", "technical", "distribution", "other",
+        }
+        support_categories = [c for c in request.support_categories if c in ALLOWED_SUPPORT]
+
+    # ── File access mode (Iter 52)
+    file_access = (request.file_access or "").strip().lower() if request.file_url else None
+    if file_access not in (None, "free", "email_gated", "paid"):
+        file_access = "free"
+    if file_access == "paid":
+        if not request.file_price or float(request.file_price) <= 0:
+            raise HTTPException(status_code=400, detail="Paid downloads require a price > 0.")
+
+    # ── Slug generation (URL-friendly, unique per creator)
+    base_username = (current_user.get("username") or "creator").lower()
+    raw = re.sub(r"[^a-z0-9]+", "-", (request.name or "").lower()).strip("-")[:48] or "untitled"
+    slug = raw
+    # Ensure uniqueness within this creator's catalog
+    n = 1
+    while await db.products.find_one({"creator_id": current_user["id"], "slug": slug}, {"_id": 1}):
+        n += 1
+        slug = f"{raw}-{n}"
+
+    # ── Auto-publish for Independent; pending for Growth
+    now_iso = datetime.now(timezone.utc).isoformat()
+    status = "approved" if creator_type == "independent" else "pending_review"
+    approved_at = now_iso if status == "approved" else None
+
     product_data = {
         "id": product_id,
         "creator_id": current_user["id"],
         "creator_name": current_user.get("full_name") or current_user["username"],
+        "creator_username": base_username,
+        "slug": slug,
         "name": request.name,
         "problem_solved": request.problem_solved,
         "description": request.description or "",
@@ -4936,30 +5122,54 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         "min_support": request.min_support or 10.0,
         "max_support": request.max_support or 1000.0,
         "images": request.images or [],
-        "status": "pending_review",  # Moderation required
+        "status": status,
         "total_supporters": 0,
         "total_support_amount": 0.0,
         "followers": [],
         "supports": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "approved_at": None,
+        "created_at": now_iso,
+        "approved_at": approved_at,
         "type": p_type,
         "currency": currency,
         "availability": availability,
         "availability_days": avail_days,
+        # Iter 52 — Creator v2
+        "creator_type": creator_type,
+        "classification": (request.classification or current_user.get("creator_classification") or None),
+        "tags": [t.strip().lower() for t in (request.tags or []) if t and t.strip()][:12],
+        "website": (request.website or "").strip() or None,
+        "contact_email": (request.contact_email or "").strip().lower() or None,
+        "contact_phone": (request.contact_phone or "").strip() or None,
+        "location": (request.location or "").strip() or None,
+        "price_min": request.price_min,
+        "price_max": request.price_max,
+        "support_needed": support_needed,
+        "support_categories": support_categories,
+        "support_message": (request.support_message or "").strip() or None,
+        "file_url": request.file_url or None,
+        "file_name": request.file_name or None,
+        "file_size_bytes": request.file_size_bytes or None,
+        "file_mime": request.file_mime or None,
+        "file_access": file_access,
+        "file_price": float(request.file_price) if request.file_price else None,
+        "download_count": 0,
+        "view_count": 0,
     }
-    
+
     await db.products.insert_one(product_data)
-    
-    # Update user as creator
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": {"is_creator": True, "user_type": "creator"}}
-    )
-    
+
+    # Update user as creator (and seed creator_type if unset)
+    user_update: Dict[str, Any] = {"is_creator": True, "user_type": "creator"}
+    if not current_user.get("creator_type"):
+        user_update["creator_type"] = creator_type
+    if request.classification and not current_user.get("creator_classification"):
+        user_update["creator_classification"] = request.classification
+    await db.users.update_one({"id": current_user["id"]}, {"$set": user_update})
+
     if "_id" in product_data:
         del product_data["_id"]
-    return {"message": "Product submitted for review", "product": product_data}
+    msg = "Published" if status == "approved" else "Product submitted for review"
+    return {"message": msg, "product": product_data}
 
 @api_router.get("/products")
 async def get_products(status: str = "approved", category: str = None):
@@ -4994,6 +5204,272 @@ async def get_product(product_id: str):
     )
     
     return {"product": product, "creator": creator}
+
+
+# ── Iter 52 — Slug-based public lookup + lead-gen + downloads ─────────────────
+class ProductLeadRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    phone: Optional[str] = ""
+
+
+def _safe_product_for_share(product: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy of the product with sensitive/internal fields stripped."""
+    out = {k: v for k, v in product.items() if k not in ("_id", "followers", "supports")}
+    return out
+
+
+@api_router.get("/products/by-slug/{username}/{slug}")
+async def get_product_by_slug(username: str, slug: str):
+    """Resolve a shareable URL (/p/<username>/<slug>) to the underlying product."""
+    product = await db.products.find_one(
+        {"creator_username": username.lower(), "slug": slug.lower()},
+        {"_id": 0, "followers": 0},
+    )
+    if not product:
+        # Fallback — older products may not have creator_username denormalised
+        creator = await db.users.find_one({"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}})
+        if creator:
+            product = await db.products.find_one(
+                {"creator_id": creator["id"], "slug": slug.lower()},
+                {"_id": 0, "followers": 0},
+            )
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    # Bump view counter (best-effort, fire-and-forget)
+    try:
+        await db.products.update_one({"id": product["id"]}, {"$inc": {"view_count": 1}})
+    except Exception:  # noqa: BLE001
+        pass
+    creator = await db.users.find_one(
+        {"id": product["creator_id"]},
+        {"_id": 0, "password": 0},
+    )
+    return {"product": product, "creator": creator}
+
+
+@api_router.post("/products/{product_id}/file-lead")
+async def capture_product_file_lead(product_id: str, payload: ProductLeadRequest):
+    """Persist a download lead for email-gated downloads.
+
+    Returns the file URL only when ``file_access`` is ``free`` or ``email_gated``.
+    For ``paid`` access the caller must hit ``/products/{id}/file-checkout`` first."""
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if not product.get("file_url"):
+        raise HTTPException(status_code=400, detail="This product has no downloadable file.")
+    access = (product.get("file_access") or "free").lower()
+    if access == "paid":
+        raise HTTPException(status_code=402, detail="This file requires payment. Start a checkout first.")
+
+    lead = {
+        "id": str(uuid.uuid4()),
+        "product_id": product_id,
+        "name": payload.name.strip(),
+        "email": _norm_email(payload.email),
+        "phone": (payload.phone or "").strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.product_leads.insert_one(lead)
+    await db.products.update_one({"id": product_id}, {"$inc": {"download_count": 1}})
+    return {"ok": True, "url": product["file_url"], "file_name": product.get("file_name")}
+
+
+@api_router.get("/products/{product_id}/download")
+async def download_product_file(product_id: str, current_user: dict = Depends(get_current_user)):
+    """Authenticated-user download path. Free and email-gated files are always
+    handed back (the gate is enforced client-side for non-authenticated paths via
+    /file-lead). Paid files still require a paid order — recorded on the user."""
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product or not product.get("file_url"):
+        raise HTTPException(status_code=404, detail="No downloadable file for this product")
+    access = (product.get("file_access") or "free").lower()
+    if access == "paid":
+        paid = await db.product_file_orders.find_one({
+            "product_id": product_id,
+            "user_id": current_user["id"],
+            "status": "paid",
+        })
+        if not paid:
+            raise HTTPException(status_code=402, detail="Payment required for this file.")
+    await db.products.update_one({"id": product_id}, {"$inc": {"download_count": 1}})
+    return {"url": product["file_url"], "file_name": product.get("file_name")}
+
+
+# ── Iter 52 — Shareable OG link  ─────────────────────────────────────────────
+# Served OUTSIDE /api so it can be opened by social platforms directly.
+# The link the share button writes to clipboard:
+#   https://<host>/api/share/p/<username>/<slug>
+# Crawlers see OG meta; humans get a fast JS redirect to /p/<u>/<s>.
+def _absolute_media_url(request: Request, url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    if url.startswith(("http://", "https://")):
+        return url
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    return f"{base}{url}" if url.startswith("/") else f"{base}/{url}"
+
+
+@api_router.get("/share/p/{username}/{slug}")
+async def share_product_og(username: str, slug: str, request: Request):
+    """Return HTML with Open Graph meta + auto-redirect to the SPA route."""
+    product = await db.products.find_one(
+        {"creator_username": username.lower(), "slug": slug.lower()},
+        {"_id": 0, "followers": 0, "supports": 0},
+    )
+    if not product:
+        # 404 with a minimal HTML so we still control the share preview
+        return _share_html_response(
+            request,
+            title="Network Capital",
+            description="Discover community-backed products and services.",
+            image=None,
+            redirect_to="/",
+            status_code=404,
+        )
+    hero = (product.get("images") or [None])[0]
+    image_abs = _absolute_media_url(request, hero) if hero else None
+    title = product.get("name") or "Product on Network Capital"
+    desc = (product.get("problem_solved") or product.get("description") or "").strip()
+    if not desc:
+        desc = f"From @{username} on Network Capital."
+    desc = (desc[:240] + "…") if len(desc) > 240 else desc
+    redirect_to = f"/p/{username}/{slug}"
+    return _share_html_response(
+        request, title=title, description=desc, image=image_abs, redirect_to=redirect_to,
+    )
+
+
+from fastapi.responses import HTMLResponse  # noqa: E402  (kept local — only used here)
+
+
+def _share_html_response(
+    request: Request, *, title: str, description: str,
+    image: Optional[str], redirect_to: str, status_code: int = 200,
+) -> HTMLResponse:
+    base = f"{request.url.scheme}://{request.url.netloc}"
+    canonical = f"{base}{redirect_to}"
+    safe_title = (title or "").replace('"', "&quot;")[:240]
+    safe_desc = (description or "").replace('"', "&quot;")[:480]
+    img_tags = ""
+    if image:
+        img_tags = (
+            f'<meta property="og:image" content="{image}" />\n'
+            f'<meta name="twitter:image" content="{image}" />\n'
+            '<meta name="twitter:card" content="summary_large_image" />\n'
+        )
+    else:
+        img_tags = '<meta name="twitter:card" content="summary" />\n'
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>{safe_title}</title>
+<meta name="description" content="{safe_desc}" />
+<link rel="canonical" href="{canonical}" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="{safe_title}" />
+<meta property="og:description" content="{safe_desc}" />
+<meta property="og:url" content="{canonical}" />
+<meta property="og:site_name" content="Network Capital" />
+{img_tags}<meta name="twitter:title" content="{safe_title}" />
+<meta name="twitter:description" content="{safe_desc}" />
+<meta http-equiv="refresh" content="0;url={canonical}" />
+<style>body{{font-family:system-ui,-apple-system,sans-serif;background:#0a1628;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center}}a{{color:#f5d76e}}</style>
+</head>
+<body>
+<div>
+<h1 style="margin:0 0 8px">{safe_title}</h1>
+<p style="opacity:.75;max-width:520px;margin:0 auto 24px">{safe_desc}</p>
+<a href="{canonical}">Open on Network Capital →</a>
+<script>setTimeout(function(){{window.location.replace("{canonical}");}},80);</script>
+</div>
+</body>
+</html>"""
+    return HTMLResponse(content=html, status_code=status_code)
+
+
+@api_router.post("/products/{product_id}/file-checkout")
+async def start_product_file_checkout(
+    product_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Iter 52 — Stripe checkout for paid file downloads.
+
+    Reuses the same ``emergentintegrations.payments.stripe.checkout`` client
+    that powers the Premium $10 unlock. On payment success the matching
+    ``product_file_orders`` row flips to ``status='paid'`` and the buyer
+    becomes able to hit ``GET /products/{id}/download``."""
+    product = await db.products.find_one({"id": product_id}, {"_id": 0})
+    if not product or not product.get("file_url"):
+        raise HTTPException(status_code=404, detail="No downloadable file for this product")
+    if (product.get("file_access") or "").lower() != "paid":
+        raise HTTPException(status_code=400, detail="This file is not gated by payment.")
+    price = float(product.get("file_price") or 0)
+    if price <= 0:
+        raise HTTPException(status_code=400, detail="Invalid file price configured.")
+
+    stripe_key = os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY")
+    if not stripe_key:
+        raise HTTPException(status_code=503, detail="Payment gateway is not configured.")
+    host = f"{request.url.scheme}://{request.url.netloc}"
+    success_url = f"{host}/p/{product.get('creator_username','')}/{product.get('slug','')}?paid={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{host}/p/{product.get('creator_username','')}/{product.get('slug','')}?cancelled=1"
+
+    checkout = StripeCheckout(api_key=stripe_key, webhook_url=f"{host}/api/products/file-webhook")
+    sess_req = CheckoutSessionRequest(
+        amount=price,
+        currency=(product.get("currency") or "usd").lower(),
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={
+            "product_id": product_id,
+            "buyer_id": current_user["id"],
+            "kind": "product_file",
+        },
+    )
+    session: CheckoutSessionResponse = await checkout.create_checkout_session(sess_req)
+    await db.product_file_orders.insert_one({
+        "id": str(uuid.uuid4()),
+        "product_id": product_id,
+        "user_id": current_user["id"],
+        "amount": price,
+        "currency": (product.get("currency") or "USD").upper(),
+        "session_id": session.session_id,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"url": session.url, "session_id": session.session_id}
+
+
+@api_router.get("/products/file-checkout/{session_id}")
+async def poll_product_file_checkout(session_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Polled by the SPA after redirect from Stripe to flip the order to paid."""
+    order = await db.product_file_orders.find_one({"session_id": session_id, "user_id": current_user["id"]}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order["status"] == "paid":
+        return {"status": "paid", "product_id": order["product_id"]}
+    stripe_key = os.environ.get("STRIPE_SECRET_KEY") or os.environ.get("STRIPE_API_KEY")
+    if not stripe_key:
+        return {"status": order["status"]}
+    host = f"{request.url.scheme}://{request.url.netloc}"
+    checkout = StripeCheckout(api_key=stripe_key, webhook_url=f"{host}/api/products/file-webhook")
+    try:
+        status_resp: CheckoutStatusResponse = await checkout.get_checkout_status(session_id)
+    except Exception:  # noqa: BLE001
+        return {"status": order["status"]}
+    if (status_resp.payment_status or "").lower() == "paid":
+        await db.product_file_orders.update_one(
+            {"session_id": session_id},
+            {"$set": {"status": "paid", "paid_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        return {"status": "paid", "product_id": order["product_id"]}
+    return {"status": status_resp.status or order["status"]}
+
 
 @api_router.post("/products/{product_id}/follow")
 async def follow_product(product_id: str, request: FollowProductRequest):
@@ -7356,6 +7832,47 @@ async def backfill_share_codes():
             await db.users.update_one({"id": u["id"]}, {"$set": {"share_code": code}})
     except Exception as e:
         logger.warning(f"share_code backfill skipped: {e}")
+
+
+@app.on_event("startup")
+async def backfill_creator_type_and_slugs():
+    """Iter 52 — One-shot backfill.
+
+    1. Default ``creator_type='independent'`` for every existing ``is_creator``
+       user that is missing the field (per product spec — existing creators
+       become Independent on rollout; they can switch to Growth later).
+    2. Generate a ``slug`` for any product that lacks one so the new
+       ``/p/<username>/<slug>`` share routes resolve historic products too.
+    Both operations are idempotent."""
+    try:
+        result = await db.users.update_many(
+            {"is_creator": True, "creator_type": {"$exists": False}},
+            {"$set": {"creator_type": "independent"}},
+        )
+        if result.modified_count:
+            logger.info(f"[BOOTSTRAP] iter52 — defaulted {result.modified_count} existing creators to 'independent'")
+    except Exception as e:
+        logger.warning(f"creator_type backfill skipped: {e}")
+
+    try:
+        async for p in db.products.find(
+            {"$or": [{"slug": {"$exists": False}}, {"slug": None}, {"slug": ""}]},
+            {"_id": 0, "id": 1, "creator_id": 1, "name": 1},
+        ):
+            base = re.sub(r"[^a-z0-9]+", "-", (p.get("name") or "").lower()).strip("-")[:48] or "untitled"
+            slug = base
+            n = 1
+            while await db.products.find_one({"creator_id": p["creator_id"], "slug": slug}, {"_id": 1}):
+                n += 1
+                slug = f"{base}-{n}"
+            creator = await db.users.find_one({"id": p["creator_id"]}, {"_id": 0, "username": 1})
+            uname = (creator or {}).get("username") or "creator"
+            await db.products.update_one(
+                {"id": p["id"]},
+                {"$set": {"slug": slug, "creator_username": uname.lower()}},
+            )
+    except Exception as e:
+        logger.warning(f"product slug backfill skipped: {e}")
 
 
 @app.on_event("shutdown")

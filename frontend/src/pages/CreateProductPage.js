@@ -12,17 +12,55 @@ import {
   Check,
   Sparkles,
   Target,
-  Calendar
+  Calendar,
+  Upload,
+  FileText,
+  Globe,
+  Tag as TagIcon,
+  X,
+  Loader2,
 } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { uploadMedia, validateMediaFile, formatBytes } from '../lib/mediaUpload';
+
+const CLASSIFICATIONS = [
+  { v: 'entrepreneur', label: 'Entrepreneur' },
+  { v: 'freelancer', label: 'Freelancer' },
+  { v: 'consultant', label: 'Consultant' },
+  { v: 'coach', label: 'Coach' },
+  { v: 'artist', label: 'Artist' },
+  { v: 'developer', label: 'Developer' },
+  { v: 'designer', label: 'Designer' },
+  { v: 'agency', label: 'Agency' },
+  { v: 'small_business', label: 'Small Business' },
+  { v: 'startup', label: 'Startup' },
+  { v: 'professional_service', label: 'Professional Service' },
+  { v: 'other', label: 'Other' },
+];
+
+const SUPPORT_CATEGORIES = [
+  { v: 'funding', label: 'Funding / Investment' },
+  { v: 'partnerships', label: 'Strategic Partnerships' },
+  { v: 'mentorship', label: 'Mentorship' },
+  { v: 'customers', label: 'Customers / Leads' },
+  { v: 'marketing', label: 'Marketing Exposure' },
+  { v: 'team', label: 'Team Members' },
+  { v: 'technical', label: 'Technical Assistance' },
+  { v: 'distribution', label: 'Distribution Channels' },
+  { v: 'other', label: 'Other' },
+];
 
 const CreateProductPage = ({ user }) => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [formData, setFormData] = useState({
+    // Iter 52 — Creator type + classification at the start
+    creator_type: user?.creator_type || 'independent',
+    classification: user?.creator_classification || '',
     name: '',
     problem_solved: '',
     description: '',
@@ -34,11 +72,28 @@ const CreateProductPage = ({ user }) => {
     min_support: '10',
     max_support: '1000',
     images: [],
-    // New: type (product or service), currency (auto from country), availability
+    // type / currency / availability
     type: 'product',
     currency: 'USD',
     availability: 'available_now',
     availability_days: '7',
+    // Iter 52 new fields
+    tags: [],
+    website: '',
+    contact_email: '',
+    contact_phone: '',
+    location: '',
+    price_min: '',
+    price_max: '',
+    support_needed: false,
+    support_categories: [],
+    support_message: '',
+    file_url: '',
+    file_name: '',
+    file_size_bytes: 0,
+    file_mime: '',
+    file_access: 'free',     // free | email_gated | paid
+    file_price: '',
   });
 
   // Auto-default currency to creator's country on mount
@@ -89,6 +144,68 @@ const CreateProductPage = ({ user }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const toggleSupportCategory = (v) => {
+    setFormData((p) => {
+      const set = new Set(p.support_categories || []);
+      if (set.has(v)) set.delete(v); else set.add(v);
+      return { ...p, support_categories: Array.from(set) };
+    });
+  };
+
+  const handleTagInput = (e) => {
+    if (e.key !== 'Enter' && e.key !== ',') return;
+    e.preventDefault();
+    const v = e.target.value.trim().replace(/[#,]/g, '').toLowerCase();
+    if (!v) return;
+    setFormData((p) => ({ ...p, tags: Array.from(new Set([...(p.tags || []), v])).slice(0, 12) }));
+    e.target.value = '';
+  };
+
+  const handleFilePicked = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    // Allowed: PDF/PPT/DOC/XLS/EPUB/ZIP/TXT/MD/CSV
+    setUploadingFile(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await axiosInstance.post('/uploads/file', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setFormData((p) => ({
+        ...p,
+        file_url: res.data.url,
+        file_name: res.data.file_name,
+        file_size_bytes: res.data.size_bytes,
+        file_mime: res.data.mime,
+      }));
+      toast.success(`Attached ${res.data.file_name} · ${formatBytes(res.data.size_bytes)}`);
+    } catch (ex) {
+      toast.error(ex?.response?.data?.detail || 'Could not upload that file.');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleHeroImagePicked = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    for (const file of files) {
+      const err = validateMediaFile(file, 'image');
+      if (err) { toast.error(err); continue; }
+      try {
+        const { url } = await uploadMedia(file, { scope: 'products' });
+        setFormData((p) => ({ ...p, images: [...(p.images || []), url].slice(0, 5) }));
+      } catch (ex) {
+        toast.error(ex?.response?.data?.detail || 'Image upload failed.');
+      }
+    }
+  };
+
+  const removeImage = (i) => setFormData((p) => ({ ...p, images: p.images.filter((_, idx) => idx !== i) }));
+
   const handleSubmit = async () => {
     setLoading(true);
     try {
@@ -97,14 +214,24 @@ const CreateProductPage = ({ user }) => {
         estimated_cost: parseFloat(formData.estimated_cost) || 0,
         min_support: parseFloat(formData.min_support) || 10,
         max_support: parseFloat(formData.max_support) || 1000,
+        price_min: formData.price_min !== '' ? parseFloat(formData.price_min) : null,
+        price_max: formData.price_max !== '' ? parseFloat(formData.price_max) : null,
+        file_price: formData.file_access === 'paid' ? parseFloat(formData.file_price) || null : null,
         availability_days: formData.availability === 'available_in_days'
           ? Math.max(1, parseInt(formData.availability_days, 10) || 7)
           : null,
       };
-      
+
       const res = await axiosInstance.post('/products', payload);
-      toast.success('Product submitted for review!');
-      navigate(`/products/${res.data.product.id}`);
+      const isIndependent = formData.creator_type === 'independent';
+      toast.success(isIndependent ? 'Published! It is live on your profile.' : 'Submitted for review!');
+      const p = res.data.product;
+      // Prefer slug-based URL when present
+      if (p?.creator_username && p?.slug) {
+        navigate(`/p/${p.creator_username}/${p.slug}`);
+      } else {
+        navigate(`/products/${p.id}`);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create product');
     } finally {
@@ -132,6 +259,56 @@ const CreateProductPage = ({ user }) => {
       case 1:
         return (
           <div className="space-y-5">
+            {/* Iter 52 — Creator Type chooser */}
+            <div className="bg-white/5 rounded-xl p-4 border border-white/10" data-testid="creator-type-section">
+              <p className="text-sm font-semibold text-white mb-1">How would you like to join?</p>
+              <p className="text-[11px] text-white/55 mb-3">You can switch later from your profile.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { v: 'independent', label: 'Independent Creator', desc: 'Just showcase — publish instantly, no support requested.' },
+                  { v: 'growth', label: 'Growth Creator', desc: 'I want support from the community — funding, mentors, partners or customers.' },
+                ].map((opt) => (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setFormData((p) => ({ ...p, creator_type: opt.v, support_needed: opt.v === 'growth' ? p.support_needed : false }))}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      formData.creator_type === opt.v
+                        ? 'bg-secondary/20 border-secondary text-white'
+                        : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                    }`}
+                    data-testid={`creator-type-${opt.v}`}
+                  >
+                    <p className="font-semibold text-sm">{opt.label}</p>
+                    <p className="text-[11px] text-white/60 mt-0.5">{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Classification */}
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">I am a…</label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" data-testid="classification-grid">
+                {CLASSIFICATIONS.map((c) => (
+                  <button
+                    key={c.v}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, classification: c.v })}
+                    className={`px-3 py-2 rounded-xl border text-xs transition-all ${
+                      formData.classification === c.v
+                        ? 'bg-secondary/20 border-secondary text-white'
+                        : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                    }`}
+                    data-testid={`classification-${c.v}`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-white/45 mt-2">This applies to this listing — your profile default stays untouched.</p>
+            </div>
+
             {/* Type: Product or Service */}
             <div>
               <label className="block text-sm font-medium text-white/80 mb-2">Listing type *</label>
@@ -200,6 +377,65 @@ const CreateProductPage = ({ user }) => {
                 rows={3}
                 placeholder="Briefly describe your product..."
                 className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none resize-none"
+              />
+            </div>
+
+            {/* Hero images (up to 5) */}
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">Cover images (up to 5)</label>
+              <div className="grid grid-cols-3 gap-2" data-testid="product-image-previews">
+                {(formData.images || []).map((src, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-white/5 border border-white/10 group">
+                    <img src={src.startsWith('http') || src.startsWith('data:') ? src : `${process.env.REACT_APP_BACKEND_URL}${src}`} alt={`hero-${i}`} className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => removeImage(i)} className="absolute top-1 right-1 bg-black/65 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+                {(formData.images?.length || 0) < 5 && (
+                  <label className="aspect-square rounded-xl border-2 border-dashed border-white/20 flex items-center justify-center cursor-pointer hover:border-secondary text-white/40 text-[11px] text-center p-2" data-testid="product-image-picker">
+                    <span>+ Add image</span>
+                    <input type="file" accept="image/*" multiple onChange={handleHeroImagePicked} className="hidden" data-testid="product-image-input" />
+                  </label>
+                )}
+              </div>
+              <p className="text-[10px] text-white/40 mt-1">First image becomes the share preview / OG image.</p>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">Tags / keywords</label>
+              <input
+                type="text"
+                onKeyDown={handleTagInput}
+                placeholder="Press Enter to add (e.g. ai, coaching, ebook)"
+                className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
+                data-testid="product-tags-input"
+              />
+              {formData.tags?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {formData.tags.map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/20 text-secondary text-[11px]">
+                      #{t}
+                      <button type="button" onClick={() => setFormData((p) => ({ ...p, tags: p.tags.filter((x) => x !== t) }))}>
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/80 mb-2">Website (optional)</label>
+              <input
+                type="url"
+                name="website"
+                value={formData.website}
+                onChange={handleChange}
+                placeholder="https://yourwebsite.com"
+                className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
+                data-testid="product-website"
               />
             </div>
           </div>
@@ -366,51 +602,179 @@ const CreateProductPage = ({ user }) => {
       case 4:
         return (
           <div className="space-y-5">
-            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-              <p className="text-secondary text-sm font-medium mb-2">Support Settings</p>
-              <p className="text-white/60 text-sm">
-                Set the minimum and maximum amounts supporters can contribute. This helps you manage expectations 
-                and participation levels.
+            {/* ── Downloadable file as product ─────────────────────────── */}
+            <div className="bg-white/5 rounded-xl p-4 border border-white/10" data-testid="product-file-section">
+              <p className="text-secondary text-sm font-medium mb-1 flex items-center gap-1.5">
+                <FileText size={14} /> Sell or share a file (optional)
               </p>
+              <p className="text-white/55 text-[11px] mb-3">
+                PDF, slide deck, ebook, ZIP, or any document — up to 100 MB. Buyers / leads access it via your shareable link.
+              </p>
+              {formData.file_url ? (
+                <div className="bg-white/10 rounded-xl p-3 flex items-center gap-3" data-testid="product-file-preview">
+                  <FileText size={20} className="text-secondary flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm truncate font-medium">{formData.file_name}</p>
+                    <p className="text-white/50 text-[11px]">{formatBytes(formData.file_size_bytes || 0)} · {formData.file_mime || 'file'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormData((p) => ({ ...p, file_url: '', file_name: '', file_size_bytes: 0, file_mime: '', file_price: '' }))}
+                    className="text-white/70 hover:text-white p-1"
+                    data-testid="product-file-remove"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <label className="block border-2 border-dashed border-white/20 rounded-xl p-4 text-center cursor-pointer hover:border-secondary transition-all" data-testid="product-file-picker">
+                  {uploadingFile ? (
+                    <span className="text-white/70 text-sm inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Uploading…</span>
+                  ) : (
+                    <>
+                      <Upload className="mx-auto mb-1 text-white/50" size={20} />
+                      <p className="text-white/80 text-sm">Pick a file</p>
+                      <p className="text-white/40 text-[10px]">PDF · PPT/PPTX · DOC/DOCX · XLS · EPUB · ZIP · TXT · MD · CSV</p>
+                    </>
+                  )}
+                  <input type="file" onChange={handleFilePicked} className="hidden"
+                    accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.epub,.zip,.txt,.md,.csv,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/epub+zip,application/zip,text/plain,text/markdown,text/csv"
+                    data-testid="product-file-input"
+                  />
+                </label>
+              )}
+
+              {formData.file_url && (
+                <div className="mt-3 space-y-2" data-testid="file-access-section">
+                  <p className="text-white/80 text-xs font-medium">Who can download it?</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {[
+                      { v: 'free', label: 'Free', desc: 'Anyone with the link' },
+                      { v: 'email_gated', label: 'Email-gated', desc: 'Capture name/email/phone' },
+                      { v: 'paid', label: 'Paid', desc: 'Stripe checkout first' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, file_access: opt.v })}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          formData.file_access === opt.v
+                            ? 'bg-secondary/20 border-secondary text-white'
+                            : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                        }`}
+                        data-testid={`file-access-${opt.v}`}
+                      >
+                        <p className="font-semibold text-xs">{opt.label}</p>
+                        <p className="text-[10px] text-white/55 mt-0.5">{opt.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {formData.file_access === 'paid' && (
+                    <div>
+                      <label className="block text-xs font-medium text-white/70 mt-2 mb-1">Price (in {formData.currency})</label>
+                      <input
+                        type="number"
+                        name="file_price"
+                        value={formData.file_price}
+                        onChange={handleChange}
+                        min="1"
+                        step="0.01"
+                        placeholder="e.g. 9.99"
+                        className="w-full px-4 py-2.5 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
+                        data-testid="file-price-input"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
+            {/* ── Community support (Growth creators only) ─────────────── */}
+            {formData.creator_type === 'growth' && (
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10" data-testid="support-section">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="text-secondary text-sm font-medium">Need community support?</p>
+                    <p className="text-white/55 text-[11px]">Tap the categories of help you’d like — investors, mentors, partners, customers.</p>
+                  </div>
+                  <label className="inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!formData.support_needed}
+                      onChange={(e) => setFormData({ ...formData, support_needed: e.target.checked })}
+                      className="sr-only peer"
+                      data-testid="support-needed-toggle"
+                    />
+                    <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:bg-secondary relative transition-all">
+                      <span className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full peer-checked:translate-x-4 transition-transform"></span>
+                    </div>
+                  </label>
+                </div>
+                {formData.support_needed && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      {SUPPORT_CATEGORIES.map((c) => {
+                        const active = formData.support_categories?.includes(c.v);
+                        return (
+                          <button
+                            key={c.v}
+                            type="button"
+                            onClick={() => toggleSupportCategory(c.v)}
+                            className={`p-2.5 rounded-xl border text-left text-xs transition-all ${
+                              active
+                                ? 'bg-secondary/20 border-secondary text-white'
+                                : 'bg-white/5 border-white/20 text-white/70 hover:bg-white/10'
+                            }`}
+                            data-testid={`support-cat-${c.v}`}
+                          >
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <textarea
+                      name="support_message"
+                      value={formData.support_message}
+                      onChange={handleChange}
+                      rows={2}
+                      placeholder="What kind of help would unlock the next step? (one or two sentences)"
+                      className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none resize-none text-sm"
+                      data-testid="support-message-input"
+                    />
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Legacy support amount range (still tracked) ──────────── */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-white/80 mb-2">Minimum Support ($)</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
-                  <input
-                    type="number"
-                    name="min_support"
-                    value={formData.min_support}
-                    onChange={handleChange}
-                    placeholder="10"
-                    className="w-full pl-10 pr-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
-                  />
-                </div>
+                <label className="block text-sm font-medium text-white/80 mb-2">Min support ({formData.currency})</label>
+                <input
+                  type="number"
+                  name="min_support"
+                  value={formData.min_support}
+                  onChange={handleChange}
+                  placeholder="10"
+                  className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-white/80 mb-2">Maximum Support ($)</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={18} />
-                  <input
-                    type="number"
-                    name="max_support"
-                    value={formData.max_support}
-                    onChange={handleChange}
-                    placeholder="1000"
-                    className="w-full pl-10 pr-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
-                  />
-                </div>
+                <label className="block text-sm font-medium text-white/80 mb-2">Max support ({formData.currency})</label>
+                <input
+                  type="number"
+                  name="max_support"
+                  value={formData.max_support}
+                  onChange={handleChange}
+                  placeholder="1000"
+                  className="w-full px-4 py-3 bg-white/10 rounded-xl border border-white/20 text-white placeholder-white/40 focus:border-secondary outline-none"
+                />
               </div>
             </div>
 
-            <div className="bg-secondary/10 rounded-xl p-4 border border-secondary/30">
-              <p className="text-white text-sm">
-                <strong className="text-secondary">Note:</strong> Support contributions are tracked transparently. 
-                This is community backing, not an investment. No returns or profit-sharing is offered.
-              </p>
-            </div>
+            <p className="text-[11px] text-white/40">
+              Support contributions are tracked transparently. This is community backing — not an investment.
+            </p>
           </div>
         );
       
@@ -449,10 +813,13 @@ const CreateProductPage = ({ user }) => {
               <p className="text-white bg-white/5 rounded-xl p-4">{formData.problem_solved || 'Not provided'}</p>
             </div>
 
-            <div className="bg-primary/30 rounded-xl p-4 border border-primary/50">
+            <div className={`rounded-xl p-4 border ${formData.creator_type === 'independent' ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-primary/30 border-primary/50'}`}>
               <p className="text-white text-sm">
-                <strong className="text-secondary">Moderation Notice:</strong> Your product will be reviewed 
-                within 24-72 hours before becoming publicly visible. You'll be notified once approved.
+                {formData.creator_type === 'independent' ? (
+                  <><strong className="text-emerald-300">Independent Creator:</strong> Your listing publishes instantly — you can edit or take it down anytime.</>
+                ) : (
+                  <><strong className="text-secondary">Growth Creator:</strong> Your listing will be reviewed within 24–72 hours before going live. We’ll notify you the moment it’s approved.</>
+                )}
               </p>
             </div>
           </div>
@@ -554,7 +921,7 @@ const CreateProductPage = ({ user }) => {
               className="flex-1 py-3 bg-gradient-to-r from-secondary to-yellow-500 text-primary font-semibold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               data-testid="submit-product"
             >
-              {loading ? 'Submitting...' : 'Submit for Review'}
+              {loading ? 'Submitting...' : formData.creator_type === 'independent' ? 'Publish now' : 'Submit for review'}
               <Check size={20} />
             </button>
           )}

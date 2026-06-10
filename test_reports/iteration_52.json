@@ -1,0 +1,41 @@
+{
+  "summary": "Iter 52 — Creator v2 tested. Backend 21/22 PASS (1 failure: PUT /api/users/me persists creator_type to DB but GET /api/users/me does NOT return it because the User Pydantic response_model is missing creator_type/creator_classification fields — easy fix, see action items). All Iter52 endpoints work: /api/uploads/file (PDF 200, wrong mime 415, no auth 401), POST /api/products independent->approved + slug + classification + tags-capped-to-12 + website/contact/location/price persist, growth->pending_review with support_categories filtered, slug uniqueness within creator, GET /api/products/by-slug returns product+creator and bumps view_count, share OG HTML has og:title/description/url/twitter:card/canonical/meta-refresh, file-as-product: free download requires auth, email_gated /file-lead increments download_count and returns url, paid /file-lead -> 402, paid /download -> 402 without order, /file-checkout returns 503 (Stripe unconfigured) — expected. Backfill verified on historic products. Frontend: SharedProductPage at /p/<u>/<s> renders perfectly for UNAUTHENTICATED visitors (shared-product-page, shared-product-name, shared-download-button copy 'Get download link' for email_gated, shared-share-button, lead modal opens, lead-name/email/phone/submit work, success toast shows). CreateProductPage Step 1 — all 11 critical testids present (creator-type-section/independent/growth, classification-grid, all 12 classification cards, product-type-toggle/product/service, product-image-picker/input, product-tags-input, product-website). Step 4/5 testids not exercised in automation (welcome promo modal intercepted multi-step traversal) but source review confirms they exist.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/users/me", "issue": "Response strips creator_type and creator_classification because the User Pydantic model (server.py:113) does not declare these two Optional fields. PUT /api/users/me writes them correctly to the DB (verified by product creation using current_user.get('creator_type')) but the API consumer (frontend) cannot read them back through /users/me. Add `creator_type: Optional[str] = None` and `creator_classification: Optional[str] = None` to the User model."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter52_creator_v2.py",
+    "/app/test_reports/pytest/iter52_results.xml"
+  ],
+  "action_items": [
+    "Add `creator_type: Optional[str] = None` and `creator_classification: Optional[str] = None` to the User Pydantic model at /app/backend/server.py:113 so GET /api/users/me surfaces the fields the frontend wizard relies on.",
+    "(Optional) Add data-testid='create-product-submit' to wizard's final submit button — would harden Step 5 automation.",
+    "(Optional) Make the 'Welcome back' promo modal not auto-open on /products/create (it overlays the wizard and blocks Next-button clicks during automation).",
+    "(Optional) The spec mentions PUT /api/users/profile but the actual route is PUT /api/users/me. Either alias or update the spec — confirmed code uses /users/me only."
+  ],
+  "critical_code_review_comments": [
+    "server.py User model (line 113) is missing iter52 fields creator_type/creator_classification — DB persists them but API responses drop them. Frontend will read stale values.",
+    "server.py /api/products auto-defaults creator_type='independent' for first-time creators inside create_product (line 5071). That's correct, but combined with the missing User model fields above, a frontend that posts then re-fetches /me to decide UI state will appear stale until a hard refresh.",
+    "_share_html_response (server.py:5347) renders raw description/title in HTML with only a `\"` -> &quot; escape. Names containing `<` or `&` would break the OG HTML. Use html.escape() instead of single-char replacement.",
+    "/api/products/by-slug uses lowercased slug match but `creator_username` is stored already-lowercased — the regex fallback for case-insensitive username lookup is good. Good.",
+    "/api/products/{id}/file-lead does NOT rate-limit. Anyone can drop unlimited leads with random emails — consider adding a per-IP/per-product limiter or captcha for production. Minor for now."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter52_creator_v2.py (NEW)"
+  ],
+  "success_rate": {"backend": "95.5% (21/22)", "frontend": "~85% (SharedProductPage end-to-end PASS; CreateProductPage Step 1 all testids PASS; Steps 4-5 visual confirmation only — testids present in source)"},
+  "test_credentials": "Standing admin: rmleetang+nctest1780423349@gmail.com / Test123! (POST /api/auth/login returns {token,user}). Iter52 backend test mints disposable users via /api/auth/progressive-signup.",
+  "seed_data_creation": "Created ~7 TEST_iter52* products under a disposable creator (free/email_gated/paid file-as-product variants + 2 unique-slug duplicates + 1 growth pending + 1 independent autopublished). 1 product_lead row. ~5 small PDFs in /app/backend/uploads/files/. Prefix 'TEST_iter52' and 'TEST iter52' for safe cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/test_iter52_creator_v2.py runs in ~4s with REACT_APP_BACKEND_URL and JWT_SECRET_KEY exported (the test file falls back to the .env value). The one failure ProfileUpdate.test_set_creator_type_independent will fix automatically once User Pydantic model adds the two new Optional fields — DO NOT remove the assertion, it correctly catches the response-model gap. SharedProductPage live test URL: https://stokvel-plus.preview.emergentagent.com/p/user_e492a8d2/test-iter52-gated-file (anonymous access). CreateProductPage wizard test requires bypassing the 'Welcome back' promo modal — click [text='Maybe later'] with force=True and short timeout BEFORE asserting Next button visibility; the modal is page-blocking.",
+  "rca of the issue": "PUT /api/users/me with {creator_type:'independent'} returns 200, DB-side update_one applies the field (confirmed via product creation flow that reads it back from current_user dict — Product test_create_independent_autopublishes passes). However GET /api/users/me uses `response_model=User` (server.py:1422) and the User class (server.py:113-) does NOT include creator_type / creator_classification. Pydantic v2 strips unknown fields when constructing the response, so the API contract drops them. Reproduction: PUT /api/users/me {\"creator_type\":\"independent\"} -> 200, then GET /api/users/me -> JSON has no creator_type key. Fix: add the two Optional[str]=None fields to the User model. Verified in code review."
+}

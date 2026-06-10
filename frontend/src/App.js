@@ -28,6 +28,7 @@ import ScoreDashboardPage from './pages/ScoreDashboardPage';
 import RewardsPage from './pages/RewardsPage';
 import ProductListPage from './pages/ProductListPage';
 import ProductDetailPage from './pages/ProductDetailPage';
+import SharedProductPage from './pages/SharedProductPage';
 import CreateProductPage from './pages/CreateProductPage';
 import NetWorthPage from './pages/NetWorthPage';
 import AudienceInsightsPage from './pages/AudienceInsightsPage';
@@ -219,7 +220,8 @@ function App() {
         && !window.location.pathname.startsWith('/admin')
         && !window.location.pathname.startsWith('/auth')
         && !window.location.pathname.startsWith('/forgot-password')
-        && !window.location.pathname.startsWith('/reset-password')) {
+        && !window.location.pathname.startsWith('/reset-password')
+        && !window.location.pathname.startsWith('/p/')) {
       return (
         <>
           <Toaster position="top-center" />
@@ -231,6 +233,8 @@ function App() {
               <Route path="/join" element={<JoinHandler />} />
               <Route path="/join/:slug" element={<JoinHandler />} />
               <Route path="/r/:username" element={<ReferralLandingPage />} />
+              {/* Iter 52 — shareable product page (unauth visitors) */}
+              <Route path="/p/:username/:slug" element={<SharedProductPage />} />
               <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             </Routes>
           </BrowserRouter>
@@ -253,6 +257,8 @@ function App() {
             <Route path="/join" element={<JoinHandler />} />
             <Route path="/join/:slug" element={<JoinHandler />} />
             <Route path="/r/:username" element={<ReferralLandingPage />} />
+            {/* Iter 52 — shareable product page accessible without auth too */}
+            <Route path="/p/:username/:slug" element={<SharedProductPage />} />
             <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -287,6 +293,8 @@ function App() {
             <Route path="/products" element={<ProductListPage user={user} />} />
             <Route path="/products/create" element={<CreateProductPage user={user} />} />
             <Route path="/products/:productId" element={<ProductDetailPage user={user} />} />
+            {/* Iter 52 — shareable slug-based product page */}
+            <Route path="/p/:username/:slug" element={<SharedProductPage />} />
             <Route path="/products/:productId/insights" element={<AudienceInsightsPage user={user} />} />
             <Route path="/net-worth" element={<NetWorthPage user={user} />} />
             <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
