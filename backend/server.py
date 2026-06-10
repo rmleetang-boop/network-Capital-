@@ -1,4 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, UploadFile, File, Form
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -26,6 +28,12 @@ db = client[os.environ['DB_NAME']]
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
+
+# Iter 51 — disk-backed uploads directory (used by carousels + reels).
+# Files written here are served by `/api/uploads/...` via StaticFiles further below.
+UPLOAD_DIR = ROOT_DIR / "uploads"
+(UPLOAD_DIR / "posts").mkdir(parents=True, exist_ok=True)
+(UPLOAD_DIR / "announcements").mkdir(parents=True, exist_ok=True)
 
 SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'your-secret-key-change-in-production')
 ALGORITHM = "HS256"
@@ -216,6 +224,10 @@ class Post(BaseModel):
     content: str
     image: Optional[str] = None
     video: Optional[str] = None
+    # Iter 51 — carousel + reels (returned to frontend so it can render slides / reel UI)
+    slides: Optional[List[Dict[str, Any]]] = None
+    media_type: Optional[str] = None  # "single" | "carousel" | "reel"
+    duration_seconds: Optional[int] = None
     hashtags: List[str] = []
     mentions: List[str] = []
     likes: List[str] = []
@@ -240,7 +252,7 @@ class CreatePostRequest(BaseModel):
     # Iter 51 — carousel + reels
     slides: Optional[List[CarouselSlide]] = None  # 2-10 slides → renders as carousel
     media_type: Optional[str] = None  # auto-derived if missing: "single" | "carousel" | "reel"
-    duration_seconds: Optional[int] = None  # for reels — vertical video ≤60s
+    duration_seconds: Optional[int] = None  # for reels — vertical video ≤30s
 
 class CommentRequest(BaseModel):
     content: str
@@ -3281,6 +3293,90 @@ async def list_articles(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     return {"articles": user.get("articles", [])}
 
+
+# ── Iter 51 — Carousel + Reel uploads (disk-backed) ──────────────────────────
+# Streams the file through FastAPI's UploadFile (no base64 inflation, no
+# 16MB BSON ceiling) and stores it under /app/backend/uploads/<scope>/.
+# Returns a URL the frontend can attach to a slide or to AdminAnnounceRequest.
+_ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_ALLOWED_VIDEO_MIME = {"video/mp4", "video/webm", "video/quicktime", "video/x-m4v"}
+_MAX_UPLOAD_IMAGE_BYTES = 11 * 1024 * 1024     # 11 MB
+_MAX_UPLOAD_VIDEO_BYTES = 50 * 1024 * 1024     # 50 MB (30s @ ~13 Mbps headroom)
+
+
+def _ext_from_filename(name: str, fallback: str) -> str:
+    if not name or "." not in name:
+        return fallback
+    ext = name.rsplit(".", 1)[-1].lower()
+    return ext if 1 <= len(ext) <= 5 else fallback
+
+
+@api_router.post("/uploads/media")
+async def upload_media(
+    file: UploadFile = File(...),
+    scope: str = Form("posts"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Streams a single image or video to disk and returns a public-facing URL.
+
+    Scopes: ``posts`` (default) and ``announcements`` (admin-only). The returned
+    URL is mounted via StaticFiles at ``/api/uploads/<scope>/<filename>`` so the
+    frontend can drop it straight into a slide's ``image`` / ``video`` field
+    or onto an ``AdminAnnounceRequest`` payload."""
+
+    if scope not in {"posts", "announcements"}:
+        raise HTTPException(status_code=400, detail="Unknown upload scope")
+    if scope == "announcements" and current_user.get("role") not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Announcement uploads are admin-only")
+
+    mime = (file.content_type or "").lower()
+    is_image = mime in _ALLOWED_IMAGE_MIME
+    is_video = mime in _ALLOWED_VIDEO_MIME
+    if not (is_image or is_video):
+        raise HTTPException(status_code=415, detail=f"Unsupported media type: {mime or 'unknown'}")
+
+    cap = _MAX_UPLOAD_IMAGE_BYTES if is_image else _MAX_UPLOAD_VIDEO_BYTES
+    # Stream to disk in chunks so we never load the whole video in memory.
+    fallback_ext = "jpg" if is_image else "mp4"
+    ext = _ext_from_filename(file.filename or "", fallback_ext)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    target_dir = UPLOAD_DIR / scope
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / filename
+
+    total = 0
+    try:
+        with open(target, "wb") as out:
+            while True:
+                chunk = await file.read(1 << 20)  # 1 MiB chunks
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > cap:
+                    out.close()
+                    try:
+                        target.unlink()
+                    except Exception:
+                        pass
+                    human = "11 MB" if is_image else "50 MB"
+                    raise HTTPException(status_code=413, detail=f"File exceeds the {human} limit for this media type.")
+                out.write(chunk)
+    finally:
+        try:
+            await file.close()
+        except Exception:
+            pass
+
+    url = f"/api/uploads/{scope}/{filename}"
+    return {
+        "url": url,
+        "kind": "image" if is_image else "video",
+        "size_bytes": total,
+        "filename": filename,
+        "mime": mime,
+    }
+
+
 @api_router.post("/posts", response_model=Post)
 async def create_post(request: CreatePostRequest, current_user: dict = Depends(get_current_user)):
     # Size guards — base64 inflates ~1.37x; cap at MAX_MEDIA_BYTES * 1.4 ≈ 15MB which is under
@@ -3289,6 +3385,40 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         raise HTTPException(status_code=413, detail="Image is too large. Maximum allowed size is 11MB.")
     if request.video and len(request.video) > MAX_MEDIA_BYTES * 1.4:
         raise HTTPException(status_code=413, detail="Video is too large. Maximum allowed size is 11MB.")
+
+    # ── Carousel / Reels (iter 51) ────────────────────────────────────
+    slides_payload: List[Dict[str, Any]] = []
+    media_type = request.media_type
+    if request.slides:
+        if len(request.slides) > 10:
+            raise HTTPException(status_code=400, detail="A carousel can hold at most 10 slides.")
+        if len(request.slides) < 2:
+            raise HTTPException(status_code=400, detail="A carousel needs at least 2 slides.")
+        for idx, s in enumerate(request.slides):
+            blob = s.image or s.video
+            if not blob:
+                raise HTTPException(status_code=400, detail=f"Slide {idx + 1} is empty.")
+            if len(blob) > MAX_MEDIA_BYTES * 1.4:
+                raise HTTPException(status_code=413, detail=f"Slide {idx + 1} is too large (max 11MB).")
+            if s.video and s.duration_seconds and s.duration_seconds > 30:
+                raise HTTPException(status_code=400, detail=f"Slide {idx + 1} video exceeds 30s cap.")
+            slides_payload.append({
+                "type": "video" if s.video else "image",
+                "image": s.image,
+                "video": s.video,
+                "caption": (s.caption or "").strip()[:280],
+                "duration_seconds": s.duration_seconds,
+            })
+        media_type = media_type or "carousel"
+    # Reel = single vertical video ≤60s
+    if media_type == "reel":
+        if not (request.video or any(s.get("type") == "video" for s in slides_payload)):
+            raise HTTPException(status_code=400, detail="A reel must include a video.")
+        if request.duration_seconds and request.duration_seconds > 30:
+            raise HTTPException(status_code=400, detail="Reels are capped at 30 seconds.")
+    if not media_type:
+        media_type = "single"
+
     # Only admins/moderators can flag a post as "official" (broadcasts to all users).
     is_official = bool(request.is_official) and current_user.get("role") in ("admin", "moderator")
     post_id = str(uuid.uuid4())
@@ -3301,6 +3431,9 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         "content": request.content,
         "image": request.image,
         "video": request.video,
+        "slides": slides_payload or None,
+        "media_type": media_type,
+        "duration_seconds": request.duration_seconds,
         "hashtags": extract_hashtags(request.content),
         "mentions": extract_mentions(request.content),
         "likes": [],
@@ -9501,6 +9634,11 @@ class AdminAnnounceRequest(BaseModel):
     content: str = Field(min_length=2, max_length=4000)
     image: Optional[str] = ""
     pin: Optional[bool] = False
+    # Iter 51 — admin announcements can now ship carousels + reels too.
+    video: Optional[str] = ""
+    slides: Optional[List[CarouselSlide]] = None
+    media_type: Optional[str] = None   # "single" | "carousel" | "reel"
+    duration_seconds: Optional[int] = None
 
 
 @api_router.post("/admin/announce")
@@ -9512,6 +9650,37 @@ async def admin_announce_as_network_capital(
     if admin.get("role") not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only admins can announce as Network Capital")
     sys_uid = await _ensure_system_account()
+
+    # ── Carousel / Reels (iter 51) ────────────────────────────────────
+    slides_payload: List[Dict[str, Any]] = []
+    media_type = payload.media_type
+    if payload.slides:
+        if len(payload.slides) > 10:
+            raise HTTPException(status_code=400, detail="A carousel can hold at most 10 slides.")
+        if len(payload.slides) < 2:
+            raise HTTPException(status_code=400, detail="A carousel needs at least 2 slides.")
+        for idx, s in enumerate(payload.slides):
+            blob = s.image or s.video
+            if not blob:
+                raise HTTPException(status_code=400, detail=f"Slide {idx + 1} is empty.")
+            if s.video and s.duration_seconds and s.duration_seconds > 30:
+                raise HTTPException(status_code=400, detail=f"Slide {idx + 1} video exceeds 30s cap.")
+            slides_payload.append({
+                "type": "video" if s.video else "image",
+                "image": s.image,
+                "video": s.video,
+                "caption": (s.caption or "").strip()[:280],
+                "duration_seconds": s.duration_seconds,
+            })
+        media_type = media_type or "carousel"
+    if media_type == "reel":
+        if not (payload.video or any(s.get("type") == "video" for s in slides_payload)):
+            raise HTTPException(status_code=400, detail="A reel must include a video.")
+        if payload.duration_seconds and payload.duration_seconds > 30:
+            raise HTTPException(status_code=400, detail="Reels are capped at 30 seconds.")
+    if not media_type:
+        media_type = "single"
+
     # IMPORTANT: shape must match the existing Post pydantic model to avoid
     # breaking GET /api/posts (response_model=List[Post]). Extra fields are
     # tolerated as Mongo metadata but stripped on response.
@@ -9523,7 +9692,10 @@ async def admin_announce_as_network_capital(
         "user_score": 0,
         "content": payload.content.strip(),
         "image": payload.image or "",
-        "video": "",
+        "video": payload.video or "",
+        "slides": slides_payload or None,
+        "media_type": media_type,
+        "duration_seconds": payload.duration_seconds,
         "likes": [],            # Post.likes is List[str]
         "comments": [],
         "hashtags": [],
@@ -9540,7 +9712,7 @@ async def admin_announce_as_network_capital(
         actor_id=admin["id"], actor_username=admin.get("username") or "admin",
         action="post.announce", target_type="post", target_id=post["id"],
         reason="Announcement as Network Capital",
-        metadata={"content_preview": post["content"][:120]},
+        metadata={"content_preview": post["content"][:120], "media_type": media_type},
     )
     post.pop("_id", None)
     return post
@@ -12064,3 +12236,9 @@ async def require_super_pin(
 # Re-register router so all routes added above are picked up (must come AFTER the
 # pre-existing seed `app.include_router(api_router)` block immediately below this).
 app.include_router(api_router)
+
+# Static mount for disk-backed uploads (carousel slides + reels).
+# Files live under /app/backend/uploads/<scope>/<filename>.
+# Served as /api/uploads/<scope>/<filename> so the existing kubernetes
+# ingress rule (/api/* → backend:8001) routes them correctly.
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

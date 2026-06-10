@@ -1,0 +1,38 @@
+{
+  "summary": "Iter 51 — Carousel + Reels + Admin Announcements tested. Backend 19/19 PASS (uploads/media auth+scope+mime+size; /api/posts carousel/reel persistence + validation; /api/admin/announce carousel/reel + non-admin 403 + duration cap). Frontend partially verified: Feed page renders 7 carousel posts and 6 reel posts with all required testids (carousel-next, carousel-dot-0, reel-mute-toggle); /admin/announce composer renders all 7 expected testids (announce-content-input, announce-photos-picker, announce-photos-input, announce-reel-picker, announce-reel-input, announce-publish-button, announce-pin-checkbox). One concern: clicking [data-testid='create-post-button'] on /feed twice (force=True) did NOT open the create-post-modal (showCreatePost state) in Playwright runs — likely a FeatureIntroModal('feed') overlay intercepting the click. Needs main-agent verification in live browser. No JS console errors after promo modal dismissed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Open create-post composer", "issue": "Clicking [data-testid='create-post-button'] with force=True did not toggle showCreatePost / mount [data-testid='create-post-modal'] in repeated Playwright runs. Composer modal testids (post-content-input, photos-picker, photos-input, reel-picker, reel-input, submit-post-button) therefore could not be exercised end-to-end. Suspect: FeatureIntroModal (featureKey='feed') auto-mounts on first visit and intercepts the click. The button click was registered but no state change happened. Should be confirmed by main agent in a live browser session — once intro modal is dismissed once per user, this likely resolves.", "affected_selectors": ["[data-testid='create-post-button']","[data-testid='create-post-modal']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter51_carousel_reels.py",
+    "/app/test_reports/pytest/iter51_results.xml"
+  ],
+  "action_items": [
+    "Manually verify in a live browser that tapping the 'Post' button opens the create-post composer (post-content-input visible). If FeatureIntroModal is intercepting, ensure it's dismissible first or scope it not to overlay the Post button.",
+    "Consider dismissing the FeatureIntroModal overlay programmatically when the user taps the Post button (or render the composer modal at a higher z-index)."
+  ],
+  "critical_code_review_comments": [
+    "FeedPage.js line 245 has odd logic: `slides: c.slides.length ? [] : c.slides` — clears slides when switching to reel mode if there were any, otherwise keeps the empty array. Works but reads awkwardly; consider `slides: []` always when entering reel mode.",
+    "FeedPage.js lines 721/730 read `post.likes.length` and `post.comments.length` without null guards. Backend Post model defaults these to [] so this is currently safe, but any future endpoint that returns posts (e.g. admin/announce) MUST keep emitting [] (currently does). Adding `(post.likes || []).length` would harden it.",
+    "Comment in /api/posts (server.py:3413) still says 'Reel = single vertical video ≤60s' — actual cap is 30s. Update the comment to avoid confusion.",
+    "/api/uploads/media accepts arbitrary scope string before auth role check. Current order is fine (scope checked then role) but consider extracting the allowed-scope set to a module-level constant for reuse.",
+    "Iter 51 added slides/media_type/duration_seconds to Post model — confirmed surfaced on GET /api/posts. No issues."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter51_carousel_reels.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "~80% (feed render + announce composer verified; create-post-modal open path needs live confirmation)"},
+  "test_credentials": "Owner: rmleetang@gmail.com / OwnerTest123! · Standing admin: rmleetang+nctest1780423349@gmail.com / Test123! · Disposable users minted via /api/auth/progressive-signup (no OTP needed for token, JWT decoded with JWT_SECRET_KEY).",
+  "seed_data_creation": "Backend tests created ~10 TEST_iter51 posts (carousels, reels, single image) under the standing admin and a disposable user. ~13 small JPEGs + a few tiny MP4s in /app/backend/uploads/posts and /app/backend/uploads/announcements. Safe to leave or prune by 'TEST_iter51' content prefix.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest file at /app/backend/tests/test_iter51_carousel_reels.py — 19 tests cover uploads/media auth+scope+mime+413, /api/posts carousel/reel + validation (slides<2 400, slides>10 400, duration>30 400, legacy single image), and /api/admin/announce carousel/reel + validation + non-admin 403. AdminAnnounceRequest enforces content min_length=2 (Pydantic 422 instead of 400 — note for future tests). Feed carousel testids (post-carousel-<i>, carousel-next, carousel-prev, carousel-dot-<i>) and reel testids (post-reel-<i>, reel-mute-toggle) confirmed present on /feed when data is populated. /admin/announce composer testids all present. Composer modal open path on /feed needs live verification — see action_items."
+}

@@ -1,28 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check, Plus, Film, Layers, Loader2 } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
 import NativeFeedAd from '../components/NativeFeedAd';
 import StoriesRibbon from '../components/StoriesRibbon';
 import StoryViewer from '../components/StoryViewer';
 import HashtagText from '../components/HashtagText';
 import FeatureIntroModal from '../components/FeatureIntroModal';
-import MediaPreparer from '../components/MediaPreparer';
+import MediaRenderer from '../components/MediaRenderer';
+import { uploadMedia, validateMediaFile, probeVideoDuration, MAX_VIDEO_SECONDS, formatBytes } from '../lib/mediaUpload';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import NetworkScore from '../components/NetworkScore';
 import { useNavigate } from 'react-router-dom';
 
+const buildInitialComposer = () => ({ content: '', mode: 'photos', slides: null, reel: null });
+
 const FeedPage = ({ user }) => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreatePost, setShowCreatePost] = useState(false);
-  const [newPost, setNewPost] = useState({ content: '', image: '', video: '' });
+  // Iter 51 — composer rewrite for carousel + reels.
+  // `mode`: 'photos' = single image OR 2-10 image carousel; 'reel' = one ≤30s video.
+  const [composer, setComposer] = useState(buildInitialComposer);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploading, setUploading] = useState(false);
   const [sharingPost, setSharingPost] = useState(null);
   const [posting, setPosting] = useState(false);
   const [storyGroup, setStoryGroup] = useState(null);
-  const [preparingFile, setPreparingFile] = useState(null);  // optional crop/compress modal
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -40,9 +46,11 @@ const FeedPage = ({ user }) => {
     }
   };
 
+  const resetComposer = () => { setUploadProgress(0); setUploading(false); };
+
   const handleCreatePost = async () => {
-    if (!newPost.content.trim()) {
-      const hasMedia = Boolean(newPost.image || newPost.video);
+    const hasMedia = (composer.mode === 'photos' && composer.slides.length > 0) || (composer.mode === 'reel' && composer.reel);
+    if (!composer.content.trim()) {
       toast.error(
         hasMedia
           ? 'Add a caption to share your post — even one line helps your community connect.'
@@ -51,20 +59,39 @@ const FeedPage = ({ user }) => {
       return;
     }
 
+    const payload = { content: composer.content.trim() };
+    if (composer.mode === 'reel' && composer.reel) {
+      payload.video = composer.reel.url;
+      payload.media_type = 'reel';
+      payload.duration_seconds = composer.reel.duration_seconds || null;
+    } else if (composer.mode === 'photos') {
+      if (composer.slides.length === 1) {
+        payload.image = composer.slides[0].image;
+        payload.media_type = 'single';
+      } else if (composer.slides.length >= 2) {
+        payload.slides = composer.slides.map((s) => ({
+          type: 'image',
+          image: s.image,
+          caption: s.caption || '',
+        }));
+        payload.media_type = 'carousel';
+      }
+    }
+
     setPosting(true);
     try {
-      const response = await axiosInstance.post('/posts', newPost);
+      const response = await axiosInstance.post('/posts', payload);
       setPosts([response.data, ...posts]);
-      setNewPost({ content: '', image: '', video: '' });
+      resetComposer();
       setShowCreatePost(false);
       toast.success('Post created! +20 points');
     } catch (error) {
       const status = error?.response?.status;
       const detail = error?.response?.data?.detail;
       if (status === 413) {
-        toast.error(detail || 'Your post exceeds the 11 MB upload limit. Please compress your media and try again.');
+        toast.error(detail || 'Your post exceeds the upload limit. Please compress your media and try again.');
       } else if (status === 400) {
-        toast.error(detail || 'Your post contains restricted language. Please rephrase and try again.');
+        toast.error(detail || 'Could not create your post. Please try again.');
       } else if (status === 401 || status === 403) {
         toast.error('Your session expired. Please log in again to continue posting.');
       } else if (status >= 500) {
@@ -157,60 +184,87 @@ const FeedPage = ({ user }) => {
       const response = await axiosInstance.post(`/posts/${sharingPost.id}/share`);
       setPosts((prev) => prev.map(p => p.id === sharingPost.id ? { ...p, shares: response.data.shares } : p));
       toast.success('Post shared! +10 points');
-    } catch {}
+    } catch (e) { /* share endpoint best-effort */ }
     setSharingPost(null);
   };
 
-  const formatBytes = (b) => {
-    if (b < 1024) return `${b} B`;
-    if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
-    return `${(b / 1024 / 1024).toFixed(1)} MB`;
-  };
-
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error(`That file isn't an image — selected type: ${file.type || 'unknown'}. Please choose a JPG, PNG, GIF or WebP.`);
-      e.target.value = '';
-      return;
-    }
-    if (file.size > 11 * 1024 * 1024) {
-      toast.error(`Image is ${formatBytes(file.size)} — over the 11 MB limit. Please compress it or pick a smaller picture.`);
-      e.target.value = '';
-      return;
-    }
-    setPreparingFile(file);   // opens MediaPreparer for optional crop/compress
+  const handlePhotosPicked = async (e) => {
+    const files = Array.from(e.target.files || []);
     e.target.value = '';
+    if (!files.length) return;
+    if (composer.slides.length + files.length > 10) {
+      toast.error(`A carousel can hold up to 10 photos. You're trying to add ${files.length} on top of ${composer.slides.length}.`);
+      return;
+    }
+    for (const file of files) {
+      const err = validateMediaFile(file, 'image');
+      if (err) { toast.error(err); continue; }
+      setUploading(true);
+      setUploadProgress(0);
+      try {
+        const { url, size_bytes } = await uploadMedia(file, {
+          scope: 'posts',
+          onProgress: setUploadProgress,
+        });
+        setComposer((c) => ({
+          ...c,
+          mode: 'photos',
+          reel: null,
+          slides: c.slides.concat([{ image: url, size_bytes, name: file.name }]),
+        }));
+      } catch (ex) {
+        const detail = ex?.response?.data?.detail || 'Image upload failed. Try a smaller file.';
+        toast.error(detail);
+      }
+    }
+    setUploading(false);
+    setUploadProgress(0);
   };
 
-  const handleVideoUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('video/')) {
-      toast.error(`That file isn't a video — selected type: ${file.type || 'unknown'}. Please choose an MP4, MOV or WebM clip.`);
-      e.target.value = '';
-      return;
-    }
-    if (file.size > 11 * 1024 * 1024) {
-      toast.error(`Video is ${formatBytes(file.size)} — over the 11 MB limit. Try a shorter clip or compress it before uploading.`);
-      e.target.value = '';
-      return;
-    }
-    setPreparingFile(file);   // opens MediaPreparer (videos pass through unchanged)
+  const handleReelPicked = async (e) => {
+    const file = e.target.files?.[0];
     e.target.value = '';
+    if (!file) return;
+    const err = validateMediaFile(file, 'video');
+    if (err) { toast.error(err); return; }
+    const duration = await probeVideoDuration(file);
+    if (duration && duration > MAX_VIDEO_SECONDS + 0.5) {
+      toast.error(`Reels are capped at ${MAX_VIDEO_SECONDS}s — your clip is ${Math.round(duration)}s. Please trim it before uploading.`);
+      return;
+    }
+    setUploading(true);
+    setUploadProgress(0);
+    try {
+      const { url, size_bytes } = await uploadMedia(file, {
+        scope: 'posts',
+        onProgress: setUploadProgress,
+      });
+      setComposer((c) => ({
+        ...c,
+        mode: 'reel',
+        slides: c.slides.length ? [] : c.slides,
+        reel: {
+          url,
+          duration_seconds: Math.round(duration || 0),
+          size_bytes,
+          name: file.name,
+        },
+      }));
+      toast.success(`Reel attached · ${formatBytes(size_bytes)} · ${Math.round(duration || 0)}s`);
+    } catch (ex) {
+      const detail = ex?.response?.data?.detail || 'Video upload failed. Try a shorter clip.';
+      toast.error(detail);
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
   };
 
-  const handleMediaPrepared = ({ dataUrl, sizeBytes, name, type }) => {
-    if (type.startsWith('image/')) {
-      setNewPost({ ...newPost, image: dataUrl, video: '', _imageSize: sizeBytes, _imageName: name });
-      toast.success(`Image attached · ${formatBytes(sizeBytes)}`);
-    } else {
-      setNewPost({ ...newPost, video: dataUrl, image: '', _videoSize: sizeBytes, _videoName: name });
-      toast.success(`Video attached · ${formatBytes(sizeBytes)}`);
-    }
-    setPreparingFile(null);
+  const removeSlide = (idx) => {
+    setComposer((c) => ({ ...c, slides: c.slides.filter((_, i) => i !== idx) }));
   };
+
+  const removeReel = () => setComposer((c) => ({ ...c, reel: null, mode: 'photos' }));
 
   if (loading) {
     return (
@@ -309,17 +363,18 @@ const FeedPage = ({ user }) => {
       </div>
 
       {showCreatePost && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowCreatePost(false)}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => { setShowCreatePost(false); resetComposer(); }}>
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6"
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
+            data-testid="create-post-modal"
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-heading font-bold">Create Post</h2>
               <button
-                onClick={() => setShowCreatePost(false)}
+                onClick={() => { setShowCreatePost(false); resetComposer(); }}
                 className="text-text-muted hover:text-text-primary transition-colors"
                 data-testid="close-create-post"
               >
@@ -328,74 +383,113 @@ const FeedPage = ({ user }) => {
             </div>
 
             <textarea
-              value={newPost.content}
-              onChange={(e) => setNewPost({ ...newPost, content: e.target.value })}
+              value={composer.content}
+              onChange={(e) => setComposer((c) => ({ ...c, content: e.target.value }))}
               placeholder="What's on your mind? Use #hashtags to join the conversation"
-              rows={5}
+              rows={4}
               className="w-full p-3 border border-gray-200 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none mb-4"
               data-testid="post-content-input"
             />
 
-            {newPost.image && (
-              <div className="relative mb-4">
-                <img src={newPost.image} alt="Preview" className="w-full h-48 object-cover rounded-xl" />
-                <button
-                  onClick={() => setNewPost({ ...newPost, image: '' })}
-                  className="absolute top-2 right-2 bg-white rounded-full p-2 shadow-md hover:bg-gray-100 transition-colors"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-
-            {newPost.video && (
-              <div className="relative mb-4">
-                <video src={newPost.video} controls className="w-full max-h-72 rounded-xl bg-black" />
-                <button
-                  onClick={() => setNewPost({ ...newPost, video: '' })}
-                  className="absolute top-2 right-2 bg-white rounded-full p-2 shadow-md hover:bg-gray-100 transition-colors"
-                  data-testid="remove-video"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all">
-                <ImageIcon className="mx-auto mb-1 text-text-muted" size={24} />
-                <span className="text-sm text-text-secondary block">Add Image</span>
-                <span className="text-[10px] text-text-muted block mt-0.5">JPG/PNG/GIF · max 11 MB · crop &amp; compress on next step</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                  data-testid="image-upload-input"
-                />
-              </label>
-              <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all" data-testid="video-upload-tile">
-                <VideoIcon className="mx-auto mb-1 text-text-muted" size={24} />
-                <span className="text-sm text-text-secondary block">Add Video</span>
-                <span className="text-[10px] text-text-muted block mt-0.5">MP4/MOV · max 11 MB</span>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={handleVideoUpload}
-                  className="hidden"
-                  data-testid="video-upload-input"
-                />
-              </label>
+            {/* Composer mode hint */}
+            <div className="flex items-center gap-2 text-[11px] text-text-muted mb-3">
+              {composer.mode === 'reel' ? (
+                <><Film size={12} className="text-secondary" /><span>Reel · vertical video ≤ 30s</span></>
+              ) : composer.slides.length >= 2 ? (
+                <><Layers size={12} className="text-secondary" /><span>Carousel · {composer.slides.length}/10 photos</span></>
+              ) : composer.slides.length === 1 ? (
+                <><ImageIcon size={12} className="text-secondary" /><span>Single photo · add more to make a carousel</span></>
+              ) : (
+                <><Sparkles size={12} className="text-secondary" /><span>Add up to 10 photos for a carousel, or one ≤30s video for a Reel.</span></>
+              )}
             </div>
-            {(newPost._imageSize || newPost._videoSize) && (
-              <p className="text-[11px] text-emerald-600 font-semibold mt-1" data-testid="upload-size-hint">
-                Attached: <strong>{newPost._imageName || newPost._videoName}</strong> · {formatBytes(newPost._imageSize || newPost._videoSize)}
-              </p>
+
+            {/* Carousel/photo previews */}
+            {composer.mode === 'photos' && composer.slides.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3" data-testid="photo-previews">
+                {composer.slides.map((s, i) => (
+                  <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 group">
+                    <img src={s.image.startsWith('http') || s.image.startsWith('data:') ? s.image : `${process.env.REACT_APP_BACKEND_URL}${s.image}`} alt={`Slide ${i + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeSlide(i)}
+                      className="absolute top-1 right-1 bg-black/65 hover:bg-black text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label={`Remove slide ${i + 1}`}
+                      data-testid={`remove-slide-${i}`}
+                    >
+                      <X size={12} />
+                    </button>
+                    <span className="absolute bottom-1 left-1 bg-black/55 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                      {i + 1}
+                    </span>
+                  </div>
+                ))}
+                {composer.slides.length < 10 && (
+                  <label className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all" data-testid="add-more-photos">
+                    <Plus size={20} className="text-text-muted" />
+                    <input type="file" accept="image/*" multiple onChange={handlePhotosPicked} className="hidden" />
+                  </label>
+                )}
+              </div>
+            )}
+
+            {/* Reel preview */}
+            {composer.mode === 'reel' && composer.reel && (
+              <div className="relative mb-3 mx-auto" style={{ maxWidth: 220 }} data-testid="reel-preview">
+                <video
+                  src={composer.reel.url.startsWith('http') ? composer.reel.url : `${process.env.REACT_APP_BACKEND_URL}${composer.reel.url}`}
+                  controls
+                  className="w-full rounded-xl bg-black"
+                  style={{ aspectRatio: '9 / 16' }}
+                />
+                <button
+                  type="button"
+                  onClick={removeReel}
+                  className="absolute top-2 right-2 bg-white rounded-full p-1.5 shadow-md hover:bg-gray-100"
+                  aria-label="Remove video"
+                  data-testid="remove-reel"
+                >
+                  <X size={14} />
+                </button>
+                <p className="text-[11px] text-emerald-600 font-semibold mt-1.5 text-center">
+                  Reel · {formatBytes(composer.reel.size_bytes)} · {composer.reel.duration_seconds}s
+                </p>
+              </div>
+            )}
+
+            {/* Upload progress bar */}
+            {uploading && (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 text-[11px] text-text-muted mb-1">
+                  <Loader2 size={12} className="animate-spin" /> Uploading… {uploadProgress}%
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-secondary transition-all" style={{ width: `${uploadProgress}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* Pickers — hidden when a reel is already attached or carousel is full */}
+            {composer.mode !== 'reel' && composer.slides.length === 0 && (
+              <div className="flex gap-3">
+                <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all" data-testid="photos-picker">
+                  <Layers className="mx-auto mb-1 text-text-muted" size={24} />
+                  <span className="text-sm text-text-secondary block">Add Photos</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">1–10 · JPG/PNG/WebP · 11 MB each</span>
+                  <input type="file" accept="image/*" multiple onChange={handlePhotosPicked} className="hidden" data-testid="photos-input" />
+                </label>
+                <label className="flex-1 border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all" data-testid="reel-picker">
+                  <Film className="mx-auto mb-1 text-text-muted" size={24} />
+                  <span className="text-sm text-text-secondary block">Add Reel</span>
+                  <span className="text-[10px] text-text-muted block mt-0.5">MP4/MOV · ≤ 30s · 50 MB</span>
+                  <input type="file" accept="video/*" onChange={handleReelPicked} className="hidden" data-testid="reel-input" />
+                </label>
+              </div>
             )}
 
             <button
               onClick={handleCreatePost}
-              disabled={posting}
+              disabled={posting || uploading}
               className="w-full mt-4 bg-primary hover:bg-primary-hover text-white font-medium py-3 rounded-full shadow-md hover:shadow-lg active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="submit-post-button"
             >
@@ -419,14 +513,6 @@ const FeedPage = ({ user }) => {
           onClose={() => setStoryGroup(null)}
           onNextGroup={() => setStoryGroup(null)}
           onPrevGroup={() => setStoryGroup(null)}
-        />
-      )}
-
-      {preparingFile && (
-        <MediaPreparer
-          file={preparingFile}
-          onClose={() => setPreparingFile(null)}
-          onConfirm={handleMediaPrepared}
         />
       )}
     </div>
@@ -464,7 +550,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
     lastTapRef.current = now;
   };
 
-  const hasMedia = !!(post.image || post.video);
+  const hasMedia = !!(post.image || post.video || (Array.isArray(post.slides) && post.slides.length));
 
   return (
     <motion.div
@@ -602,20 +688,10 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
         )
       )}
 
-      {/* Full-bleed media with double-tap to like */}
+      {/* Full-bleed media with double-tap to like — supports single, carousel, reel. */}
       {hasMedia && (
-        <div
-          className="relative bg-black select-none"
-          onClick={handleMediaTap}
-          onDoubleClick={handleMediaTap}
-          data-testid={`post-media-${index}`}
-        >
-          {post.image && (
-            <img src={post.image} alt="Post" className="w-full max-h-[560px] object-contain bg-black" draggable={false} />
-          )}
-          {post.video && (
-            <video src={post.video} controls className="w-full max-h-[560px] bg-black" />
-          )}
+        <div className="relative" onDoubleClick={handleMediaTap}>
+          <MediaRenderer post={post} onMediaTap={handleMediaTap} indexKey={String(index)} />
           <AnimatePresence>
             {showHeart && (
               <motion.div
