@@ -15,7 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import NetworkScore from '../components/NetworkScore';
 import { useNavigate } from 'react-router-dom';
 
-const buildInitialComposer = () => ({ content: '', mode: 'photos', slides: null, reel: null });
+const buildInitialComposer = () => ({ content: '', mode: 'photos', slides: [], reel: null });
 
 const FeedPage = ({ user }) => {
   const [posts, setPosts] = useState([]);
@@ -240,10 +240,10 @@ const FeedPage = ({ user }) => {
         onProgress: setUploadProgress,
       });
       setComposer((c) => ({
-        ...c,
-        mode: 'reel',
-        slides: c.slides.length ? [] : c.slides,
-        reel: {
+          ...c,
+          mode: 'reel',
+          slides: [],
+          reel: {
           url,
           duration_seconds: Math.round(duration || 0),
           size_bytes,

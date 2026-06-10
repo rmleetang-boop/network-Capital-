@@ -3410,7 +3410,7 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
                 "duration_seconds": s.duration_seconds,
             })
         media_type = media_type or "carousel"
-    # Reel = single vertical video ≤60s
+    # Reel = single vertical video ≤30s
     if media_type == "reel":
         if not (request.video or any(s.get("type") == "video" for s in slides_payload)):
             raise HTTPException(status_code=400, detail="A reel must include a video.")

@@ -199,3 +199,23 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - iter23: 18/18 Jobs+Resend.
 - iter24: 4/4 retest fixes.
 - iter25 / iter26 / iter27: 23/23 backend tests (Places + Network + Job-reactions + Admin + regressions) — FRONTEND smoke verified for avatar upgrade, /network 3-card layout, /admin bootstrap CTA. Full Playwright e2e on UI authenticated flows deferred (data-testid coverage now complete).
+- iter51 (Feb 28, 2026): 19/19 backend PASS for carousel + reels + announcements. Frontend smoke verified — composer opens, carousels render with dots + counter, reels render with 9:16 player + mute toggle.
+
+## Iter 51 (Feb 28, 2026) — Carousel + Reels for Feed & Admin Announcements
+### Backend
+- New `POST /api/uploads/media` (multipart) — streams to `/app/backend/uploads/<scope>/<filename>`. Scopes: `posts` (any auth user) / `announcements` (admin/super_admin only). Caps: 11 MB image, 50 MB video. Mime allowlist enforced. Files served via FastAPI `StaticFiles` mount at `/api/uploads/<scope>/<filename>`.
+- `Post` Pydantic model extended with `slides: List[Dict] | None`, `media_type: str | None` ("single" / "carousel" / "reel"), `duration_seconds: int | None`. `GET /api/posts` now surfaces these.
+- `POST /api/posts` accepts `slides` (2–10) for carousels and `video + media_type='reel' + duration_seconds ≤ 30` for reels.
+- `AdminAnnounceRequest` + `POST /api/admin/announce` extended with the same shape — admin announcements now support carousels and reels (max 30s) too.
+- Reel duration cap changed from 60s → **30s** (matches user spec).
+
+### Frontend
+- New `MediaRenderer` component (carousel with dots/arrows/counter, intersection-observer driven reel player with mute toggle).
+- `mediaUpload.js` helper (`uploadMedia`, `validateMediaFile`, `probeVideoDuration`, `resolveMediaUrl`).
+- `FeedPage` composer rewritten: "Add Photos" multi-select (1–10) + "Add Reel" (single, ≤30s). Live upload progress bar. Preview grid with per-slide remove and "+" add-more tile.
+- `AdminAnnouncePage` composer rewritten with the same Photos/Reel pickers + previews.
+
+### Testids
+- Feed composer: `create-post-button`, `create-post-modal`, `post-content-input`, `photos-picker`, `photos-input`, `reel-picker`, `reel-input`, `photo-previews`, `remove-slide-<i>`, `add-more-photos`, `reel-preview`, `remove-reel`, `submit-post-button`.
+- Feed render: `post-carousel-<index>`, `carousel-prev`, `carousel-next`, `carousel-dot-<i>`, `post-reel-<index>`, `reel-mute-toggle`.
+- Admin announce: `announce-content-input`, `announce-photos-picker`, `announce-photos-input`, `announce-reel-picker`, `announce-reel-input`, `announce-photo-previews`, `announce-remove-slide-<i>`, `announce-add-more-photos`, `announce-reel-preview`, `announce-remove-reel`, `announce-publish-button`, `announce-pin-checkbox`.
