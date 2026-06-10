@@ -10,7 +10,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
@@ -10577,6 +10577,399 @@ async def my_ambassador_dashboard(current_user: dict = Depends(get_current_user)
     if not current_user.get("is_ambassador"):
         raise HTTPException(status_code=403, detail="Ambassador access required")
     return await _ambassador_summary(current_user)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AMBASSADOR DASHBOARD 2.0 — COMMAND CENTER (iter 53)
+# Heavy-lift endpoint that powers the new Referral Growth Command Center UI:
+# stage classification, engagement scoring, AI insights, funnel, heatmap,
+# hidden bonus signals, gamification levels, autopilot toggle + email log.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+LEVEL_NAMES = [
+    ("Starter Ambassador",   0,     0),
+    ("Growth Ambassador",    5,     2_000),
+    ("Elite Ambassador",     20,    10_000),
+    ("Platinum Ambassador",  50,    25_000),
+    ("Diamond Ambassador",   100,   50_000),
+    ("Legend Ambassador",    250,   150_000),
+]
+
+
+def _level_for(recruit_count: int, total_contrib: int) -> Dict[str, Any]:
+    """Map recruits + contribution to a 6-tier ambassador level."""
+    current = LEVEL_NAMES[0]
+    nxt: Optional[Tuple[str, int, int]] = None
+    for i, level in enumerate(LEVEL_NAMES):
+        if recruit_count >= level[1] or total_contrib >= level[2]:
+            current = level
+            nxt = LEVEL_NAMES[i + 1] if i + 1 < len(LEVEL_NAMES) else None
+    progress_pct = 100.0
+    if nxt:
+        rec_gap = max(1, nxt[1] - current[1])
+        ctr_gap = max(1, nxt[2] - current[2])
+        rec_progress = min(100.0, (recruit_count - current[1]) / rec_gap * 100.0)
+        ctr_progress = min(100.0, (total_contrib - current[2]) / ctr_gap * 100.0)
+        progress_pct = max(0.0, min(100.0, max(rec_progress, ctr_progress)))
+    return {
+        "current": current[0],
+        "next": nxt[0] if nxt else None,
+        "progress_pct": round(progress_pct, 1),
+        "next_threshold": {"recruits": nxt[1] if nxt else None, "contribution": nxt[2] if nxt else None},
+    }
+
+
+def _classify_referral_stage(u: Dict[str, Any]) -> str:
+    """Place a referred user into the conversion funnel."""
+    if not u.get("email_verified"):
+        return "registered"
+    if not u.get("profile_completed"):
+        return "verified"
+    score = int(u.get("monthly_score") or 0)
+    if score >= 1000:
+        return "qualified"
+    if score > 0:
+        return "active"
+    return "profile_completed"
+
+
+def _engagement_score_for(u: Dict[str, Any], activity_30d: int) -> int:
+    """0–100 score combining profile, score, and recent activity."""
+    score = 0
+    if u.get("email_verified"):       score += 15
+    if u.get("profile_completed"):    score += 25
+    score += min(30, int((u.get("monthly_score") or 0) / 100))
+    score += min(30, activity_30d * 3)  # posts + comments + likes
+    return max(0, min(100, score))
+
+
+def _color_for(eng: int) -> str:
+    if eng >= 75: return "green"
+    if eng >= 50: return "yellow"
+    if eng >= 25: return "orange"
+    return "red"
+
+
+def _node_size_for(eng: int) -> int:
+    # 14..36 px diameter (consumed by SVG renderer)
+    return int(14 + (eng / 100.0) * 22)
+
+
+@api_router.get("/ambassador/command-center")
+async def ambassador_command_center(current_user: dict = Depends(get_current_user)):
+    """Iter 53 — single payload powering the new Referral Growth Command Center.
+
+    Returns: top KPIs, color-coded referral nodes for the network graph,
+    AI-style insights, funnel counts/percentages, 30-day heatmap, hidden bonus
+    teaser, gamification level, autopilot state."""
+    if not current_user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador access required")
+
+    uid = current_user["id"]
+    referred = await db.users.find(
+        {"referred_by": uid},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1,
+         "monthly_score": 1, "network_score": 1, "profile_completed": 1,
+         "email_verified": 1, "created_at": 1, "email": 1, "last_login": 1},
+    ).to_list(length=None)
+
+    ref_ids = [r["id"] for r in referred]
+
+    # Activity per referred user (last 30 days)
+    now = datetime.now(timezone.utc)
+    thirty_d_iso = (now - timedelta(days=30)).isoformat()
+
+    # Aggregate posts + comments + likes per user (last 30 days)
+    activity_by_user: Dict[str, int] = {u: 0 for u in ref_ids}
+    if ref_ids:
+        async for p in db.posts.find(
+            {"user_id": {"$in": ref_ids}, "created_at": {"$gte": thirty_d_iso}},
+            {"_id": 0, "user_id": 1},
+        ):
+            activity_by_user[p["user_id"]] = activity_by_user.get(p["user_id"], 0) + 1
+        async for c in db.comments.find(
+            {"user_id": {"$in": ref_ids}, "created_at": {"$gte": thirty_d_iso}},
+            {"_id": 0, "user_id": 1},
+        ):
+            activity_by_user[c["user_id"]] = activity_by_user.get(c["user_id"], 0) + 1
+
+    # Build network nodes + classify stages
+    nodes: List[Dict[str, Any]] = []
+    stage_counts = {"registered": 0, "verified": 0, "profile_completed": 0, "active": 0, "qualified": 0}
+    inactive_14d_iso = (now - timedelta(days=14)).isoformat()
+    inactive_count = 0
+    active_count = 0
+    near_qualifying = 0
+    needs_profile = 0
+
+    for r in referred:
+        activity = activity_by_user.get(r["id"], 0)
+        eng = _engagement_score_for(r, activity)
+        stage = _classify_referral_stage(r)
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+        last_login = r.get("last_login") or r.get("created_at") or ""
+        is_inactive = bool(last_login and last_login < inactive_14d_iso)
+        if is_inactive: inactive_count += 1
+        if activity > 0 or stage in ("active", "qualified"): active_count += 1
+        score = int(r.get("monthly_score") or 0)
+        if 800 <= score < 1000: near_qualifying += 1
+        if r.get("email_verified") and not r.get("profile_completed"): needs_profile += 1
+
+        # Profile-completion percentage (rough heuristic — backend has no canonical %)
+        completion = 0
+        if r.get("email_verified"): completion += 25
+        if r.get("profile_completed"): completion += 50
+        if (r.get("monthly_score") or 0) > 0: completion += 15
+        if activity > 0: completion += 10
+
+        nodes.append({
+            "id": r["id"],
+            "username": r.get("username"),
+            "full_name": r.get("full_name") or r.get("username"),
+            "photo": r.get("photo") or "",
+            "email": r.get("email") or "",
+            "stage": stage,
+            "color": _color_for(eng),
+            "size": _node_size_for(eng),
+            "engagement_score": eng,
+            "activity_30d": activity,
+            "last_activity": last_login,
+            "profile_completion_pct": min(100, completion),
+            "registration_date": r.get("created_at"),
+            "monthly_score": score,
+            "is_inactive": is_inactive,
+        })
+
+    # ── KPIs ────────────────────────────────────────────────────────────
+    incentive_state = await _ambassador_state(current_user)
+    qualified = stage_counts["qualified"]
+    pending = stage_counts["registered"] + stage_counts["verified"]
+    # Hidden bonus signal — only reveal a teaser, NOT the amount
+    hidden_bonus_zar = float(current_user.get("ambassador_bonus_zar") or 0)
+    hidden_bonus_active = hidden_bonus_zar > 0
+    streak_active = active_count >= 5  # 5+ active referrals lights the streak
+    unlock_pct = min(100.0, qualified / max(1, incentive_state["tier_referrals_required"][0]) * 100.0)
+
+    kpis = {
+        "wallet_balance": round(float(current_user.get("wallet_balance") or 0), 2),
+        "wallet_currency": current_user.get("currency") or "USD",
+        "available_withdrawal_zar": incentive_state["available_zar"],
+        "starting_balance_zar": incentive_state["starting_balance_zar"],
+        "paid_zar": incentive_state["paid_zar"],
+        "qualified_referrals": qualified,
+        "pending_referrals": pending,
+        "active_referrals": active_count,
+        "inactive_referrals": inactive_count,
+        "hidden_bonus_active": hidden_bonus_active,         # NOT the amount
+        "hidden_bonus_streak": streak_active,
+        "estimated_next_reward_zar": incentive_state["next_amount_zar"],
+        "tier_referrals_required": incentive_state["tier_referrals_required"],
+        "june_payout_locked": incentive_state["june_payout_locked"],
+    }
+
+    # ── Conversion funnel ──────────────────────────────────────────────
+    # We treat "invited" as recruit_count + a soft assumption of 50% conversion
+    # (pending real invite tracking on AmbassadorShareLink hits).
+    invited = max(len(referred), 1)
+    funnel = [
+        {"stage": "Invited",          "count": invited,                                          "pct": 100.0},
+        {"stage": "Registered",       "count": len(referred),                                    "pct": round(len(referred)/invited*100, 1)},
+        {"stage": "Verified",         "count": sum(1 for r in referred if r.get("email_verified")),"pct": 0.0},
+        {"stage": "Profile Completed","count": sum(1 for r in referred if r.get("profile_completed")),"pct": 0.0},
+        {"stage": "Active",           "count": active_count,                                     "pct": 0.0},
+        {"stage": "Qualified",        "count": qualified,                                        "pct": 0.0},
+    ]
+    # Compute downstream conversion vs Registered
+    base = max(1, len(referred))
+    for i, step in enumerate(funnel):
+        if i >= 2:  # everything below "Registered"
+            step["pct"] = round(step["count"] / base * 100, 1)
+
+    # ── 30-day heatmap (referral activity per day) ────────────────────
+    heatmap: Dict[str, int] = {}
+    for day_offset in range(30):
+        day = (now - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        heatmap[day] = 0
+    if ref_ids:
+        async for p in db.posts.find(
+            {"user_id": {"$in": ref_ids}, "created_at": {"$gte": thirty_d_iso}},
+            {"_id": 0, "created_at": 1},
+        ):
+            d = (p.get("created_at") or "")[:10]
+            if d in heatmap: heatmap[d] += 1
+        async for r in db.users.find(
+            {"referred_by": uid, "created_at": {"$gte": thirty_d_iso}},
+            {"_id": 0, "created_at": 1},
+        ):
+            d = (r.get("created_at") or "")[:10]
+            if d in heatmap: heatmap[d] += 1
+
+    # ── AI Insights (heuristic strings) ────────────────────────────────
+    insights: List[Dict[str, Any]] = []
+    if near_qualifying > 0:
+        insights.append({"tone": "positive", "text": f"{near_qualifying} referral{'s' if near_qualifying != 1 else ''} {'are' if near_qualifying != 1 else 'is'} close to qualifying — a nudge could push them over the line."})
+    if inactive_count > 0:
+        insights.append({"tone": "warning", "text": f"{inactive_count} referral{'s' if inactive_count != 1 else ''} {'have' if inactive_count != 1 else 'has'} not logged in for 14+ days."})
+    if needs_profile > 0:
+        insights.append({"tone": "info", "text": f"{needs_profile} referral{'s' if needs_profile != 1 else ''} need{'s' if needs_profile == 1 else ''} profile completion to start earning."})
+    gap = max(0, incentive_state["tier_referrals_required"][0] - qualified)
+    if gap > 0:
+        insights.append({"tone": "info", "text": f"Potential reward unlock in approximately {gap} more qualifying referral{'s' if gap != 1 else ''}."})
+    if streak_active:
+        insights.append({"tone": "positive", "text": "High Engagement Streak Active — keep the momentum to unlock bonus rewards."})
+    if not insights:
+        insights.append({"tone": "info", "text": "Share your referral link to start building your network."})
+
+    # ── Gamification level ─────────────────────────────────────────────
+    total_contrib = sum(int(r.get("monthly_score") or 0) for r in referred)
+    level = _level_for(len(referred), total_contrib)
+    level["lifetime_earnings_zar"] = round(float(current_user.get("ambassador_paid_zar") or 0) + incentive_state["available_zar"], 2)
+    level["lifetime_referrals"] = len(referred)
+
+    # ── Autopilot state ────────────────────────────────────────────────
+    autopilot = current_user.get("ambassador_autopilot") or {"enabled": False, "last_run": None, "sent_30d": 0}
+
+    return {
+        "generated_at": now.isoformat(),
+        "kpis": kpis,
+        "network": {
+            "ambassador": {
+                "id": uid,
+                "username": current_user.get("username"),
+                "full_name": current_user.get("full_name"),
+                "photo": current_user.get("photo") or "",
+            },
+            "nodes": nodes,
+        },
+        "insights": insights,
+        "funnel": funnel,
+        "heatmap": [{"date": d, "count": c} for d, c in sorted(heatmap.items())],
+        "hidden_bonus": {
+            "active": hidden_bonus_active,
+            "streak_active": streak_active,
+            "unlock_pct": round(unlock_pct, 1),
+            "signal_text": (
+                "Bonus Opportunity Detected — keep your top referrals engaged."
+                if hidden_bonus_active else
+                "Engagement Streak in progress — drive more activity to reveal bonuses." if streak_active else
+                "No bonus signals yet — get 5+ referrals active to start the streak."
+            ),
+        },
+        "level": level,
+        "autopilot": autopilot,
+    }
+
+
+# ── Engagement emails ─────────────────────────────────────────────────────────
+ENGAGEMENT_EMAIL_TYPES = {"motivation", "reminder", "profile", "verification", "reengagement"}
+
+
+def _engagement_email_body(email_type: str, referral: dict, ambassador: dict) -> Tuple[str, str]:
+    """Build (subject, body) for an engagement email — backend templated, simple HTML."""
+    full_name = referral.get("full_name") or referral.get("username") or "there"
+    amb_name = ambassador.get("full_name") or ambassador.get("username") or "your ambassador"
+    base_intro = f"Hi {full_name},"
+    sign_off = f"\n\n— {amb_name} on Network Capital\nhttps://networkcapitalapp.co.za"
+    if email_type == "profile":
+        return ("Complete your Network Capital profile",
+                f"{base_intro}\n\nComplete your profile to unlock more opportunities, Stokvel access, and rewards on Network Capital.{sign_off}")
+    if email_type == "verification":
+        return ("Verify your account on Network Capital",
+                f"{base_intro}\n\nVerify your account to unlock full access and rewards.{sign_off}")
+    if email_type == "reengagement":
+        return ("We miss you on Network Capital",
+                f"{base_intro}\n\nWe noticed you have not been active recently. Come back and continue building your network — your community is waiting.{sign_off}")
+    if email_type == "reminder":
+        return ("A quick reminder from Network Capital",
+                f"{base_intro}\n\nThere are new opportunities in your network. Log in and pick up where you left off.{sign_off}")
+    # default: motivation
+    return ("You're closer than you think on Network Capital",
+            f"{base_intro}\n\nYour profile is gaining momentum. A few more actions and you'll qualify for community rewards — keep going!{sign_off}")
+
+
+@api_router.post("/ambassador/referrals/{user_id}/engage")
+async def engage_referral(
+    user_id: str,
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a personalized engagement email and log it to ``engagement_emails``."""
+    if not current_user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador access required")
+    email_type = str(payload.get("type") or "").lower()
+    if email_type not in ENGAGEMENT_EMAIL_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown engagement type: {email_type}")
+    referral = await db.users.find_one({"id": user_id, "referred_by": current_user["id"]}, {"_id": 0})
+    if not referral:
+        raise HTTPException(status_code=404, detail="Referral not found in your network")
+
+    subject, body = _engagement_email_body(email_type, referral, current_user)
+    row = {
+        "id": str(uuid.uuid4()),
+        "ambassador_id": current_user["id"],
+        "referral_id": user_id,
+        "referral_email": referral.get("email") or "",
+        "type": email_type,
+        "subject": subject,
+        "status": "queued",
+        "delivered": False,
+        "opened": False,
+        "clicked": False,
+        "failed": False,
+        "last_error": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Try the existing email service (Brevo). If blocked, the row stays "queued"
+    # with last_error populated so the FE can show truthful status.
+    try:
+        from services.email_service import send_email
+        delivered = await send_email(to_email=referral.get("email"), subject=subject, body_text=body)
+        if delivered:
+            row.update({"status": "delivered", "delivered": True, "delivered_at": datetime.now(timezone.utc).isoformat()})
+        else:
+            row.update({"status": "failed", "failed": True, "last_error": "Email provider rejected the send (likely Brevo block)."})
+    except Exception as e:  # noqa: BLE001
+        row.update({"status": "failed", "failed": True, "last_error": str(e)[:240]})
+    await db.engagement_emails.insert_one(row)
+    return {"ok": True, "log": {k: v for k, v in row.items() if k != "_id"}}
+
+
+@api_router.get("/ambassador/engagement-log")
+async def ambassador_engagement_log(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """Recent engagement emails sent by this ambassador (newest first)."""
+    if not current_user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador access required")
+    cursor = db.engagement_emails.find(
+        {"ambassador_id": current_user["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(min(max(limit, 1), 200))
+    return {"items": await cursor.to_list(length=None)}
+
+
+@api_router.put("/ambassador/autopilot")
+async def toggle_ambassador_autopilot(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """Enable/disable Auto-Pilot Mode.
+
+    When enabled, a daily cron (see ``_run_ambassador_autopilot``) walks the
+    ambassador's network and fires the relevant cadence email if the referral
+    hasn't received one of that type in the last 7 days."""
+    if not current_user.get("is_ambassador"):
+        raise HTTPException(status_code=403, detail="Ambassador access required")
+    enabled = bool(payload.get("enabled"))
+    update = {"$set": {"ambassador_autopilot": {
+        "enabled": enabled,
+        "last_run": (current_user.get("ambassador_autopilot") or {}).get("last_run"),
+        "sent_30d": (current_user.get("ambassador_autopilot") or {}).get("sent_30d", 0),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }}}
+    await db.users.update_one({"id": current_user["id"]}, update)
+    return {"ok": True, "enabled": enabled}
 
 
 @api_router.get("/ambassadors/leaderboard")
