@@ -163,6 +163,9 @@ class User(BaseModel):
     ambassador_rank: Optional[str] = None
     # Withdrawal feature (iter 34)
     promotion_zar_balance: Optional[float] = 0.0
+    # Iter 52 — Creator v2
+    creator_type: Optional[str] = None              # "independent" | "growth"
+    creator_classification: Optional[str] = None    # entrepreneur, freelancer, coach, …
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None
@@ -5342,6 +5345,7 @@ async def share_product_og(username: str, slug: str, request: Request):
 
 
 from fastapi.responses import HTMLResponse  # noqa: E402  (kept local — only used here)
+import html as _html  # noqa: E402
 
 
 def _share_html_response(
@@ -5350,45 +5354,48 @@ def _share_html_response(
 ) -> HTMLResponse:
     base = f"{request.url.scheme}://{request.url.netloc}"
     canonical = f"{base}{redirect_to}"
-    safe_title = (title or "").replace('"', "&quot;")[:240]
-    safe_desc = (description or "").replace('"', "&quot;")[:480]
+    # Use html.escape to defend against <, >, & and " in user-supplied content.
+    safe_title = _html.escape((title or "")[:240], quote=True)
+    safe_desc = _html.escape((description or "")[:480], quote=True)
+    safe_canonical = _html.escape(canonical, quote=True)
     img_tags = ""
     if image:
+        safe_img = _html.escape(image, quote=True)
         img_tags = (
-            f'<meta property="og:image" content="{image}" />\n'
-            f'<meta name="twitter:image" content="{image}" />\n'
+            f'<meta property="og:image" content="{safe_img}" />\n'
+            f'<meta name="twitter:image" content="{safe_img}" />\n'
             '<meta name="twitter:card" content="summary_large_image" />\n'
         )
     else:
         img_tags = '<meta name="twitter:card" content="summary" />\n'
-    html = f"""<!doctype html>
+    html_body = f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>{safe_title}</title>
 <meta name="description" content="{safe_desc}" />
-<link rel="canonical" href="{canonical}" />
+<link rel="canonical" href="{safe_canonical}" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="{safe_title}" />
 <meta property="og:description" content="{safe_desc}" />
-<meta property="og:url" content="{canonical}" />
+<meta property="og:url" content="{safe_canonical}" />
 <meta property="og:site_name" content="Network Capital" />
 {img_tags}<meta name="twitter:title" content="{safe_title}" />
 <meta name="twitter:description" content="{safe_desc}" />
-<meta http-equiv="refresh" content="0;url={canonical}" />
+<meta http-equiv="refresh" content="0;url={safe_canonical}" />
 <style>body{{font-family:system-ui,-apple-system,sans-serif;background:#0a1628;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center}}a{{color:#f5d76e}}</style>
 </head>
 <body>
 <div>
 <h1 style="margin:0 0 8px">{safe_title}</h1>
 <p style="opacity:.75;max-width:520px;margin:0 auto 24px">{safe_desc}</p>
-<a href="{canonical}">Open on Network Capital →</a>
-<script>setTimeout(function(){{window.location.replace("{canonical}");}},80);</script>
+<a href="{safe_canonical}">Open on Network Capital →</a>
+<script>setTimeout(function(){{window.location.replace("{safe_canonical}");}},80);</script>
 </div>
 </body>
 </html>"""
-    return HTMLResponse(content=html, status_code=status_code)
+    return HTMLResponse(content=html_body, status_code=status_code)
 
 
 @api_router.post("/products/{product_id}/file-checkout")
