@@ -219,3 +219,46 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - Feed composer: `create-post-button`, `create-post-modal`, `post-content-input`, `photos-picker`, `photos-input`, `reel-picker`, `reel-input`, `photo-previews`, `remove-slide-<i>`, `add-more-photos`, `reel-preview`, `remove-reel`, `submit-post-button`.
 - Feed render: `post-carousel-<index>`, `carousel-prev`, `carousel-next`, `carousel-dot-<i>`, `post-reel-<index>`, `reel-mute-toggle`.
 - Admin announce: `announce-content-input`, `announce-photos-picker`, `announce-photos-input`, `announce-reel-picker`, `announce-reel-input`, `announce-photo-previews`, `announce-remove-slide-<i>`, `announce-add-more-photos`, `announce-reel-preview`, `announce-remove-reel`, `announce-publish-button`, `announce-pin-checkbox`.
+
+
+## Iter 52 (Feb 28, 2026) — Creator System v2
+### Backend
+- `User` extended with `creator_type` (`independent`|`growth`) + `creator_classification` (12 options).
+- `Product` extended with `slug`, `classification`, `tags`, `website`, `support_needed`, `support_categories[]`, `file_url/access/price`, `view_count`, `download_count`.
+- Auto-publish for Independent / `pending_review` for Growth.
+- `POST /api/uploads/file` (PDF/PPT/EPUB/DOC/XLS/ZIP ≤100 MB).
+- `GET /api/products/by-slug/<u>/<s>` + `POST /file-lead` + `GET /download` + `POST /file-checkout` (Stripe).
+- `GET /api/share/p/<u>/<s>` → full Open Graph HTML (works on WhatsApp/Twitter/FB/LinkedIn).
+- Boot backfill: 29 existing creators → Independent; all historic products got slugs + `creator_username` (idempotent).
+
+### Frontend
+- `CreateProductPage` wizard: Creator-Type chooser, Classification grid, Tags, Hero images, Website (Step 1); File picker + free/email-gated/paid access tiles + Growth-only Support section (Step 4); creator-type-aware review + button copy (Step 5).
+- New page `/p/:username/:slug` for shareable products (works for unauth + auth visitors).
+
+### Testing
+- Iter 52: 22/22 backend PASS; FE Playwright smoke-tested (KPI + composer + shared page).
+
+## Iter 53 (Feb 28, 2026) — Ambassador Backend Verification (carry-over from iter 50/51)
+- 27/27 backend PASS — `_check_ambassador_activity_unlock` uses 10-ref threshold, `/admin/ambassadors/{uid}/bonus` + `/bonus-adjust` work, no wallet fees, June Payout Block honored, all admin tools regressed clean.
+
+## Iter 54 (Feb 28, 2026) — Ambassador Dashboard 2.0 (Command Center)
+### Backend
+- `GET /api/ambassador/command-center` returns single payload: 8 KPIs, network nodes (color + size from engagement score), AI insights, 6-stage funnel, 30-day heatmap, hidden-bonus teaser, 6-tier level, autopilot state.
+- `POST /api/ambassador/referrals/{uid}/engage` (motivation|reminder|profile|verification|reengagement) — templated personalized email via Brevo, logged to `engagement_emails`.
+- `GET /api/ambassador/engagement-log?limit=N`.
+- `PUT /api/ambassador/autopilot` (enable/disable).
+- Stage classifier: registered → verified → profile_completed → active (score 1-999) → qualified (≥1000).
+- Engagement-score formula: 15(verified)+25(profile)+min(30,score/100)+min(30,activity*3) → cap 100. Colors: ≥75 green / ≥50 yellow / ≥25 orange / <25 red.
+
+### Frontend
+- New `/ambassadors/command-center` page — futuristic fintech command center with glassmorphism cards, SVG network graph (circular layout, color-coded nodes), AI Insights panel, Conversion Pipeline funnel, 30-day Heatmap, Hidden Bonus card, Level/Gamification card, Auto-Pilot toggle, Email Log slide-in drawer.
+- Node-click opens a right-side drawer showing full referral profile + 5 Smart Engagement Action buttons.
+- CTA button "Command center" added to `/ambassador-dashboard` header.
+
+### Testing
+- Iter 54: 22/22 backend PASS. FE smoke verified — all KPIs, graph, insights, funnel, heatmap, drawer, engage buttons, email log working.
+
+### Bug fixes from iter 54 test report
+- Engagement endpoint was importing non-existent `send_email` symbol — fixed to use the actual `send_transactional_email(to_email, subject, html_content, *, text_content)`. Emails now deliver via Brevo.
+- Sanitized `last_error` returned to FE — no longer leaks Python ImportError/stack traces. FE toast shows friendly "Email queued · provider unavailable" message instead of raw error.
+- Email log button: made testid visible on mobile (icon stays, label hides on small screens).

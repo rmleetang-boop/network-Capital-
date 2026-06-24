@@ -10919,17 +10919,40 @@ async def engage_referral(
         "last_error": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    # Try the existing email service (Brevo). If blocked, the row stays "queued"
-    # with last_error populated so the FE can show truthful status.
+    # Try the existing Brevo client. If blocked/misconfigured the row stays
+    # as "failed" with a SANITIZED error string for the FE — never leak Python
+    # internals (ImportError, stack traces) to end users.
+    delivered = False
+    sanitized_error: Optional[str] = None
     try:
-        from services.email_service import send_email
-        delivered = await send_email(to_email=referral.get("email"), subject=subject, body_text=body)
-        if delivered:
-            row.update({"status": "delivered", "delivered": True, "delivered_at": datetime.now(timezone.utc).isoformat()})
-        else:
-            row.update({"status": "failed", "failed": True, "last_error": "Email provider rejected the send (likely Brevo block)."})
+        from services.email_service import send_transactional_email
+        html_body = "<pre style=\"font-family:system-ui,sans-serif;white-space:pre-wrap\">" + body + "</pre>"
+        delivered = await send_transactional_email(
+            to_email=referral.get("email") or "",
+            subject=subject,
+            html_content=html_body,
+            text_content=body,
+            to_name=referral.get("full_name") or referral.get("username") or "",
+            tags=[f"engagement:{email_type}", "ambassador-cc"],
+        )
+        if not delivered:
+            sanitized_error = "Email provider rejected the send (provider currently unavailable)."
     except Exception as e:  # noqa: BLE001
-        row.update({"status": "failed", "failed": True, "last_error": str(e)[:240]})
+        logger.warning(f"[engage_referral] internal error: {e}")
+        sanitized_error = "Email service is temporarily unavailable. The send has been queued."
+
+    if delivered:
+        row.update({
+            "status": "delivered",
+            "delivered": True,
+            "delivered_at": datetime.now(timezone.utc).isoformat(),
+        })
+    else:
+        row.update({
+            "status": "failed",
+            "failed": True,
+            "last_error": sanitized_error or "Email send failed.",
+        })
     await db.engagement_emails.insert_one(row)
     return {"ok": True, "log": {k: v for k, v in row.items() if k != "_id"}}
 

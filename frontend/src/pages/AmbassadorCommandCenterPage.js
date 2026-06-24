@@ -342,9 +342,11 @@ const AmbassadorCommandCenterPage = ({ user }) => {
     try {
       const res = await axiosInstance.post(`/ambassador/referrals/${node.id}/engage`, { type });
       if (res.data.log?.status === 'delivered') {
-        toast.success('Email delivered.');
+        toast.success('Email delivered to ' + (node.email || 'referral'));
       } else {
-        toast.message('Queued — provider returned a soft failure, the row is logged.', { description: res.data.log?.last_error?.slice(0, 80) || '' });
+        toast.message('Email queued', {
+          description: 'Provider is currently unavailable — the send is logged and will retry.',
+        });
       }
       if (showLog) await loadLog();
     } catch (e) {
@@ -408,10 +410,10 @@ const AmbassadorCommandCenterPage = ({ user }) => {
         </div>
         <button
           onClick={() => { const next = !showLog; setShowLog(next); if (next) loadLog(); }}
-          className="hidden sm:inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white/8 hover:bg-white/15 border border-white/10"
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full bg-white/8 hover:bg-white/15 border border-white/10"
           data-testid="toggle-log"
         >
-          <Mail size={12} /> Email log
+          <Mail size={12} /> <span className="hidden sm:inline">Email log</span>
         </button>
         <button
           onClick={toggleAutopilot}
