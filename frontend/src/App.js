@@ -30,6 +30,8 @@ import ProductListPage from './pages/ProductListPage';
 import ProductDetailPage from './pages/ProductDetailPage';
 import SharedProductPage from './pages/SharedProductPage';
 import CreateProductPage from './pages/CreateProductPage';
+import MyStorePage from './pages/MyStorePage';
+import StorefrontPage from './pages/StorefrontPage';
 import NetWorthPage from './pages/NetWorthPage';
 import AudienceInsightsPage from './pages/AudienceInsightsPage';
 import RegionalHubsPage from './pages/RegionalHubsPage';
@@ -297,6 +299,9 @@ function App() {
             {/* Iter 52 — shareable slug-based product page */}
             <Route path="/p/:username/:slug" element={<SharedProductPage />} />
             <Route path="/products/:productId/insights" element={<AudienceInsightsPage user={user} />} />
+            {/* Iter 56 — seller dashboard + public storefront */}
+            <Route path="/my-store" element={<MyStorePage user={user} />} />
+            <Route path="/store/:username" element={<StorefrontPage user={user} />} />
             <Route path="/net-worth" element={<NetWorthPage user={user} />} />
             <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
             <Route path="/connections" element={<ConnectionsPage user={user} />} />

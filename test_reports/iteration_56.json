@@ -1,0 +1,50 @@
+{
+  "summary": "Iter 56 lean independent-creator flow — backend fully validated (12/12 pytest passes covering POST /products lean payload + drafts + More Options persistence, GET /products/me/dashboard, public GET /storefront/{username} hiding drafts, PUT /storefront/me customisation with name/bio length validation + reflection in storefront, 404 path, and auth requirements). Frontend smoke test confirms /my-store page is fully wired with all expected data-testids. /products/create renders the kind chooser but post-kind step-progression testids and Quick-Sell toggle are NOT visible. /store/:username renders but the documented storefront-search / storefront-follow / storefront-contact / storefront-share testids are absent.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CreateProductPage", "issue": "After clicking [data-testid=create-kind-product], the 4-step progress dots [data-testid=create-progress-1..4] are NOT rendered. Spec requires them visible on Step 1.", "selector": "[data-testid='create-progress-1']", "priority": "HIGH"},
+      {"component": "CreateProductPage", "issue": "Kind-chooser screen does not expose the [data-testid='create-switch-quick'] toggle. Spec requires it for switching to Quick Sell mode from the wizard.", "selector": "[data-testid='create-switch-quick']", "priority": "HIGH"},
+      {"component": "StorefrontPage", "issue": "Public storefront for /store/owner renders the store header but the spec-required testids storefront-search, storefront-follow, storefront-contact, storefront-share are NOT present in DOM. Could not validate search/filter/follow/contact/share flows.", "selector": "[data-testid='storefront-search']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MyStorePage", "issues": ["A large 'Community participation pays.' welcome modal opens on /my-store and obscures the page on first load — may interrupt the 'sell in <2 min' UX target. Consider not auto-opening on /my-store route."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56_lean_creator_flow.py",
+    "/app/test_reports/pytest/iter56_results.xml"
+  ],
+  "action_items": [
+    "Frontend — verify CreateProductPage renders [data-testid='create-progress-1..4'] on Steps 1-4 of the wizard. They were missing on Step 1 in this run after clicking Product kind.",
+    "Frontend — add or surface [data-testid='create-switch-quick'] on the kind-chooser / Step 1 so users can flip to Quick Sell. Currently no element with that testid is in DOM.",
+    "Frontend — StorefrontPage at /store/:username must expose [data-testid='storefront-search'], 'storefront-follow', 'storefront-contact', 'storefront-share' (and 'storefront-own-edit' for owner view). None were present when visiting /store/owner unauthenticated.",
+    "UX — Suppress the 'Community participation pays.' onboarding modal on the seller dashboard route (/my-store) so it doesn't compete with the 'Sell another product' CTA on landing."
+  ],
+  "critical_code_review_comments": [
+    "Backend lean-flow defaults logic at server.py:5151-5157 is correct — estimated_cost cleanly falls back through price_min → min_support → 0.0 so the iter 56 wizard (price-only) does not 422. Verified by test_publish_true_produces_approved_with_defaults.",
+    "Draft path at server.py:5145-5149 is well-isolated: publish=False sets status='draft' independent of creator_type, so Growth creators can also save drafts (intended). Message string 'Saved as draft' is stable for FE detection.",
+    "Public /storefront/{username} (server.py:5310) correctly filters status='approved' only — drafts hidden as spec'd. Note: case-insensitive username regex, so /store/Owner and /store/owner both work — good for share-link robustness.",
+    "PUT /storefront/me (server.py:5367) length validations (name 2–60, bio ≤280) implemented and enforced — confirmed by tests. Edge case: passing empty string clears the field (sets None), which is the intended 'reset to default'.",
+    "Minor — server.py:5278-5289 wraps product_orders aggregation behind list_collection_names() check; safe but issues an extra round-trip every dashboard call. Could be cached or simply try/except. Low priority.",
+    "Minor — server.py:5338-5340 recomputes follower_count via a second db.products.find() instead of reusing the already-fetched products list. Two-query overhead per public storefront hit; can be unified.",
+    "Frontend — qrcode.react package version (~4.2.0) is the modern API — usage should be 'QRCodeSVG' not 'QRCode'. Verify PublishSuccessModal & MyStorePage import the named SVG export, else nothing renders."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter56_lean_creator_flow.py (new — 12 pytest tests for iter 56 backend)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "~50% — /my-store fully wired; /products/create kind-chooser present but progress dots + quick-sell toggle missing post-kind selection; /store/:username search/follow/contact/share testids missing"
+  },
+  "test_credentials": "Used standing owner account rmleetang@gmail.com / OwnerTest123! (verified working in this run). Brevo is live so /auth/send-otp no longer returns _mock_code — fresh-user signup path is now infeasible from automated tests without DB write. Recommend the main agent keep the owner account verified for QA going forward, or expose a TEST-only OTP bypass.",
+  "seed_data_creation": "Created ~5 test products under owner account during tests (mix of approved + 1 draft). Owner's store_name was customised to 'QA Custom Store' and store_bio to 'Hello from the QA harness.' via PUT /storefront/me. These persist in DB — main agent can reset via PUT /storefront/me with name=null / bio=null if desired.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_iter56_lean_creator_flow.py uses the owner account login (Brevo is live so OTP-mock signup is broken — owner login is the supported QA path). Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env|cut -d= -f2) pytest backend/tests/test_iter56_lean_creator_flow.py -v. Frontend issues to retest after fixes: (1) /products/create progress dots + switch-quick toggle, (2) /store/:username search/follow/contact/share buttons. /my-store is fully testid-compliant. Owner's store now has custom_name='QA Custom Store' — if you need to test the auto-default '<first_name>'s Store' branch, first clear it via PUT /storefront/me {name:null}.",
+  "rca_of_the_issue": "FE smoke test executed against /products/create showed the kind-chooser tiles render with the correct testids (create-kind-product, create-kind-service). After clicking Product, the page transitioned but none of create-progress-1..4 nor create-save-draft / create-publish-now were found in DOM. Hypothesis: either (a) the wizard step components don't yet have those testids attached (most likely — CreateProductPage.js was 'completely rewritten' per the request and testid wiring may have been missed on the step components), or (b) the click on the kind tile didn't actually advance to Step 1 (less likely given the URL & title remained stable). REPRO: load /products/create as authed user → click [data-testid=create-kind-product] → wait 1.5s → query [data-testid=create-progress-1] — returns null. Mitigation: main agent should grep CreateProductPage.js for 'create-progress' and 'create-switch-quick' and confirm those testids are rendered on the correct sub-component for Step 1; same for StorefrontPage.js for storefront-search/follow/contact/share."
+}

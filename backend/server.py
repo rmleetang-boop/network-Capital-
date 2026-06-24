@@ -357,11 +357,11 @@ class DepositRequest(BaseModel):
 
 class CreateProductRequest(BaseModel):
     name: str
-    problem_solved: str
+    problem_solved: Optional[str] = ""           # iter 56 — optional, defaults to empty
     description: Optional[str] = ""
-    estimated_cost: float
-    timeline: str  # e.g., "3 months", "6 months"
-    interest_level: str  # "idea", "prototype", "ready_to_launch"
+    estimated_cost: Optional[float] = None       # iter 56 — optional (defaults to price_min)
+    timeline: Optional[str] = "now"              # iter 56 — optional default
+    interest_level: Optional[str] = "ready_to_launch"  # iter 56 — optional default
     category: Optional[str] = "general"
     release_date: Optional[str] = None
     min_support: Optional[float] = 10.0
@@ -392,6 +392,14 @@ class CreateProductRequest(BaseModel):
     file_mime: Optional[str] = None
     file_access: Optional[str] = None          # "free" | "email_gated" | "paid"
     file_price: Optional[float] = None         # required when file_access == "paid"
+    # Iter 56 — lean Independent-creator flow
+    publish: Optional[bool] = True             # False → save as draft (status='draft')
+    # Iter 56 — More Options (all optional, all stored as-is for future surfacing)
+    inventory_qty: Optional[int] = None
+    shipping_options: Optional[List[Dict[str, Any]]] = None
+    refund_policy: Optional[str] = None
+    variants: Optional[List[Dict[str, Any]]] = None
+    delivery_options: Optional[List[str]] = None
 
 class Product(BaseModel):
     id: str
@@ -5132,10 +5140,21 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         n += 1
         slug = f"{raw}-{n}"
 
-    # ── Auto-publish for Independent; pending for Growth
+    # ── Auto-publish for Independent; pending for Growth; explicit draft if requested
     now_iso = datetime.now(timezone.utc).isoformat()
-    status = "approved" if creator_type == "independent" else "pending_review"
+    if request.publish is False:
+        status = "draft"
+    else:
+        status = "approved" if creator_type == "independent" else "pending_review"
     approved_at = now_iso if status == "approved" else None
+
+    # Iter 56 — lean flow defaults: estimated_cost falls back to price_min/min_support,
+    # so the new 4-step wizard (which only collects price) doesn't 422.
+    effective_estimated_cost = (
+        request.estimated_cost
+        if request.estimated_cost is not None
+        else (request.price_min if request.price_min is not None else request.min_support or 0.0)
+    )
 
     product_data = {
         "id": product_id,
@@ -5144,11 +5163,11 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         "creator_username": base_username,
         "slug": slug,
         "name": request.name,
-        "problem_solved": request.problem_solved,
+        "problem_solved": request.problem_solved or "",
         "description": request.description or "",
-        "estimated_cost": request.estimated_cost,
-        "timeline": request.timeline,
-        "interest_level": request.interest_level,
+        "estimated_cost": effective_estimated_cost,
+        "timeline": request.timeline or "now",
+        "interest_level": request.interest_level or "ready_to_launch",
         "category": request.category or "general",
         "release_date": request.release_date,
         "min_support": request.min_support or 10.0,
@@ -5186,6 +5205,12 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         "file_price": float(request.file_price) if request.file_price else None,
         "download_count": 0,
         "view_count": 0,
+        # Iter 56 — More Options (all optional, persisted as-is)
+        "inventory_qty": request.inventory_qty,
+        "shipping_options": request.shipping_options or None,
+        "refund_policy": (request.refund_policy or "").strip() or None,
+        "variants": request.variants or None,
+        "delivery_options": request.delivery_options or None,
     }
 
     await db.products.insert_one(product_data)
@@ -5200,7 +5225,12 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
 
     if "_id" in product_data:
         del product_data["_id"]
-    msg = "Published" if status == "approved" else "Product submitted for review"
+    if status == "draft":
+        msg = "Saved as draft"
+    elif status == "approved":
+        msg = "Published"
+    else:
+        msg = "Product submitted for review"
     return {"message": msg, "product": product_data}
 
 @api_router.get("/products")
@@ -5221,6 +5251,140 @@ async def get_my_products(current_user: dict = Depends(get_current_user)):
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     return {"products": products}
+
+
+# ============ Iter 56 — Seller Dashboard + Public Storefront ============
+@api_router.get("/products/me/dashboard")
+async def get_seller_dashboard(current_user: dict = Depends(get_current_user)):
+    """Lean seller-dashboard payload for the new MyStorePage.
+
+    Returns: wallet_balance, total_sales, active_orders, product_views, followers_count,
+    product_count, draft_count, and the seller's auto-store-name.
+    """
+    uid = current_user["id"]
+    products = await db.products.find(
+        {"creator_id": uid},
+        {"_id": 0, "id": 1, "name": 1, "status": 1, "view_count": 1, "followers": 1,
+         "currency": 1, "price_min": 1, "min_support": 1, "type": 1, "images": 1,
+         "slug": 1, "creator_username": 1, "created_at": 1, "category": 1},
+    ).sort("created_at", -1).to_list(length=None)
+
+    product_views = sum(int(p.get("view_count") or 0) for p in products)
+    followers_count = sum(len(p.get("followers") or []) for p in products)
+    draft_count = sum(1 for p in products if p.get("status") == "draft")
+    published_count = sum(1 for p in products if p.get("status") == "approved")
+
+    # Total sales = sum of paid file-downloads (existing) + wallet inflows tagged as product_sale
+    sales_agg = await db.product_orders.aggregate([
+        {"$match": {"seller_id": uid, "status": {"$in": ["paid", "delivered", "completed"]}}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
+    ]).to_list(length=1) if "product_orders" in await db.list_collection_names() else []
+    total_sales = float(sales_agg[0]["total"]) if sales_agg else 0.0
+    sales_count = int(sales_agg[0]["count"]) if sales_agg else 0
+
+    active_orders = 0
+    if "product_orders" in await db.list_collection_names():
+        active_orders = await db.product_orders.count_documents(
+            {"seller_id": uid, "status": {"$in": ["pending", "processing", "paid"]}}
+        )
+
+    first_name = (current_user.get("full_name") or current_user.get("username") or "My").split()[0]
+    custom_store_name = current_user.get("store_name")
+    store_name = (custom_store_name or f"{first_name}'s Store").strip()
+
+    return {
+        "wallet_balance": float(current_user.get("wallet_balance") or 0),
+        "total_sales": total_sales,
+        "sales_count": sales_count,
+        "active_orders": active_orders,
+        "product_views": product_views,
+        "followers_count": followers_count,
+        "product_count": published_count,
+        "draft_count": draft_count,
+        "store_name": store_name,
+        "store_username": current_user.get("username"),
+        "recent_products": products[:6],
+    }
+
+
+@api_router.get("/storefront/{username}")
+async def get_public_storefront(username: str):
+    """Public storefront page — seller info + their published products + store metadata.
+
+    Buyers (unauth or auth) land here. Draft + pending products are hidden.
+    Ownership is determined client-side by comparing the seller's username with
+    the logged-in user's username (avoids requiring auth on a public surface).
+    """
+    seller = await db.users.find_one(
+        {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "bio": 1,
+         "country": 1, "city": 1, "profession": 1, "store_name": 1, "store_bio": 1,
+         "store_cover": 1, "is_creator": 1, "network_score": 1, "rank": 1,
+         "creator_classification": 1, "creator_type": 1, "premium": 1},
+    )
+    if not seller:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    first_name = (seller.get("full_name") or seller.get("username") or "My").split()[0]
+    store_name = (seller.get("store_name") or f"{first_name}'s Store").strip()
+
+    products = await db.products.find(
+        {"creator_id": seller["id"], "status": "approved"},
+        {"_id": 0, "followers": 0, "supports": 0,
+         "support_needed": 0, "support_categories": 0, "support_message": 0,
+         "file_url": 0},
+    ).sort("created_at", -1).to_list(length=None)
+
+    follower_count = sum(len(p.get("followers") or []) for p in await db.products.find(
+        {"creator_id": seller["id"]}, {"_id": 0, "followers": 1}
+    ).to_list(length=None))
+
+    return {
+        "store": {
+            "name": store_name,
+            "bio": seller.get("store_bio") or seller.get("bio") or "",
+            "cover": seller.get("store_cover") or None,
+            "owner_username": seller["username"],
+            "owner_full_name": seller.get("full_name"),
+            "owner_photo": seller.get("photo"),
+            "owner_premium": bool(seller.get("premium")),
+            "owner_classification": seller.get("creator_classification"),
+            "country": seller.get("country"),
+            "city": seller.get("city"),
+            "product_count": len(products),
+            "follower_count": follower_count,
+        },
+        "products": products,
+    }
+
+
+class CustomizeStoreRequest(BaseModel):
+    name: Optional[str] = None
+    bio: Optional[str] = None
+    cover: Optional[str] = None
+
+
+@api_router.put("/storefront/me")
+async def customize_my_storefront(payload: CustomizeStoreRequest, current_user: dict = Depends(get_current_user)):
+    """Let the seller customise their auto-store (name/bio/cover). Optional — defaults work without this."""
+    updates: Dict[str, Any] = {}
+    if payload.name is not None:
+        name = payload.name.strip()
+        if name and (len(name) < 2 or len(name) > 60):
+            raise HTTPException(status_code=400, detail="Store name must be 2–60 characters.")
+        updates["store_name"] = name or None
+    if payload.bio is not None:
+        bio = payload.bio.strip()
+        if bio and len(bio) > 280:
+            raise HTTPException(status_code=400, detail="Store bio must be 280 characters or fewer.")
+        updates["store_bio"] = bio or None
+    if payload.cover is not None:
+        updates["store_cover"] = (payload.cover or "").strip() or None
+    if not updates:
+        return {"ok": True, "updated": 0}
+    await db.users.update_one({"id": current_user["id"]}, {"$set": updates})
+    return {"ok": True, "updated": len(updates), **updates}
+
 
 @api_router.get("/products/{product_id}")
 async def get_product(product_id: str):
