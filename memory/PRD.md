@@ -329,3 +329,21 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 ### Out of scope (next)
 - **Phase 3** — Cart drawer + Buyer checkout (Wallet + Stripe). EFT + Mobile Money pending Paystack keys.
 - **Phase 4** — Inline `/store/customize` page for store name/bio/cover edits.
+
+
+## Iter 56c (Feb 28, 2026) — Share-URL Canonical Domain Hot-fix
+**User-reported bug**: Share links rendered as `https://stokvel-plus.cluster-5.deploy.emergentcf.cloud/p/<u>/<s>` instead of the canonical `https://networkcapitalapp.co.za/p/<u>/<s>`.
+
+### Root cause
+`_share_html_response` built the OG canonical URL from `request.url.netloc` — so the cluster/preview host leaked into og:url, `<link rel="canonical">`, meta refresh, and the JS `window.location.replace()`. WhatsApp/Twitter cached preview cards with the wrong host.
+
+### Fix
+- `server.py::_share_html_response` hardcodes `base = "https://networkcapitalapp.co.za"` — all 4 URL emission points (canonical, og:url, meta refresh, JS redirect) now carry the prod brand domain regardless of which environment a crawler hit.
+- `SharedProductPage.js` Share button hardcoded to `https://networkcapitalapp.co.za/api/share/p/<u>/<s>`.
+- `ShareMenu.js` (post share) backend constant hardcoded to `https://networkcapitalapp.co.za`.
+- `og:image` deliberately still uses request-host (uploaded images live on whichever backend received them).
+
+### Testing
+- Iter 56c: 20/20 backend pytest PASS (8 new canonical-domain + 12 iter56 regression).
+- Frontend Share button verified live via Playwright clipboard capture.
+- Regression guard: `/app/backend/tests/test_iter56c_share_canonical.py`.

@@ -34,7 +34,6 @@ const TelegramIcon = (props) => (
 const ShareMenu = ({ post, onShared, onClose }) => {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
-  const appUrl = window.location.origin;
   // Iter 56b — share URL always points at the production brand domain so the
   // visible URL in WhatsApp/Twitter previews is networkcapitalapp.co.za rather
   // than the preview/cluster pod hostname.
