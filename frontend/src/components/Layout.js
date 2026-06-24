@@ -21,8 +21,11 @@ const Layout = ({ children, user, onLogout }) => {
     }
     return location.pathname === path;
   };
-  // Hide bottom nav on DM pages (Instagram-style full-screen chat)
-  const hideBottomNav = location.pathname.startsWith('/messages');
+  // Hide bottom nav on DM pages (Instagram-style full-screen chat) and on the
+  // iter 56 product-creation flow (sticky publish footer needs the bottom edge).
+  const hideBottomNav =
+    location.pathname.startsWith('/messages') ||
+    location.pathname === '/products/create';
 
   return (
     <div className={`min-h-screen bg-background-DEFAULT ${hideBottomNav ? '' : 'pb-20'}`}>

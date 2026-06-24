@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 const SHARE_BASE_URL = 'https://networkcapitalapp.co.za';
 
 const CATEGORY_LABELS = {
-  general: 'All', tech: 'Tech', fashion: 'Fashion', food: 'Food', services: 'Services',
+  general: 'General', tech: 'Tech', fashion: 'Fashion', food: 'Food', services: 'Services',
   beauty: 'Beauty', health: 'Health', education: 'Education', home: 'Home', art: 'Art',
 };
 

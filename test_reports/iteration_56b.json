@@ -1,0 +1,41 @@
+{
+  "summary": "Iter 56b re-verification — ALL previously reported iter 56 frontend gaps are FIXED. Backend regression suite (test_iter56_lean_creator_flow.py) re-ran: 12/12 PASS. End-to-end Playwright validation covered all 6 frontend test groups (FE#1 kind chooser + Step 1 testids, FE#2 full publish E2E, FE#3 Save Draft path, FE#4 Quick Sell mode, FE#5 public storefront as unauthenticated visitor, FE#6 /my-store dashboard) — every testid in the spec is present and clickable, PromotionsWelcomeModal is correctly suppressed on the 3 commerce routes, and /store/:username renders for unauthenticated users without redirecting to landing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Publish success modal -> View Store", "issue": "[publish-view-store] navigates to /store/<username> (public storefront) rather than /my-store as worded in the iter 56b spec. Functionally the newly-published product DOES appear and is visible to the user, but if the intent is that 'View Store' = the owner's dashboard, the destination should be /my-store. If the intent is 'preview my public storefront', current behaviour is correct — please clarify.", "affected_selectors": ["[data-testid='publish-view-store']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56_lean_creator_flow.py",
+    "/app/test_reports/pytest/iter56b_results.xml"
+  ],
+  "action_items": [
+    "(Optional / clarification) Decide intended destination of [publish-view-store]: today it lands on /store/<username> (public storefront). The iter 56b spec text expected /my-store. Either repoint the click handler OR update the spec/copy."
+  ],
+  "critical_code_review_comments": [
+    "PromotionsWelcomeModal suppression guard in /app/frontend/src/components/PromotionsWelcomeModal.js (line 22) works correctly — modal does NOT auto-open on /products/create, /my-store, or /store/<username>. Verified via DOM probe on all three routes.",
+    "Layout.js hideBottomNav rule for /products/create is effective — sticky 'Continue' / 'Publish' footer is reachable; no z-index overlap observed.",
+    "App.js /store/:username public route is correctly accessible without auth — confirmed by clearing localStorage/sessionStorage and visiting /store/owner: page renders all 5 spec testids and 9 product tiles instead of redirecting to LandingPage.",
+    "StorefrontPage CATEGORY_LABELS fix is live — chip row shows ['All', 'General'] (no duplicate 'All') and category filtering works.",
+    "PublishSuccessModal correctly differentiates Live vs Draft state — Live shows publish-qr-block + publish-share-link, Draft hides both and shows 'Draft only' amber banner while still exposing publish-sell-another.",
+    "QR code in PublishSuccessModal renders as <svg> inside [data-testid='publish-qr-block'] — confirms the qrcode.react v4 named-import (QRCodeSVG) is wired correctly.",
+    "Share URL format is correct: 'https://networkcapitalapp.co.za/p/<username>/<slug>' — verified slug generation from product name (e.g. 'E2E Test Sale' -> 'e2e-test-sale')."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "~98% — all 6 spec groups pass; one minor copy/routing question on publish-view-store destination"
+  },
+  "test_credentials": "Owner rmleetang@gmail.com / OwnerTest123! (username='owner') used throughout. Login worked first attempt. Brevo still live so OTP-mock signup remains infeasible — confirmed owner account is the supported QA path.",
+  "seed_data_creation": "Added 3 new products under owner during this run: 'E2E Test Sale' (Live, ZAR 199, Step-by-step path), 'E2E Draft Sale' (Draft, ZAR 299), 'E2E Quick Sale' (Live, ZAR 99, Quick-Sell path). QA Custom Store now has 9 approved + 1 draft visible. Main agent can prune via DELETE /api/products/<id> or leave for next regression.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 56b green. /app/backend/tests/test_iter56_lean_creator_flow.py is still the canonical pytest file for this surface (12/12). For frontend regression in next iters: login at /auth (NOT /login — /login is unauthed alias that 302s to LandingPage), then exercise /products/create (kind chooser -> Step 1-4 wizard with create-progress-1..4 testids, or [data-testid=create-switch-quick] for Quick Sell). All commerce-route testids confirmed working. Publish-success modal exposes share link as https://networkcapitalapp.co.za/p/<username>/<slug> and QR as an inline SVG. Note: file-input testid create-photo-input is on the <label>, not the <input>; use a JS evaluate to grab the nested 'input[type=file]' before set_input_files in Playwright.",
+  "rca_of_the_issue": "Previously (iter 56) the missing testids were due to (a) a global PromotionsWelcomeModal with z-index 100 intercepting clicks on /products/create — clicks to advance past the kind chooser silently failed because the click target was the modal overlay, not the kind tile; (b) /store/:username was inside the auth-gated route block in App.js, so unauthenticated visitors were 302'd to LandingPage before StorefrontPage could mount and emit its testids. Both root causes are now fixed: PromotionsWelcomeModal.js short-circuits its render on /products/create, /my-store, /store/*, and /store/:username is duplicated into both auth-required and unauthenticated route blocks in App.js so it resolves regardless of session. Verified in this run by DOM probe + successful click-through on all interactive elements."
+}

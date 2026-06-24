@@ -20,6 +20,10 @@ const PromotionsWelcomeModal = ({ user }) => {
 
   useEffect(() => {
     if (!user) return;
+    // Iter 56 — never auto-open on commerce-flow routes (interrupts the <2-min selling flow).
+    const path = (typeof window !== 'undefined' && window.location?.pathname) || '';
+    const SUPPRESS = ['/products/create', '/my-store', '/store/'];
+    if (SUPPRESS.some((p) => path === p || path.startsWith(p))) return;
     const last = (() => { try { return localStorage.getItem(STORAGE_KEY); } catch { return null; } })();
     if (last === todayKey()) return;
     let cancelled = false;

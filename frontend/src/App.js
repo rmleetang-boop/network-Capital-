@@ -224,7 +224,8 @@ function App() {
         && !window.location.pathname.startsWith('/auth')
         && !window.location.pathname.startsWith('/forgot-password')
         && !window.location.pathname.startsWith('/reset-password')
-        && !window.location.pathname.startsWith('/p/')) {
+        && !window.location.pathname.startsWith('/p/')
+        && !window.location.pathname.startsWith('/store/')) {
       return (
         <>
           <Toaster position="top-center" />
@@ -238,6 +239,8 @@ function App() {
               <Route path="/r/:username" element={<ReferralLandingPage />} />
               {/* Iter 52 — shareable product page (unauth visitors) */}
               <Route path="/p/:username/:slug" element={<SharedProductPage />} />
+              {/* Iter 56 — public storefront (unauth buyers) */}
+              <Route path="/store/:username" element={<StorefrontPage user={null} />} />
               <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             </Routes>
           </BrowserRouter>
@@ -262,6 +265,8 @@ function App() {
             <Route path="/r/:username" element={<ReferralLandingPage />} />
             {/* Iter 52 — shareable product page accessible without auth too */}
             <Route path="/p/:username/:slug" element={<SharedProductPage />} />
+            {/* Iter 56 — public storefront accessible without auth too */}
+            <Route path="/store/:username" element={<StorefrontPage user={null} />} />
             <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
