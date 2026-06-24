@@ -262,3 +262,40 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - Engagement endpoint was importing non-existent `send_email` symbol — fixed to use the actual `send_transactional_email(to_email, subject, html_content, *, text_content)`. Emails now deliver via Brevo.
 - Sanitized `last_error` returned to FE — no longer leaks Python ImportError/stack traces. FE toast shows friendly "Email queued · provider unavailable" message instead of raw error.
 - Email log button: made testid visible on mobile (icon stays, label hides on small screens).
+
+
+## Iter 55 (Feb 28, 2026) — Production hot-fix bundle
+**Trigger**: live users reported (a) images crashing on feed, (b) shared link previews missing, (c) ambassador welcome email no longer showed wallet balance, (d) owner needed a manual wallet-adjust tool. Four fixes shipped together.
+
+### Backend
+- `Post.image_data_url` + `Story.image_data_url` model fields added — base64 fallback survives `/app/backend/uploads/` wipes on prod redeploy until S3/R2 migration lands.
+- `POST /api/admin/users/{user_id}/wallet-adjust` (require_super_pin) — credit/debit any wallet, abs(delta) ≤ 1,000,000, debit auto-capped at current balance (no overdraft), writes `wallet_adjustments` doc + `AuditLog` row + in-app notification for target user.
+- `_role_change_html(..., wallet_info=)` — ambassador role grant email now surfaces starting_balance_zar + available_zar in a wallet card.
+- `_notify_role_change` fetches fresh `_ambassador_state` and threads wallet_info into the email for ambassador promotions.
+- New OG endpoints: `GET /api/share/u/{username}`, `/api/share/post/{post_id}`, `/api/share/r/{username}` — full og: + twitter: meta + JS redirect to SPA route.
+
+### Frontend
+- New `SafeImage` component — three-state (primary → fallback base64 → "Image unavailable" placeholder w/ ImageOff icon). Wired through `MediaRenderer` so every feed image / story / product card is now crash-proof.
+- New `WalletAdjustModal` (Super-Admin only) — credit/debit toggle, amount + reason inputs, before/after preview, confirm-dialog, posts to `/api/admin/users/{id}/wallet-adjust` with `X-Super-PIN-Token` header.
+- AdminProfileDetailPage shows "Wallet ± adjust" tile (data-testid=`action-wallet-adjust`) when viewer is super_admin.
+
+### Testing
+- Iter 55: 13/13 backend PASS — OG endpoints, wallet-adjust (every guard tested incl. 401/403/400/cap/audit/notification), ambassador grant email confirmed firing via [MAIL-SENT].
+
+## Iter 55b (Feb 28, 2026) — Ambassador welcome email de-dup
+**Bug from iter 55 test report**: every new ambassador received TWO welcome emails — the legacy "Welcome to the Network Capital Ambassador Program" (from `_allocate_ambassador_balance`) AND the new iter 55 "Welcome to the Network Capital Ambassador programme" (from `_notify_role_change`). Only the iter 55 one carried the wallet balance.
+
+### Fix
+- Removed the entire email-send try/except from `_allocate_ambassador_balance` — function now only persists balance + writes `ambassador_audit` row.
+- Enriched `_role_change_html` (when granted+ambassador+wallet_info) with the "How to earn" + "Withdrawal rules" content the legacy email used to carry.
+- `_notify_role_change` is now the **sole** ambassador welcome-email path. `admin_make_ambassador` already guards with `prev_was_ambassador != is_amb` so re-toggling doesn't duplicate.
+
+### Testing
+- Iter 55b: 18/18 backend PASS (5 new dedupe tests + 13 iter55 regression). Tail of backend.err.log confirms exactly one [MAIL-SENT] event per grant. Idempotency on repeat-grant verified (zero extra MAIL-SENT).
+
+## Pending / next priorities
+- **P0** — Migrate Reels/Carousel/Creator-file uploads to **Cloudflare R2 or S3** (Emergent confirmed no persistent disk on any plan; local `/app/backend/uploads/` wipes on every redeploy). Awaiting user keys.
+- **P1** — Paystack live integration for NGN/GHS/KES/ZAR (awaiting user test keys).
+- **P2** — Super Admin Global Dashboard Control (paused by user — needs scope discussion).
+- **P2** — Capacitor wrap for iOS/Android.
+- **P3** — Live FX rates via exchangerate.host; Driver Pool extension; modularize 13k-line server.py.
