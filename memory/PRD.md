@@ -299,3 +299,33 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - **P2** — Super Admin Global Dashboard Control (paused by user — needs scope discussion).
 - **P2** — Capacitor wrap for iOS/Android.
 - **P3** — Live FX rates via exchangerate.host; Driver Pool extension; modularize 13k-line server.py.
+
+
+## Iter 56 (Feb 28, 2026) — Product Experience Redesign (Lean Independent Creators)
+**Goal**: any Independent creator (no financial-support needed) can list a Product or Service in <2 min with ≤5 actions. Crowdfunding/support/fundraising/donation/sponsorship/AI flows are intentionally OUT — legacy backend endpoints kept alive for existing products.
+
+### Backend
+- `CreateProductRequest` relaxed — `estimated_cost`, `timeline`, `interest_level` now Optional with defaults; new `publish` flag (False → `status='draft'`); new More Options fields (`inventory_qty`, `shipping_options`, `refund_policy`, `variants`, `delivery_options`).
+- `POST /api/products` returns `message='Saved as draft'` when `publish=False`.
+- `GET /api/products/me/dashboard` — wallet, sales, orders, views, followers, store_name (`<first_name>'s Store`), recent products.
+- `GET /api/storefront/{username}` — PUBLIC. Returns store meta + only approved products. 404 for unknown user.
+- `PUT /api/storefront/me` — customise store_name (2-60), store_bio (≤280), store_cover.
+
+### Frontend
+- `CreateProductPage.js` (full rewrite) — 4-step wizard (Kind → Name+Image → Price+Currency → Description+Solution → Publish) + **Quick Sell** single-screen mode. Save Draft + Publish Now buttons. Collapsible **More Options** (inventory, shipping, refund policy, availability, variants, delivery, contact).
+- `PublishSuccessModal.js` (NEW) — product preview, shareable link (`networkcapitalapp.co.za/p/<u>/<s>`), QR code SVG (qrcode.react v4), Copy/Share/View store/Sell another CTAs, dismissible Creative Services card (mailto:creative@networkcapitalapp.co.za).
+- `MyStorePage.js` (NEW) at `/my-store` — auto-store-name header, 5 stat cards, `+ Sell another product` CTA, All/Live/Drafts tabs, store QR + copy-link.
+- `StorefrontPage.js` (NEW) at `/store/:username` — public buyer page. Search + category filter, follow/contact/share/copy CTAs, product grid.
+
+### Routing
+- `/store/:username` in BOTH authenticated AND unauthenticated route blocks (public access).
+- `PromotionsWelcomeModal` suppressed on `/products/create`, `/my-store`, `/store/*`.
+- Layout bottom-nav hidden on `/products/create` (sticky publish footer needs bottom edge).
+
+### Testing
+- Iter 56: Backend 12/12. Frontend identified 3 blockers (modal hijack + route block + missing testids).
+- Iter 56b: ALL fixes verified. Backend 12/12 regression. Frontend 6/6 spec groups PASS — full E2E publish + Save Draft + Quick Sell + public storefront + my-store dashboard all confirmed.
+
+### Out of scope (next)
+- **Phase 3** — Cart drawer + Buyer checkout (Wallet + Stripe). EFT + Mobile Money pending Paystack keys.
+- **Phase 4** — Inline `/store/customize` page for store name/bio/cover edits.

@@ -182,7 +182,7 @@ const PublishSuccessModal = ({ product, isDraft = false, onClose, onSellAnother 
                   className="px-3 py-3 bg-white border border-primary text-primary rounded-xl text-sm font-bold inline-flex items-center justify-center gap-1.5"
                   data-testid="publish-view-store"
                 >
-                  <Store size={14} /> My store
+                  <Store size={14} /> View store
                 </button>
               </div>
             </>
