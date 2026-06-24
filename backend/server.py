@@ -6446,6 +6446,25 @@ def _role_change_html(*, name: str, previous_role: str, new_role: str, granted: 
             "Open your dashboard to share your link and track progress in real time.</p>"
             "</div>"
         )
+        # Iter 55 — programme essentials (merged from the deprecated allocator email)
+        body += (
+            "<h3 style='color:#f5d76e;font-size:14px;margin-top:18px;'>How to earn</h3>"
+            "<ul style='color:#cbd5e1;font-size:13px;line-height:22px;margin:6px 0 0 18px;padding:0;'>"
+            "<li>Invite new members using your referral link.</li>"
+            "<li>Help your referrals become active and engaged on the platform.</li>"
+            "<li>Qualifying referrals contribute toward rewards and withdrawal eligibility.</li>"
+            "</ul>"
+            "<h3 style='color:#f5d76e;font-size:14px;margin-top:18px;'>Withdrawal rules</h3>"
+            "<ul style='color:#cbd5e1;font-size:13px;line-height:22px;margin:6px 0 0 18px;padding:0;'>"
+            "<li>Your first withdrawal unlocks once you reach <strong>10 qualifying direct referrals</strong>.</li>"
+            "<li>Additional rewards and withdrawals open up as your network grows.</li>"
+            "<li>Only verified, legitimate referrals are counted.</li>"
+            "</ul>"
+            "<p style='color:#94a3b8;font-size:12px;margin-top:14px;'>"
+            "Bonus rewards are awarded periodically and may not always be publicly announced — "
+            "active ambassadors have the best chance of unlocking them."
+            "</p>"
+        )
     body += "<p style='font-size:12px;color:#94a3b8;'>If you didn't expect this change, contact support immediately.</p>"
     return _branded_email_html(
         headline=headline,
@@ -7504,7 +7523,7 @@ async def _allocate_ambassador_balance(user_id: str, actor_username: str = "syst
             "ambassador_role_granted_at": grant_at,
         }},
     )
-    # Audit row + email
+    # Audit row (welcome email is fired downstream by _notify_role_change)
     await db.ambassador_audit.insert_one({
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -7513,65 +7532,12 @@ async def _allocate_ambassador_balance(user_id: str, actor_username: str = "syst
         "actor": actor_username,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    try:
-        # Ambassador grants are a major life-event for the user — send even if their
-        # email isn't verified yet. The welcome email itself encourages re-engagement.
-        if user.get("email"):
-            await _send_branded_email(
-                to=user["email"],
-                subject="Welcome to the Network Capital Ambassador Program",
-                html=_branded_email_html(
-                    headline="Welcome to the Network Capital Ambassador Program",
-                    body_html=(
-                        f"<p>Hi {user.get('full_name') or user.get('username') or 'there'},</p>"
-                        f"<p>Congratulations on becoming a <strong>Network Capital Ambassador</strong>.</p>"
-                        f"<p>As an Ambassador, your role is to introduce new members to the Network "
-                        f"Capital community and help grow the platform across Africa.</p>"
-                        f"<h3 style='color:#f5d76e;font-size:14px;margin-top:18px;'>How to Earn</h3>"
-                        f"<ul style='color:#cbd5e1;font-size:13px;line-height:22px;'>"
-                        f"<li>Invite new users using your referral link.</li>"
-                        f"<li>Ensure your referrals become active and engaged on the platform.</li>"
-                        f"<li>Qualifying referrals contribute toward your rewards and withdrawal eligibility.</li>"
-                        f"</ul>"
-                        f"<h3 style='color:#f5d76e;font-size:14px;margin-top:18px;'>Withdrawal Rules</h3>"
-                        f"<ul style='color:#cbd5e1;font-size:13px;line-height:22px;'>"
-                        f"<li>Your <strong>first withdrawal of R{cfg['first_withdrawal_zar']:,.0f}</strong> "
-                        f"becomes available once you reach <strong>10 qualifying direct referrals</strong>.</li>"
-                        f"<li>Additional rewards and withdrawals become available as you continue "
-                        f"growing your network.</li>"
-                        f"<li>Only verified and legitimate referrals are counted.</li>"
-                        f"</ul>"
-                        f"<h3 style='color:#f5d76e;font-size:14px;margin-top:18px;'>Bonus Opportunities</h3>"
-                        f"<p style='color:#cbd5e1;font-size:13px;'>The more active you are on Network "
-                        f"Capital, the more opportunities you unlock.</p>"
-                        f"<p style='color:#cbd5e1;font-size:13px;margin-top:8px;'>Activities that may "
-                        f"qualify for hidden bonus cash rewards include:</p>"
-                        f"<ul style='color:#cbd5e1;font-size:13px;line-height:22px;'>"
-                        f"<li>Referring quality users.</li>"
-                        f"<li>Maintaining high engagement.</li>"
-                        f"<li>Participating in platform activities.</li>"
-                        f"<li>Helping grow community participation.</li>"
-                        f"<li>Supporting promotional campaigns.</li>"
-                        f"</ul>"
-                        f"<p style='color:#cbd5e1;font-size:13px;margin-top:10px;'><strong>Important:</strong> "
-                        f"Bonus rewards are periodically awarded and may not always be publicly announced. "
-                        f"Active ambassadors have greater chances of unlocking additional cash prizes "
-                        f"and incentive rewards.</p>"
-                        f"<p style='color:#cbd5e1;font-size:13px;margin-top:14px;'>Track your progress "
-                        f"directly from your Ambassador Dashboard.</p>"
-                        f"<p style='color:#cbd5e1;font-size:13px;margin-top:14px;'>Thank you for helping "
-                        f"us build Africa's fastest-growing networking and rewards platform.</p>"
-                        f"<p style='color:#94a3b8;font-size:12px;margin-top:18px;'>— Network Capital Team<br/>"
-                        f"<a href='https://www.networkcapitalapp.co.za' style='color:#f5d76e;'>www.networkcapitalapp.co.za</a></p>"
-                    ),
-                    cta_label="Open My Ambassador Dashboard",
-                    cta_url="https://networkcapitalapp.co.za/ambassadors/me",
-                    kicker="Ambassador Programme",
-                ),
-                kind="ambassador_allocate",
-            )
-    except Exception as e:
-        logger.warning(f"ambassador_allocate email failed: {e}")
+    # Iter 55 — Welcome email is now sent exclusively by ``_notify_role_change``
+    # (invoked from ``admin_make_ambassador`` right after this allocation step).
+    # That email carries the freshly-allocated wallet balance, which is the
+    # information the user explicitly asked to restore. Sending a second email
+    # here would cause every newly-promoted ambassador to receive two welcome
+    # messages, so we no longer fire one from the allocator.
     return True
 
 

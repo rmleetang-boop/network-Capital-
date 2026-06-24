@@ -1,0 +1,40 @@
+{
+  "summary": "Iter 55b — verified the ambassador welcome email de-duplication fix. All 5 new tests + 13 iter55 regression tests PASS (18/18). The legacy 'Welcome to the Network Capital Ambassador Program' email is GONE — confirmed by tailing [MAIL-SENT] log events for fresh test users: only ONE 'Welcome to the Network Capital Ambassador programme' fires per grant. The enriched _role_change_html now contains all required sections (R 8,500.00 starting balance figure, 'Your ambassador wallet', 'How to earn', 'Withdrawal rules', '10 qualifying direct referrals'). The prev_was_ambassador != is_amb guard at server.py:10605 correctly suppresses the email on repeat grants (idempotency verified — second make-ambassador call fires zero MAIL-SENT). Regression: OG share endpoints, wallet-adjust auth/cap/history/notification flow, super-pin gating, and ambassador grant notification doc all still work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter55b_ambassador_email_dedupe.py",
+    "/app/backend/tests/test_iter55_iter55_fixes.py",
+    "/app/test_reports/pytest/iter55b_results.xml",
+    "/app/test_reports/pytest/iter55b_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIX VERIFIED — _allocate_ambassador_balance no longer fires its own email. Comment at server.py:7535-7540 cleanly documents the rationale. Function still allocates the balance + writes the ambassador_audit row + returns True idempotently (early-return when ambassador_balance_zar already set).",
+    "FIX VERIFIED — _role_change_html now conditionally injects the How-to-earn + Withdrawal-rules blocks when granted+ambassador+wallet_info (guard at server.py:6434). Defensive: if wallet_info is None (e.g. cfg disabled), the wallet block is skipped — prevents stray R 0.00 messaging. Test test_ambassador_grant_without_wallet_info_no_wallet_block covers this.",
+    "GUARD VERIFIED — admin_make_ambassador at server.py:10605 wraps _notify_role_change in 'if prev_was_ambassador != is_amb' so toggling/re-asserting the same flag does not fire a duplicate email. Confirmed by test_repeat_grant_is_idempotent_no_extra_email.",
+    "OBSERVATION (low risk, no action) — _allocate_ambassador_balance still loads ambassador_config solely to read cfg['enabled'] and cfg['starting_balance_zar']. The function exits early at line 7503 when not cfg['enabled']. Could be tightened to only fetch the two needed keys, but no correctness impact.",
+    "OBSERVATION — Brevo send latency observed at ~150-200ms per call; e2e test uses time.sleep(4.0) buffer which is generous but safe. If CI ever flakes on this, increase to 6s or poll the log instead.",
+    "CARRY-OVER from iter 55 (unresolved, out-of-scope here) — /api/ambassador/referrals/{uid}/engage still has the send_email import error per iter 55 RCA. Not touched in iter 55b."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter55b_ambassador_email_dedupe.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 — 5 iter55b + 13 iter55 regression)",
+    "frontend": "N/A (backend-only iteration per main agent instruction)"
+  },
+  "test_credentials": "Owner: rmleetang@gmail.com / OwnerTest123! — login returns 200 with role=super_admin. Super PIN NCowner!2026 — /api/admin/super-pin/verify returns a valid token. Both confirmed working.",
+  "seed_data_creation": "Each test run creates fresh users via /api/auth/progressive-signup with email prefix test_iter55b_*. Two test users were granted ambassador role and received R8,500 starting balance; safe to leave in DB for downstream regression baselines.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 55b fix is fully validated at the backend level. The test file /app/backend/tests/test_iter55b_ambassador_email_dedupe.py is a clean regression baseline going forward — it (a) imports _role_change_html directly for unit assertion of the HTML body, and (b) tails /var/log/supervisor/backend.err.log to count [MAIL-SENT] events per user, which is the most reliable way to detect duplicate-email regressions in this code path. If you need to re-verify, set REACT_APP_BACKEND_URL in the shell env before running pytest. The iter 55 regression suite (/app/backend/tests/test_iter55_iter55_fixes.py) also still passes 13/13 — no regressions from the email-path edit.",
+  "rca_of_the_issue": "ROOT CAUSE of iter 55's duplicate email: _allocate_ambassador_balance had its own try/except block that called _send_branded_email with the older 'Welcome to the Network Capital Ambassador Program' subject. _notify_role_change (the iter 55 addition) was wired as a SECOND email path inside admin_make_ambassador. Both fired on every grant, leading to two welcome emails per new ambassador, with only the second one carrying the wallet balance HTML block. FIX (iter 55b): (1) the entire email-send block in _allocate_ambassador_balance was removed — function now only persists balance + writes audit row, (2) _role_change_html was enriched with the How-to-earn + Withdrawal-rules sections that the legacy email used to carry, so the single 'programme' email is now functionally complete. REPRODUCTION: POST /api/admin/users/{uid}/make-ambassador with {ambassador:true} and tail backend.err.log — pre-fix you'd see two [MAIL-SENT] lines, post-fix exactly one with subject 'Welcome to the Network Capital Ambassador programme'. MITIGATION confirmed in tests test_grant_fires_exactly_one_email_with_new_subject and test_repeat_grant_is_idempotent_no_extra_email."
+}
