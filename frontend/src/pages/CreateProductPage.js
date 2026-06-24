@@ -85,7 +85,21 @@ const CreateProductPage = ({ user }) => {
     delivery_options: '',     // newline separated → array
     contact_email: '',
     contact_phone: '',
+    // Iter 56d — Digital file (Gumroad-style)
+    file_url: null,
+    file_name: '',
+    file_size_bytes: 0,
+    file_mime: '',
+    file_access: 'paid',   // 'free' | 'email_gated' | 'paid'
+    file_price: '',
+    // Iter 56d — Growth-creator support flow (optional opt-in)
+    with_support: false,
+    support_categories: [],
+    support_message: '',
   });
+
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const docInputRef = useRef(null);
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -121,7 +135,11 @@ const CreateProductPage = ({ user }) => {
     if (step === 1) return form.name.trim().length >= 2 && form.images.length > 0;
     if (step === 2) return Number(form.price) > 0 && !!form.currency;
     if (step === 3) return form.description.trim().length >= 5;
-    if (step === 4) return true;
+    if (step === 4) {
+      // If user opted into growth-support, require at least 1 category
+      if (form.with_support && !form.support_categories.length) return false;
+      return true;
+    }
     return false;
   }, [step, kind, mode, form]);
 
@@ -164,6 +182,18 @@ const CreateProductPage = ({ user }) => {
       delivery_options: deliveryArr,
       contact_email: form.contact_email.trim() || null,
       contact_phone: form.contact_phone.trim() || null,
+      // Iter 56d — digital file (Gumroad-style); only included if user added one
+      file_url: form.file_url || null,
+      file_name: form.file_name || null,
+      file_size_bytes: form.file_size_bytes || null,
+      file_mime: form.file_mime || null,
+      file_access: form.file_url ? form.file_access : null,
+      file_price: form.file_url && form.file_access === 'paid' && form.file_price ? Number(form.file_price) : null,
+      // Iter 56d — Growth-creator opt-in
+      support_needed: !!form.with_support,
+      support_categories: form.with_support && form.support_categories.length ? form.support_categories : null,
+      support_message: form.with_support && form.support_message ? form.support_message.trim() : null,
+      apply_for_growth: !!form.with_support,
     };
 
     setPublishing(true);
@@ -271,6 +301,26 @@ const CreateProductPage = ({ user }) => {
               </button>
             ))}
           </div>
+          {/* Iter 56d — 3rd option: Growth-creator flow (need help building) */}
+          <button
+            onClick={() => { setKind('product'); setField('with_support', true); setStep(1); }}
+            className="mt-3 w-full text-left p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-rose-50 border-2 border-amber-200 hover:border-amber-400 transition-all"
+            data-testid="create-kind-with-support"
+          >
+            <div className="flex items-start gap-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+                <ListChecks size={18} />
+              </div>
+              <div className="flex-1">
+                <p className="font-heading font-bold text-sm mb-0.5 inline-flex items-center gap-1.5">
+                  Need support to build this <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-900">Growth creator</span>
+                </p>
+                <p className="text-[11px] text-text-muted leading-snug">
+                  Request help from the community: funding, partnerships, mentorship, marketing, distribution or team. Goes through admin review.
+                </p>
+              </div>
+            </div>
+          </button>
           <div className="mt-6 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
             <Sparkles size={14} className="flex-shrink-0 mt-0.5" />
             <span>In a hurry? Tap <strong>Quick Sell</strong> after picking and publish in one screen.</span>
@@ -613,12 +663,79 @@ const PhotoField = ({ form, setField, fileInputRef, onPick, uploading }) => {
   );
 };
 
-const MoreOptionsPanel = ({ form, setField, kind }) => {
+const MoreOptionsPanel = ({ form, setField, kind, docInputRef, onDocPick, uploadingFile, onClearDoc }) => {
   const isProduct = kind !== 'service';
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4" data-testid="create-more-options-panel">
       {isProduct && (
         <>
+          {/* Iter 56d — Digital download (Gumroad-style) */}
+          <Field label="Digital download (optional)">
+            {!form.file_url ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => docInputRef?.current?.click()}
+                  disabled={uploadingFile}
+                  className="w-full p-3 rounded-xl border-2 border-dashed border-gray-300 hover:border-primary/40 text-sm text-text-secondary inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                  data-testid="create-doc-upload"
+                >
+                  {uploadingFile ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {uploadingFile ? 'Uploading…' : 'Attach PDF / EPUB / DOC / PPT / ZIP (≤100 MB)'}
+                </button>
+                <input ref={docInputRef} type="file"
+                  accept=".pdf,.epub,.zip,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.md,.csv"
+                  onChange={onDocPick} className="hidden" />
+                <p className="text-[10px] text-text-muted mt-1">Turn this listing into a paid or free download — buyers get the file after purchase.</p>
+              </>
+            ) : (
+              <div className="space-y-3" data-testid="create-doc-attached">
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm">
+                  <Check size={14} className="text-emerald-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold truncate">{form.file_name}</p>
+                    <p className="text-[10px] text-text-muted">{(form.file_size_bytes / 1024 / 1024).toFixed(2)} MB · {form.file_mime || 'file'}</p>
+                  </div>
+                  <button onClick={onClearDoc} className="text-[11px] text-red-600 font-bold" data-testid="create-doc-remove">Remove</button>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-text-secondary mb-1">Access mode</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { v: 'free',         label: 'Free',       desc: 'Anyone can download' },
+                      { v: 'email_gated',  label: 'Email-gated', desc: 'We capture their email' },
+                      { v: 'paid',         label: 'Paid',       desc: 'Charge per download' },
+                    ].map((m) => (
+                      <button
+                        key={m.v}
+                        type="button"
+                        onClick={() => setField('file_access', m.v)}
+                        className={`text-left p-2 rounded-lg border-2 text-[10px] ${form.file_access === m.v ? 'border-primary bg-primary/5' : 'border-gray-200'}`}
+                        data-testid={`create-doc-access-${m.v}`}
+                      >
+                        <p className="font-bold text-text-primary text-xs mb-0.5">{m.label}</p>
+                        <p className="text-text-muted leading-tight">{m.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {form.file_access === 'paid' && (
+                  <div>
+                    <p className="text-[11px] font-semibold text-text-secondary mb-1">Download price</p>
+                    <input
+                      type="number" inputMode="decimal" min="0" step="0.01"
+                      value={form.file_price} onChange={(e) => setField('file_price', e.target.value)}
+                      placeholder="e.g. 4.99"
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-primary"
+                      data-testid="create-doc-price"
+                    />
+                    <p className="text-[10px] text-text-muted mt-1">Charged in your selected currency ({form.currency}). Buyer gets the file immediately after Stripe checkout.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </Field>
+
           <Field label="Inventory (units available)">
             <input
               type="number" inputMode="numeric" min="0"
@@ -721,5 +838,69 @@ const Field = ({ label, children }) => (
     {children}
   </div>
 );
+
+// Iter 56d — Growth-creator support request block (only shown when opted-in)
+const SUPPORT_CATEGORIES = [
+  { v: 'funding',       label: 'Funding' },
+  { v: 'partnerships',  label: 'Partnerships' },
+  { v: 'mentorship',    label: 'Mentorship' },
+  { v: 'customers',     label: 'Customers' },
+  { v: 'marketing',     label: 'Marketing' },
+  { v: 'team',          label: 'Team' },
+  { v: 'technical',     label: 'Technical' },
+  { v: 'distribution',  label: 'Distribution' },
+];
+
+const SupportRequestPanel = ({ form, setField }) => {
+  const toggleCat = (v) => {
+    const next = form.support_categories.includes(v)
+      ? form.support_categories.filter((x) => x !== v)
+      : [...form.support_categories, v];
+    setField('support_categories', next);
+  };
+  return (
+    <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-rose-50/50 p-4 space-y-3" data-testid="create-support-panel">
+      <div className="flex items-start gap-2">
+        <div className="h-8 w-8 rounded-lg bg-amber-200 text-amber-900 flex items-center justify-center flex-shrink-0">
+          <ListChecks size={14} />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-heading font-bold text-sm">Tell us what support you need</h3>
+          <p className="text-[11px] text-text-muted leading-snug">Goes to the admin review queue. Once approved, the community can see your request and respond.</p>
+        </div>
+      </div>
+      <div>
+        <p className="text-[11px] font-semibold text-text-secondary mb-1.5">Type of support (pick at least one) *</p>
+        <div className="flex flex-wrap gap-1.5" data-testid="create-support-categories">
+          {SUPPORT_CATEGORIES.map((c) => {
+            const on = form.support_categories.includes(c.v);
+            return (
+              <button
+                key={c.v}
+                type="button"
+                onClick={() => toggleCat(c.v)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-semibold border ${on ? 'bg-amber-500 text-white border-amber-500' : 'bg-white border-gray-200'}`}
+                data-testid={`create-support-cat-${c.v}`}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <Field label="Tell us more (optional)">
+        <textarea rows={3} value={form.support_message} onChange={(e) => setField('support_message', e.target.value)}
+          placeholder="What's the project? What stage are you at? What outcome would unlock the next step?" maxLength={600}
+          className="w-full p-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-primary resize-none bg-white"
+          data-testid="create-support-message"
+        />
+      </Field>
+      <div className="text-[10px] text-amber-800 bg-amber-100 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
+        <AlertCircle size={11} className="flex-shrink-0 mt-px" />
+        <span>By submitting, you agree to our <a className="underline font-bold" href="/legal" target="_blank" rel="noreferrer">Terms &amp; Community Policies</a>. Growth-creator submissions are reviewed by Network Capital admins.</span>
+      </div>
+    </div>
+  );
+};
 
 export default CreateProductPage;

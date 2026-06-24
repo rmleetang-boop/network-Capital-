@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -400,6 +400,8 @@ class CreateProductRequest(BaseModel):
     refund_policy: Optional[str] = None
     variants: Optional[List[Dict[str, Any]]] = None
     delivery_options: Optional[List[str]] = None
+    # Iter 56d — opt-in: promote creator to Growth so support fields apply
+    apply_for_growth: Optional[bool] = False
 
 class Product(BaseModel):
     id: str
@@ -5111,6 +5113,14 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
     creator_type = (current_user.get("creator_type") or "independent").strip().lower()
     if creator_type not in ("independent", "growth"):
         creator_type = "independent"
+    # Iter 56d — `apply_for_growth=True` promotes the user to Growth so the
+    # support request fields are honoured for this product (and future ones).
+    if getattr(request, "apply_for_growth", False) and request.support_needed:
+        creator_type = "growth"
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {"creator_type": "growth"}},
+        )
 
     # ── Support request handling — Growth creators only
     support_needed = bool(request.support_needed) and creator_type == "growth"
@@ -13583,6 +13593,446 @@ async def admin_get_wallet_history(
         {"user_id": user_id}, {"_id": 0},
     ).sort("created_at", -1).limit(min(max(limit, 1), 200)).to_list(length=None)
     return {"user": target, "items": rows}
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# Iter 56d — Non-User Outreach Email System (admin/super_admin only)
+# Sends professional invitation emails to people not yet registered.
+# Uses Brevo for delivery. No open/click pixels (per user spec).
+# Compliance: "Never contact me again" opt-out (suppression list);
+# don't re-send to already-registered emails; rate limits per admin.
+# ═════════════════════════════════════════════════════════════════════════
+OUTREACH_BULK_MAX = 100         # max recipients per /bulk call
+OUTREACH_DAILY_LIMIT = 500       # per-admin per-day cap
+
+
+# Three professionally written email templates. Sender supplies their own subject.
+OUTREACH_TEMPLATES: Dict[str, Dict[str, str]] = {
+    "future_through_network": {
+        "label": "Build a future through your network",
+        "preview": "Aspirational · highlights Ambassador + Marketplace earnings",
+        "headline": "Your network is your net worth.",
+        "body_intro": (
+            "Network Capital is the digital infrastructure helping people across Africa "
+            "build a better future by expanding their network, accessing new opportunities, "
+            "and unlocking additional income streams."
+        ),
+        "opp1_title": "Become a Network Capital Ambassador",
+        "opp1_body": (
+            "Get rewarded for introducing people to the platform. Ambassadors unlock "
+            "tiered cash rewards, exclusive activities, hidden bonuses, and a real path "
+            "to monthly earnings — all backed by a transparent payout system."
+        ),
+        "opp2_title": "Earn through the Digital Marketplace",
+        "opp2_body": (
+            "List your products, services, or digital downloads on your own auto-generated "
+            "storefront. Take payments in your local currency. Sell to a community that "
+            "actively supports African creators and small businesses."
+        ),
+    },
+    "income_streams": {
+        "label": "Multiple income streams, one platform",
+        "preview": "Pragmatic · focuses on earnings + financial growth",
+        "headline": "Two ways to grow your income on Network Capital.",
+        "body_intro": (
+            "We've built Network Capital as a community resource ecosystem — a place where "
+            "your participation, your network, and your hustle translate into real, "
+            "measurable progress."
+        ),
+        "opp1_title": "Ambassador Programme",
+        "opp1_body": (
+            "Refer the right people. Climb the tiers. Earn cash rewards plus activity-pot "
+            "bonuses. No upfront cost. Withdraw once you reach 10 qualifying referrals."
+        ),
+        "opp2_title": "Marketplace for your products & services",
+        "opp2_body": (
+            "Whether you sell physical products, services, or digital downloads (ebooks, "
+            "courses, templates), publish your listing in under 2 minutes and start "
+            "receiving orders through your own shareable storefront."
+        ),
+    },
+    "join_the_movement": {
+        "label": "Join the movement",
+        "preview": "Warm · community-led tone with stronger CTA",
+        "headline": "Built by Africans. For Africans. With Africans.",
+        "body_intro": (
+            "Network Capital is a fast-growing digital infrastructure connecting members "
+            "across South Africa, Nigeria, Kenya, Ghana and beyond. We exist to help you "
+            "build, earn, and grow alongside a community that's invested in your success."
+        ),
+        "opp1_title": "Ambassador rewards programme",
+        "opp1_body": (
+            "Every introduction counts. Track your growing network, unlock exclusive "
+            "perks, and earn through our transparent rewards system."
+        ),
+        "opp2_title": "Sell in the marketplace",
+        "opp2_body": (
+            "Open your own digital store on Network Capital. Products, services, "
+            "downloads — your audience, your prices, your terms."
+        ),
+    },
+}
+
+
+def _outreach_email_html(*, recipient_name: Optional[str], template_id: str, opt_out_url: str) -> str:
+    """Render the outreach email HTML for a given template + recipient.
+
+    Includes the landing-page screenshot, contact details (creative@... + WhatsApp),
+    and a 'Never contact me again' link (not an unsubscribe — per user spec).
+    """
+    tpl = OUTREACH_TEMPLATES.get(template_id) or OUTREACH_TEMPLATES["future_through_network"]
+    name = (recipient_name or "").strip() or "there"
+    greeting = f"Hi {_html.escape(name, quote=True)},"
+    landing_img = "https://networkcapitalapp.co.za/landing-preview.png"
+    cta_url = "https://networkcapitalapp.co.za/?utm_source=outreach&utm_medium=email"
+    whatsapp_url = "https://wa.me/27745747401"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>{_html.escape(tpl['headline'])}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f6fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#0a1628;">
+<div style="max-width:560px;margin:0 auto;padding:24px 16px;">
+  <div style="background:#0a1628;color:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 8px 32px rgba(10,22,40,0.12);">
+    <div style="padding:28px 28px 16px;">
+      <p style="margin:0 0 4px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#f5d76e;font-weight:700;">Network Capital</p>
+      <h1 style="margin:0 0 14px;font-size:26px;line-height:1.2;font-weight:800;">{_html.escape(tpl['headline'])}</h1>
+      <p style="margin:0;font-size:15px;line-height:1.55;color:#c9d2e0;">{greeting}</p>
+      <p style="margin:10px 0 0;font-size:14px;line-height:1.6;color:#c9d2e0;">{_html.escape(tpl['body_intro'])}</p>
+    </div>
+
+    <!-- Landing-page screenshot -->
+    <div style="padding:0 28px 8px;">
+      <a href="{cta_url}" target="_blank" style="display:block;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
+        <img src="{landing_img}" alt="Network Capital — Build A Better Future Through Your Network" style="display:block;width:100%;height:auto;" />
+      </a>
+    </div>
+
+    <!-- CTA -->
+    <div style="padding:18px 28px 8px;text-align:center;">
+      <a href="{cta_url}" target="_blank"
+         style="display:inline-block;background:#f5d76e;color:#0a1628;font-weight:800;font-size:15px;text-decoration:none;padding:14px 32px;border-radius:999px;box-shadow:0 6px 18px rgba(245,215,110,0.35);">
+        Join Network Capital →
+      </a>
+      <p style="margin:10px 0 0;font-size:11px;color:#94a3b8;">Free to join · POPIA-aligned · Mobile-first</p>
+    </div>
+
+    <!-- Two opportunities -->
+    <div style="padding:18px 28px 4px;">
+      <div style="background:rgba(245,215,110,0.07);border:1px solid rgba(245,215,110,0.18);border-radius:14px;padding:16px 18px;margin-bottom:10px;">
+        <p style="margin:0 0 6px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#f5d76e;font-weight:700;">Opportunity 1</p>
+        <p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#ffffff;">{_html.escape(tpl['opp1_title'])}</p>
+        <p style="margin:0;font-size:13px;line-height:1.6;color:#c9d2e0;">{_html.escape(tpl['opp1_body'])}</p>
+      </div>
+      <div style="background:rgba(99,179,237,0.06);border:1px solid rgba(99,179,237,0.18);border-radius:14px;padding:16px 18px;">
+        <p style="margin:0 0 6px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#63b3ed;font-weight:700;">Opportunity 2</p>
+        <p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#ffffff;">{_html.escape(tpl['opp2_title'])}</p>
+        <p style="margin:0;font-size:13px;line-height:1.6;color:#c9d2e0;">{_html.escape(tpl['opp2_body'])}</p>
+      </div>
+    </div>
+
+    <!-- Contact -->
+    <div style="padding:18px 28px;border-top:1px solid rgba(255,255,255,0.06);margin-top:14px;">
+      <p style="margin:0 0 6px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;font-weight:700;">Talk to us</p>
+      <p style="margin:0 0 4px;font-size:14px;color:#ffffff;">
+        Email <a href="mailto:creative@networkcapitalapp.co.za" style="color:#f5d76e;text-decoration:none;font-weight:700;">creative@networkcapitalapp.co.za</a>
+      </p>
+      <p style="margin:0;font-size:14px;color:#ffffff;">
+        WhatsApp <a href="{whatsapp_url}" style="color:#f5d76e;text-decoration:none;font-weight:700;">+27 74 574 7401</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="padding:14px 8px;text-align:center;color:#94a3b8;font-size:11px;line-height:1.6;">
+    You received this from the Network Capital Team because we want you to build a great future with your network.<br/>
+    <a href="https://networkcapitalapp.co.za/legal" style="color:#94a3b8;text-decoration:underline;">Terms &amp; Policies</a>
+    &nbsp;·&nbsp;
+    <a href="{opt_out_url}" style="color:#94a3b8;text-decoration:underline;">Never contact me again</a>
+  </div>
+</div>
+</body>
+</html>"""
+
+
+class OutreachSendRequest(BaseModel):
+    email: EmailStr
+    name: Optional[str] = ""
+    subject: str = Field(..., min_length=3, max_length=180)
+    template: str = "future_through_network"
+
+
+class OutreachBulkRequest(BaseModel):
+    recipients: List[Dict[str, str]] = Field(..., description="List of {email, name?}")
+    subject: str = Field(..., min_length=3, max_length=180)
+    template: str = "future_through_network"
+
+
+async def _outreach_can_send(admin_id: str) -> tuple[bool, str]:
+    """Rate-limit guard: per-admin daily cap."""
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    sent_today = await db.outreach_invitations.count_documents({
+        "sender_id": admin_id,
+        "sent_at": {"$gte": since.isoformat()},
+    })
+    if sent_today >= OUTREACH_DAILY_LIMIT:
+        return False, f"Daily limit reached ({OUTREACH_DAILY_LIMIT} emails / 24h). Try again tomorrow."
+    return True, ""
+
+
+async def _outreach_is_suppressed(email: str) -> bool:
+    """Check the 'never contact again' suppression list AND existing user accounts."""
+    em = (email or "").strip().lower()
+    if not em:
+        return True
+    if await db.outreach_suppressions.find_one({"email": em}, {"_id": 1}):
+        return True
+    if await db.users.find_one({"email": em}, {"_id": 1}):
+        return True   # Already a registered user — don't re-invite
+    return False
+
+
+async def _send_single_outreach(*, admin: dict, email: str, name: str, subject: str, template: str) -> Dict[str, Any]:
+    """Internal — actually fire the email via Brevo + persist the invitation row."""
+    em = email.strip().lower()
+    if not em or "@" not in em:
+        return {"email": em, "ok": False, "status": "invalid_email"}
+    if await _outreach_is_suppressed(em):
+        return {"email": em, "ok": False, "status": "suppressed"}
+    template_id = template if template in OUTREACH_TEMPLATES else "future_through_network"
+    invitation_id = str(uuid.uuid4())
+    # Build the opt-out token (signed JWT, valid forever)
+    opt_out_token = jwt.encode({"email": em, "kind": "outreach_optout"}, SECRET_KEY, algorithm=ALGORITHM)
+    opt_out_url = f"https://networkcapitalapp.co.za/api/outreach/never-contact?token={opt_out_token}"
+    html = _outreach_email_html(recipient_name=name, template_id=template_id, opt_out_url=opt_out_url)
+    delivered = False
+    try:
+        delivered = await _brevo_send(
+            to_email=em,
+            subject=subject.strip(),
+            html_content=html,
+            to_name=name or None,
+            reply_to="creative@networkcapitalapp.co.za",
+            tags=["outreach", f"template:{template_id}"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[OUTREACH-FAIL] to={em} err={exc}")
+        delivered = False
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.outreach_invitations.insert_one({
+        "id": invitation_id,
+        "email": em,
+        "name": (name or "").strip() or None,
+        "subject": subject.strip(),
+        "template": template_id,
+        "sender_id": admin["id"],
+        "sender_username": admin.get("username") or "admin",
+        "status": "sent" if delivered else "failed",
+        "sent_at": now_iso,
+        "resent_count": 0,
+        "never_contact": False,
+    })
+    return {"id": invitation_id, "email": em, "ok": delivered, "status": "sent" if delivered else "failed"}
+
+
+@api_router.get("/admin/outreach/templates")
+async def list_outreach_templates(admin: dict = Depends(require_admin_user)):
+    """Return the 3 available outreach templates with preview metadata."""
+    return {
+        "templates": [
+            {"id": k, "label": v["label"], "preview": v["preview"], "headline": v["headline"]}
+            for k, v in OUTREACH_TEMPLATES.items()
+        ],
+    }
+
+
+@api_router.post("/admin/outreach/preview")
+async def preview_outreach_email(
+    payload: Dict[str, Any] = Body(...),
+    admin: dict = Depends(require_admin_user),
+):
+    """Render the email HTML for a given {name, template} pair so the admin
+    can preview before sending. Does NOT send."""
+    name = (payload.get("name") or "").strip()
+    template = payload.get("template") or "future_through_network"
+    if template not in OUTREACH_TEMPLATES:
+        template = "future_through_network"
+    html = _outreach_email_html(
+        recipient_name=name, template_id=template,
+        opt_out_url="https://networkcapitalapp.co.za/api/outreach/never-contact?token=preview",
+    )
+    return {"html": html, "template": template}
+
+
+@api_router.post("/admin/outreach/send")
+async def send_single_outreach(payload: OutreachSendRequest, admin: dict = Depends(require_admin_user)):
+    """Send a single invitation email."""
+    ok, reason = await _outreach_can_send(admin["id"])
+    if not ok:
+        raise HTTPException(status_code=429, detail=reason)
+    res = await _send_single_outreach(
+        admin=admin, email=payload.email, name=payload.name or "",
+        subject=payload.subject, template=payload.template,
+    )
+    return res
+
+
+@api_router.post("/admin/outreach/bulk")
+async def send_bulk_outreach(payload: OutreachBulkRequest, admin: dict = Depends(require_admin_user)):
+    """Send invitations to up to OUTREACH_BULK_MAX recipients."""
+    if not payload.recipients:
+        raise HTTPException(status_code=400, detail="No recipients provided.")
+    if len(payload.recipients) > OUTREACH_BULK_MAX:
+        raise HTTPException(status_code=400, detail=f"Maximum {OUTREACH_BULK_MAX} recipients per send.")
+    ok, reason = await _outreach_can_send(admin["id"])
+    if not ok:
+        raise HTTPException(status_code=429, detail=reason)
+    results = []
+    for r in payload.recipients:
+        res = await _send_single_outreach(
+            admin=admin,
+            email=str(r.get("email") or "").strip(),
+            name=str(r.get("name") or "").strip(),
+            subject=payload.subject,
+            template=payload.template,
+        )
+        results.append(res)
+    summary = {
+        "total": len(results),
+        "sent": sum(1 for r in results if r.get("ok")),
+        "failed": sum(1 for r in results if r.get("status") == "failed"),
+        "suppressed": sum(1 for r in results if r.get("status") == "suppressed"),
+        "invalid": sum(1 for r in results if r.get("status") == "invalid_email"),
+    }
+    return {"summary": summary, "results": results}
+
+
+@api_router.post("/admin/outreach/upload-csv")
+async def parse_outreach_csv(file: UploadFile = File(...), admin: dict = Depends(require_admin_user)):
+    """Parse an uploaded CSV/TXT into a list of {email, name} rows. Does NOT send."""
+    raw = (await file.read()).decode("utf-8", errors="ignore")
+    rows: List[Dict[str, str]] = []
+    seen: set = set()
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip().strip('"') for p in re.split(r"[,;\t]", line)]
+        if not parts:
+            continue
+        # Skip a probable header row
+        if not any("@" in p for p in parts):
+            continue
+        email_part = next((p for p in parts if "@" in p), "")
+        name_part = next((p for p in parts if "@" not in p and len(p) > 0), "")
+        em = email_part.lower()
+        if not em or em in seen:
+            continue
+        seen.add(em)
+        rows.append({"email": em, "name": name_part})
+    return {"count": len(rows), "recipients": rows[:OUTREACH_BULK_MAX], "truncated": len(rows) > OUTREACH_BULK_MAX}
+
+
+@api_router.get("/admin/outreach/list")
+async def list_outreach_history(
+    limit: int = 50, status: Optional[str] = None,
+    admin: dict = Depends(require_admin_user),
+):
+    """Recent invitations (newest first). Super_admin sees all; admin sees only their own."""
+    query: Dict[str, Any] = {}
+    if admin.get("role") != "super_admin":
+        query["sender_id"] = admin["id"]
+    if status:
+        query["status"] = status
+    rows = await db.outreach_invitations.find(
+        query, {"_id": 0},
+    ).sort("sent_at", -1).limit(min(max(limit, 1), 200)).to_list(length=None)
+    # Aggregate stats (last 30d) for the admin's own sends
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    pipeline = [
+        {"$match": {**query, "sent_at": {"$gte": since}}},
+        {"$group": {"_id": "$status", "n": {"$sum": 1}}},
+    ]
+    stats = {row["_id"]: row["n"] async for row in db.outreach_invitations.aggregate(pipeline)}
+    return {
+        "items": rows,
+        "stats_30d": {
+            "sent": stats.get("sent", 0),
+            "failed": stats.get("failed", 0),
+            "total": sum(stats.values()),
+        },
+        "templates_available": list(OUTREACH_TEMPLATES.keys()),
+    }
+
+
+@api_router.post("/admin/outreach/{invitation_id}/resend")
+async def resend_outreach(invitation_id: str, admin: dict = Depends(require_admin_user)):
+    """Resend a previous invitation (subject + template + recipient preserved)."""
+    inv = await db.outreach_invitations.find_one({"id": invitation_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    ok, reason = await _outreach_can_send(admin["id"])
+    if not ok:
+        raise HTTPException(status_code=429, detail=reason)
+    res = await _send_single_outreach(
+        admin=admin, email=inv["email"], name=inv.get("name") or "",
+        subject=inv["subject"], template=inv.get("template") or "future_through_network",
+    )
+    if res.get("ok"):
+        await db.outreach_invitations.update_one(
+            {"id": invitation_id},
+            {"$inc": {"resent_count": 1}, "$set": {"last_resent_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    return res
+
+
+@api_router.get("/outreach/never-contact")
+async def outreach_never_contact(token: str = "preview"):
+    """One-click 'never contact me again' link from the outreach email footer.
+
+    Records the email into the suppression list. Returns a friendly HTML page.
+    """
+    if token == "preview":
+        msg = "This is a preview — your real link would record your address."
+        em = "(preview)"
+    else:
+        try:
+            decoded = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            if decoded.get("kind") != "outreach_optout":
+                raise ValueError("wrong kind")
+            em = (decoded.get("email") or "").strip().lower()
+            if not em:
+                raise ValueError("no email")
+            await db.outreach_suppressions.update_one(
+                {"email": em},
+                {"$set": {"email": em, "created_at": datetime.now(timezone.utc).isoformat(), "reason": "user_opt_out"}},
+                upsert=True,
+            )
+            await db.outreach_invitations.update_many(
+                {"email": em}, {"$set": {"never_contact": True}},
+            )
+            msg = f"Done — we will not contact <strong>{_html.escape(em)}</strong> again."
+        except Exception:  # noqa: BLE001
+            msg = "This link is no longer valid."
+            em = "(invalid)"
+    return HTMLResponse(content=f"""<!doctype html>
+<html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>Network Capital — Preferences updated</title></head>
+<body style="margin:0;background:#0a1628;color:#fff;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;">
+<div style="max-width:480px;">
+<h1 style="font-size:22px;margin:0 0 12px;color:#f5d76e;">Preferences updated</h1>
+<p style="font-size:14px;color:#cbd5e1;margin:0 0 16px;">{msg}</p>
+<p style="font-size:12px;color:#94a3b8;margin:24px 0 0;">If you change your mind, just email <a style="color:#f5d76e;text-decoration:none;" href="mailto:creative@networkcapitalapp.co.za">creative@networkcapitalapp.co.za</a> and we'll re-enable contact.</p>
+</div>
+</body></html>""", status_code=200)
+
+
+@api_router.get("/admin/outreach/suppressions")
+async def list_outreach_suppressions(limit: int = 200, admin: dict = Depends(require_admin_user)):
+    """List of emails on the 'never contact again' suppression list."""
+    rows = await db.outreach_suppressions.find({}, {"_id": 0}).sort("created_at", -1).limit(min(max(limit, 1), 1000)).to_list(length=None)
+    return {"items": rows, "count": len(rows)}
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

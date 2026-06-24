@@ -5,7 +5,7 @@ import {
   Crown, Users, Wallet, ShieldCheck, Megaphone, Star, Sparkles, Settings,
   ArrowRight, ArrowLeft, AlertTriangle, RefreshCw, RotateCcw, Filter, Loader2,
   TrendingUp, FileText, Briefcase, MessageSquare, ChevronRight, Lock,
-  CheckCircle2, XCircle, Search, Activity, BarChart3, Banknote, Trash2,
+  CheckCircle2, XCircle, Search, Activity, BarChart3, Banknote, Trash2, Mail,
 } from 'lucide-react';
 import { axiosInstance } from '../App';
 
@@ -198,9 +198,9 @@ const OpsBanner = ({ overview }) => {
 const QuickActionGrid = () => (
   <section className="grid grid-cols-2 sm:grid-cols-4 gap-2.5" data-testid="owner-quick-actions">
     <Tile to="/admin/announce" icon={Megaphone} title="Official broadcast" sub="Email all verified members" accent testid="qa-announce" />
+    <Tile to="/admin/outreach" icon={Mail} title="Invite non-users" sub="Outreach emails · 3 templates" accent testid="qa-outreach" />
     <Tile to="/admin/users" icon={Users} title="Manage users" sub="Filter, promote, restrict" testid="qa-users" />
     <Tile to="/admin/withdrawals" icon={Banknote} title="Withdrawals" sub="Approve / reject / refund" testid="qa-withdrawals" />
-    <Tile to="/admin/ads" icon={Sparkles} title="Ads" sub="Campaigns + analytics" testid="qa-ads" />
   </section>
 );
 

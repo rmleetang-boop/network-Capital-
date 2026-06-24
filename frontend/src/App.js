@@ -58,6 +58,7 @@ import AdminAuditLogPage from './pages/AdminAuditLogPage';
 import AdminStokvelsPage from './pages/AdminStokvelsPage';
 import AdminProfileDetailPage from './pages/AdminProfileDetailPage';
 import AdminAnnouncePage from './pages/AdminAnnouncePage';
+import AdminOutreachPage from './pages/AdminOutreachPage';
 import { AdminJobsPage, AdminPlacesPage, AdminActivitiesPage } from './pages/AdminListPages';
 import AmbassadorDashboardPage from './pages/AmbassadorDashboardPage';
 import AmbassadorCommandCenterPage from './pages/AmbassadorCommandCenterPage';
@@ -338,6 +339,8 @@ function App() {
             <Route path="/admin/places" element={<AdminPlacesPage user={user} />} />
             <Route path="/admin/activities" element={<AdminActivitiesPage user={user} />} />
             <Route path="/admin/announce" element={<AdminAnnouncePage user={user} />} />
+            {/* Iter 56d — Non-user outreach email system (admin + super_admin) */}
+            <Route path="/admin/outreach" element={<AdminOutreachPage user={user} />} />
             <Route path="/admin/promotions" element={<PromotionsListPage user={user} />} />
             <Route path="/admin/promotions/:promotionId" element={<PromotionDetailPage user={user} />} />
             <Route path="/admin/withdrawals" element={<AdminWithdrawalsPage user={user} />} />
