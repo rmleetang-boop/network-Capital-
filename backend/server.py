@@ -232,6 +232,8 @@ class Post(BaseModel):
     user_score: int
     content: str
     image: Optional[str] = None
+    # Iter 55 — base64 fallback for single-image posts
+    image_data_url: Optional[str] = None
     video: Optional[str] = None
     # Iter 51 — carousel + reels (returned to frontend so it can render slides / reel UI)
     slides: Optional[List[Dict[str, Any]]] = None
@@ -251,12 +253,16 @@ class CarouselSlide(BaseModel):
     video: Optional[str] = None
     caption: Optional[str] = None
     duration_seconds: Optional[int] = None  # only for video slides
+    # Iter 55 — base64 fallback so feed survives ephemeral-disk redeploys
+    image_data_url: Optional[str] = None
 
 
 class CreatePostRequest(BaseModel):
     content: str
     image: Optional[str] = None
     video: Optional[str] = None
+    # Iter 55 — base64 fallback for single-image posts
+    image_data_url: Optional[str] = None
     is_official: Optional[bool] = False  # admin-only — triggers broadcast email fan-out
     # Iter 51 — carousel + reels
     slides: Optional[List[CarouselSlide]] = None  # 2-10 slides → renders as carousel
@@ -3411,7 +3417,12 @@ async def upload_media(
       • ``announcements`` — admin/super_admin only
       • ``files`` — see ``POST /uploads/file`` for downloadable assets
 
-    The returned URL is mounted via StaticFiles at ``/api/uploads/<scope>/<filename>``."""
+    The returned URL is mounted via StaticFiles at ``/api/uploads/<scope>/<filename>``.
+
+    Iter 55 — IMAGES also persist a base64 ``data_url`` payload (max 4 MB sources
+    only — anything larger stays disk-only) so production survives ephemeral
+    pod redeploys. Frontend prefers the URL but falls back to ``data_url`` when
+    the URL 404s."""
 
     if scope not in _UPLOAD_SCOPES or scope == "files":
         raise HTTPException(status_code=400, detail="Unknown upload scope")
@@ -3434,6 +3445,10 @@ async def upload_media(
     target = target_dir / filename
 
     total = 0
+    # Iter 55 — capture small image bytes for the base64 fallback (max 4 MB).
+    BASE64_FALLBACK_CAP = 4 * 1024 * 1024
+    buffer = bytearray() if is_image else None
+    keep_buffer = is_image
     try:
         with open(target, "wb") as out:
             while True:
@@ -3450,6 +3465,13 @@ async def upload_media(
                     human = "11 MB" if is_image else "50 MB"
                     raise HTTPException(status_code=413, detail=f"File exceeds the {human} limit for this media type.")
                 out.write(chunk)
+                if keep_buffer:
+                    if total > BASE64_FALLBACK_CAP:
+                        # Image too big for an inline fallback — keep disk only.
+                        keep_buffer = False
+                        buffer = None
+                    else:
+                        buffer.extend(chunk)
     finally:
         try:
             await file.close()
@@ -3457,13 +3479,17 @@ async def upload_media(
             pass
 
     url = f"/api/uploads/{scope}/{filename}"
-    return {
+    payload: Dict[str, Any] = {
         "url": url,
         "kind": "image" if is_image else "video",
         "size_bytes": total,
         "filename": filename,
         "mime": mime,
     }
+    if buffer is not None and len(buffer) > 0:
+        import base64 as _b64
+        payload["data_url"] = f"data:{mime};base64,{_b64.b64encode(bytes(buffer)).decode('ascii')}"
+    return payload
 
 
 @api_router.post("/uploads/file")
@@ -3550,6 +3576,8 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
                 "video": s.video,
                 "caption": (s.caption or "").strip()[:280],
                 "duration_seconds": s.duration_seconds,
+                # Iter 55 — base64 fallback for ephemeral-disk redeploys
+                "image_data_url": getattr(s, "image_data_url", None),
             })
         media_type = media_type or "carousel"
     # Reel = single vertical video ≤30s
@@ -3572,6 +3600,7 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         "user_score": current_user.get("network_score") or 0,
         "content": request.content,
         "image": request.image,
+        "image_data_url": request.image_data_url,  # iter 55 — base64 fallback
         "video": request.video,
         "slides": slides_payload or None,
         "media_type": media_type,
@@ -5344,6 +5373,97 @@ async def share_product_og(username: str, slug: str, request: Request):
     )
 
 
+# Iter 55 — generic OG share routes for every shareable artifact on networkcapitalapp.co.za.
+# Each one returns a fully-formed HTML document with og:* + twitter:* meta and
+# auto-redirects humans to the SPA route. Crawlers (WhatsApp / Twitter / FB /
+# LinkedIn / Slack / iMessage) see the preview card.
+@api_router.get("/share/u/{username}")
+async def share_user_og(username: str, request: Request):
+    """OG preview for a public profile (/u/<username>)."""
+    user = await db.users.find_one(
+        {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "bio": 1,
+         "country": 1, "city": 1, "profession": 1, "network_score": 1, "rank": 1},
+    )
+    if not user:
+        return _share_html_response(
+            request, title="Network Capital",
+            description="Africa's Community Resource Ecosystem.",
+            image=None, redirect_to="/", status_code=404,
+        )
+    full_name = user.get("full_name") or user.get("username")
+    title = f"{full_name} on Network Capital"
+    bits = []
+    if user.get("profession"): bits.append(user["profession"])
+    if user.get("city"):       bits.append(user["city"])
+    if user.get("rank"):       bits.append(user["rank"])
+    desc = (user.get("bio") or " · ".join(bits) or "Connect with this member on Network Capital.").strip()
+    desc = (desc[:240] + "…") if len(desc) > 240 else desc
+    image_abs = _absolute_media_url(request, user.get("photo")) if user.get("photo") else None
+    return _share_html_response(
+        request, title=title, description=desc, image=image_abs,
+        redirect_to=f"/u/{user['username']}",
+    )
+
+
+@api_router.get("/share/post/{post_id}")
+async def share_post_og(post_id: str, request: Request):
+    """OG preview for an individual feed post."""
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not post:
+        return _share_html_response(
+            request, title="Network Capital",
+            description="Africa's Community Resource Ecosystem.",
+            image=None, redirect_to="/feed", status_code=404,
+        )
+    # Pick the best image (single image OR first slide)
+    img = post.get("image")
+    if not img and post.get("slides"):
+        img = (post["slides"][0] or {}).get("image")
+    image_abs = _absolute_media_url(request, img) if img else None
+    title = f"@{post.get('username') or 'member'} on Network Capital"
+    desc = (post.get("content") or "Read this update on Network Capital.").strip()
+    desc = (desc[:240] + "…") if len(desc) > 240 else desc
+    return _share_html_response(
+        request, title=title, description=desc, image=image_abs,
+        redirect_to=f"/post/{post_id}",
+    )
+
+
+@api_router.get("/share/r/{username}")
+async def share_referral_og(username: str, request: Request):
+    """OG preview for an ambassador referral landing (/r/<username>)."""
+    user = await db.users.find_one(
+        {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}},
+        {"_id": 0, "username": 1, "full_name": 1, "photo": 1, "country": 1},
+    )
+    if not user:
+        return _share_html_response(
+            request, title="Join Network Capital",
+            description="Africa's Community Resource Ecosystem — stokvels, jobs, premium tiers.",
+            image=None, redirect_to="/", status_code=404,
+        )
+    title = f"Join {user.get('full_name') or user.get('username')} on Network Capital"
+    desc = "Stokvels, jobs, premium tiers, and a growing community across Africa."
+    image_abs = _absolute_media_url(request, user.get("photo")) if user.get("photo") else None
+    return _share_html_response(
+        request, title=title, description=desc, image=image_abs,
+        redirect_to=f"/r/{user['username']}",
+    )
+
+
+@api_router.get("/share/")
+@api_router.get("/share")
+async def share_landing_og(request: Request):
+    """Default Network Capital share card (root / unknown URLs)."""
+    return _share_html_response(
+        request,
+        title="Network Capital",
+        description="Africa's Community Resource Ecosystem — stokvels, jobs, premium tiers, and creators.",
+        image=None, redirect_to="/",
+    )
+
+
 from fastapi.responses import HTMLResponse  # noqa: E402  (kept local — only used here)
 import html as _html  # noqa: E402
 
@@ -6282,8 +6402,12 @@ async def _notify_wallet_credit(user_id: str, amount_usd: float, reason: str) ->
         logger.warning(f"[MAIL-FAIL:wallet_credit] user={user_id} err={exc}")
 
 
-def _role_change_html(*, name: str, previous_role: str, new_role: str, granted: bool) -> str:
-    """Friendly explainer for each role — keeps the email actionable."""
+def _role_change_html(*, name: str, previous_role: str, new_role: str, granted: bool, wallet_info: Optional[Dict[str, Any]] = None) -> str:
+    """Friendly explainer for each role — keeps the email actionable.
+
+    Iter 55 — when promoted to ambassador, ``wallet_info`` carries the
+    starting/available ZAR allocation so the welcome email shows the figure
+    front-and-centre (user spec restored)."""
     role_blurbs = {
         "admin": "You now have admin privileges — manage users, content, and platform-wide settings.",
         "moderator": "You're now a moderator — help keep the community healthy by reviewing flagged content.",
@@ -6305,18 +6429,38 @@ def _role_change_html(*, name: str, previous_role: str, new_role: str, granted: 
         f"<span style='color:#94a3b8;'>→</span> "
         f"<strong style='color:#f5d76e;'>{pretty_new}</strong>.</p>"
         f"<p>{role_blurbs.get(new_role if granted else 'user', '')}</p>"
-        f"<p style='font-size:12px;color:#94a3b8;'>If you didn't expect this change, contact support immediately.</p>"
     )
+    # Iter 55 — surface ambassador wallet allocation in the welcome email
+    if granted and new_role == "ambassador" and wallet_info:
+        starting = float(wallet_info.get("starting_balance_zar") or 0)
+        available = float(wallet_info.get("available_zar") or 0)
+        body += (
+            "<div style='background:#0f1c33;border:1px solid #1f3464;border-radius:14px;"
+            "padding:18px 22px;margin:18px 0;'>"
+            f"<p style='margin:0 0 6px;font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:1.5px;'>Your ambassador wallet</p>"
+            f"<p style='margin:0 0 4px;font-size:22px;font-weight:bold;color:#f5d76e;'>"
+            f"R {available:,.2f} <span style='font-size:11px;color:#94a3b8;font-weight:normal;'>available</span></p>"
+            f"<p style='margin:0;font-size:13px;color:#c9d2e0;'>Starting allocation: R {starting:,.2f}</p>"
+            f"<p style='margin:8px 0 0;font-size:12px;color:#94a3b8;'>"
+            "Your first withdrawal unlocks once <strong style='color:#f5d76e;'>10 referrals</strong> qualify. "
+            "Open your dashboard to share your link and track progress in real time.</p>"
+            "</div>"
+        )
+    body += "<p style='font-size:12px;color:#94a3b8;'>If you didn't expect this change, contact support immediately.</p>"
     return _branded_email_html(
         headline=headline,
         body_html=body,
-        cta_label="Open Network Capital",
-        cta_url="https://networkcapitalapp.co.za/",
+        cta_label=("Open Ambassador Dashboard" if (granted and new_role == "ambassador") else "Open Network Capital"),
+        cta_url=("https://networkcapitalapp.co.za/ambassador-dashboard" if (granted and new_role == "ambassador") else "https://networkcapitalapp.co.za/"),
     )
 
 
 async def _notify_role_change(*, user: dict, previous_role: str, new_role: str, actor_username: str) -> None:
-    """Fire-and-forget email + in-app notification for any role change."""
+    """Fire-and-forget email + in-app notification for any role change.
+
+    Iter 55 — for ``ambassador`` promotions, fetch the freshly-allocated
+    wallet state so the welcome email displays the ZAR balance front-and-centre.
+    """
     try:
         email = (user.get("email") or "").strip().lower()
         # Define which transitions count as "grant" (everything except → user/default).
@@ -6334,16 +6478,30 @@ async def _notify_role_change(*, user: dict, previous_role: str, new_role: str, 
         })
         if not email:
             return
+        # Pull fresh ambassador wallet state for the email body
+        wallet_info: Optional[Dict[str, Any]] = None
+        if granted and new_role == "ambassador":
+            try:
+                fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
+                state = await _ambassador_state(fresh)
+                wallet_info = {
+                    "starting_balance_zar": state.get("starting_balance_zar", 0),
+                    "available_zar": state.get("available_zar", 0),
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"[ROLE-EMAIL] could not derive wallet info for {user.get('id')}: {exc}")
         # Role changes are critical communications — send to any address on file.
         # If the user hasn't verified yet, the email itself is a nudge to come back.
         await _send_branded_email(
             to=email,
-            subject=f"Your Network Capital role is now: {new_role.replace('_',' ').title()}",
+            subject=(f"Welcome to the Network Capital Ambassador programme" if (granted and new_role == "ambassador")
+                    else f"Your Network Capital role is now: {new_role.replace('_',' ').title()}"),
             html=_role_change_html(
                 name=(user.get("full_name") or user.get("username") or "there"),
                 previous_role=previous_role,
                 new_role=new_role,
                 granted=granted,
+                wallet_info=wallet_info,
             ),
             kind="role_change",
         )
@@ -10195,6 +10353,8 @@ async def admin_announce_as_network_capital(
                 "video": s.video,
                 "caption": (s.caption or "").strip()[:280],
                 "duration_seconds": s.duration_seconds,
+                # Iter 55 — base64 fallback for ephemeral-disk redeploys
+                "image_data_url": getattr(s, "image_data_url", None),
             })
         media_type = media_type or "carousel"
     if media_type == "reel":
@@ -13171,6 +13331,124 @@ async def require_super_pin(
     if decoded.get("kind") != "super_pin" or decoded.get("sub") != current_user["id"]:
         raise HTTPException(status_code=401, detail="Super-admin PIN token does not belong to this session")
     return current_user
+
+
+# ── Iter 55 — Super-admin wallet adjustment ─────────────────────────────────
+# Allows the platform owner to credit / debit any user's wallet balance.
+# Every adjustment is written to ``wallet_adjustments`` for audit AND fans out
+# to ``AuditLog`` so it appears in the unified admin audit feed.
+class WalletAdjustRequest(BaseModel):
+    delta: float = Field(..., description="Positive to credit, negative to debit. ZAR amount.")
+    reason: str = Field(..., min_length=3, max_length=240)
+    currency: Optional[str] = "ZAR"
+
+
+@api_router.post("/admin/users/{user_id}/wallet-adjust")
+async def admin_adjust_user_wallet(
+    user_id: str,
+    payload: WalletAdjustRequest,
+    admin: dict = Depends(require_super_pin),
+):
+    """Credit (positive delta) or debit (negative delta) any user's wallet.
+
+    Hard-stops:
+      • delta == 0                  → 400
+      • abs(delta) > 1,000,000       → 400 (one-shot ceiling — bulk ops should
+                                       be split or use a dedicated tool)
+      • Debits that would push balance below 0 are CAPPED at the current
+        balance and the API surfaces the actual applied delta so the FE can
+        message the user clearly. No silent overdraft.
+    """
+    if payload.delta == 0:
+        raise HTTPException(status_code=400, detail="Delta cannot be zero.")
+    if abs(payload.delta) > 1_000_000:
+        raise HTTPException(status_code=400, detail="Single adjustments are capped at 1,000,000.")
+
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    before = float(target.get("wallet_balance") or 0)
+    applied = payload.delta
+    if payload.delta < 0:
+        # Cap the debit so we never go below 0
+        max_debit = -before
+        if payload.delta < max_debit:
+            applied = max_debit
+    after = round(before + applied, 2)
+
+    await db.users.update_one({"id": user_id}, {"$set": {"wallet_balance": after}})
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "user_email": target.get("email"),
+        "user_username": target.get("username"),
+        "admin_id": admin["id"],
+        "admin_username": admin.get("username"),
+        "delta_requested": payload.delta,
+        "delta_applied": applied,
+        "currency": (payload.currency or "ZAR").upper(),
+        "balance_before": before,
+        "balance_after": after,
+        "reason": payload.reason.strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.wallet_adjustments.insert_one(record)
+
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "owner",
+        action="wallet.adjust", target_type="user", target_id=user_id,
+        reason=payload.reason.strip(),
+        metadata={
+            "delta_requested": payload.delta,
+            "delta_applied": applied,
+            "balance_before": before,
+            "balance_after": after,
+        },
+    )
+
+    # User-facing in-app notification (always) — no email unless they want one
+    try:
+        verb = "credited" if applied > 0 else "debited"
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "type": "wallet_adjust",
+            "title": f"Your wallet has been {verb}",
+            "message": f"R {abs(applied):,.2f} — {payload.reason.strip()}. New balance: R {after:,.2f}.",
+            "points": 0,
+            "read": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[WALLET-ADJUST] notification write failed: {e}")
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "delta_requested": payload.delta,
+        "delta_applied": applied,
+        "capped": applied != payload.delta,
+        "balance_before": before,
+        "balance_after": after,
+    }
+
+
+@api_router.get("/admin/users/{user_id}/wallet-history")
+async def admin_get_wallet_history(
+    user_id: str,
+    limit: int = 50,
+    admin: dict = Depends(require_admin_user),
+):
+    """Read-only wallet adjustment history. Available to admin (not super-pin-gated)."""
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "username": 1, "email": 1, "wallet_balance": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    rows = await db.wallet_adjustments.find(
+        {"user_id": user_id}, {"_id": 0},
+    ).sort("created_at", -1).limit(min(max(limit, 1), 200)).to_list(length=None)
+    return {"user": target, "items": rows}
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

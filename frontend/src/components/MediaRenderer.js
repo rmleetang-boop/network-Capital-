@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Volume2, VolumeX, Play } from 'lucide-react';
 import { resolveMediaUrl } from '../lib/mediaUpload';
+import SafeImage from './SafeImage';
 
 const Slide = ({ slide, isActive }) => {
   if (slide.video) {
@@ -24,8 +25,9 @@ const Slide = ({ slide, isActive }) => {
     );
   }
   return (
-    <img
-      src={resolveMediaUrl(slide.image)}
+    <SafeImage
+      src={slide.image}
+      fallbackSrc={slide.image_data_url || slide.data_url}
       alt={slide.caption || 'Slide'}
       className="w-full max-h-[560px] bg-black object-contain"
       draggable={false}
@@ -222,8 +224,9 @@ const MediaRenderer = ({ post, onMediaTap, indexKey = '' }) => {
   return (
     <div className="relative bg-black select-none" onClick={onMediaTap} data-testid={`post-media-${indexKey}`}>
       {post.image && (
-        <img
-          src={resolveMediaUrl(post.image)}
+        <SafeImage
+          src={post.image}
+          fallbackSrc={post.image_data_url || post.data_url}
           alt="Post"
           className="w-full max-h-[560px] object-contain bg-black"
           draggable={false}

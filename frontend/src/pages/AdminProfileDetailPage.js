@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, Shield, DollarSign, Ban, AlertTriangle, Trash2, Flame, MessageCircle, Star, Send, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Loader2, Shield, DollarSign, Ban, AlertTriangle, Trash2, Flame, MessageCircle, Star, Send, BarChart3, Wallet } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import CreditGrantModal from '../components/CreditGrantModal';
+import WalletAdjustModal from '../components/WalletAdjustModal';
 
 const AdminProfileDetailPage = ({ user }) => {
   const { userId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [creditOpen, setCreditOpen] = useState(false);
+  const [walletAdjustOpen, setWalletAdjustOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const [restrictOpen, setRestrictOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
@@ -143,9 +145,13 @@ const AdminProfileDetailPage = ({ user }) => {
           <button onClick={() => setDmOpen(true)} className="bg-primary text-white font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-dm"><MessageCircle size={12} /> Message</button>
           <button onClick={() => setScoreOpen(true)} className="bg-blue-100 text-blue-800 font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-score-audit"><BarChart3 size={12} /> Score audit</button>
           {isSuperAdmin ? (
-            <button onClick={() => setCreditOpen(true)} className="bg-secondary text-primary font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-credit"><DollarSign size={12} /> Adjust balance</button>
+            <button onClick={() => setCreditOpen(true)} className="bg-secondary text-primary font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-credit"><DollarSign size={12} /> Promo credit</button>
           ) : (
             <div className="bg-gray-100 text-text-muted font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" title="Only the platform owner can adjust balances" data-testid="action-credit-disabled"><DollarSign size={12} /> Owner only</div>
+          )}
+          {/* Iter 55 — Direct wallet adjustment (debit OR credit) */}
+          {isSuperAdmin && (
+            <button onClick={() => setWalletAdjustOpen(true)} className="bg-emerald-100 text-emerald-700 font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-wallet-adjust"><Wallet size={12} /> Wallet ± adjust</button>
           )}
           <button onClick={() => setRestrictOpen(true)} className="bg-orange-100 text-orange-700 font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-restrict"><AlertTriangle size={12} /> Restrict</button>
           <button onClick={suspendToggle} className="bg-gray-100 text-text-primary font-semibold py-2 rounded-full text-xs inline-flex items-center justify-center gap-1.5" data-testid="action-suspend"><Ban size={12} /> {u.suspended ? 'Unsuspend' : 'Suspend'}</button>

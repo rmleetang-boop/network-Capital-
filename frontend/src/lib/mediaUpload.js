@@ -52,8 +52,11 @@ export const validateMediaFile = (file, expected) => {
   return null;
 };
 
-// Upload a single file. Returns { url, kind, size_bytes }.
+// Upload a single file. Returns { url, kind, size_bytes, data_url? }.
 // `onProgress` receives a 0-100 number.
+// Iter 55 — backend may now ALSO return `data_url` (base64) for images <= 4MB,
+// which the SafeImage component uses as a fallback when the URL 404s after a
+// container redeploy wipes ephemeral disk storage.
 export const uploadMedia = async (file, { scope = 'posts', onProgress } = {}) => {
   const form = new FormData();
   form.append('file', file);

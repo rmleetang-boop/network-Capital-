@@ -67,11 +67,15 @@ const FeedPage = ({ user }) => {
     } else if (composer.mode === 'photos') {
       if (composer.slides.length === 1) {
         payload.image = composer.slides[0].image;
+        // Iter 55 — store base64 fallback alongside the URL so feed images
+        // survive ephemeral-disk redeploys on production.
+        if (composer.slides[0].image_data_url) payload.image_data_url = composer.slides[0].image_data_url;
         payload.media_type = 'single';
       } else if (composer.slides.length >= 2) {
         payload.slides = composer.slides.map((s) => ({
           type: 'image',
           image: s.image,
+          image_data_url: s.image_data_url || null,
           caption: s.caption || '',
         }));
         payload.media_type = 'carousel';
@@ -202,7 +206,7 @@ const FeedPage = ({ user }) => {
       setUploading(true);
       setUploadProgress(0);
       try {
-        const { url, size_bytes } = await uploadMedia(file, {
+        const { url, size_bytes, data_url } = await uploadMedia(file, {
           scope: 'posts',
           onProgress: setUploadProgress,
         });
@@ -210,7 +214,7 @@ const FeedPage = ({ user }) => {
           ...c,
           mode: 'photos',
           reel: null,
-          slides: c.slides.concat([{ image: url, size_bytes, name: file.name }]),
+          slides: c.slides.concat([{ image: url, image_data_url: data_url, size_bytes, name: file.name }]),
         }));
       } catch (ex) {
         const detail = ex?.response?.data?.detail || 'Image upload failed. Try a smaller file.';

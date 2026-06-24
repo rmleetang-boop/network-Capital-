@@ -35,7 +35,10 @@ const ShareMenu = ({ post, onShared, onClose }) => {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const appUrl = window.location.origin;
-  const postUrl = `${appUrl}/?post=${post.id}`;
+  // Iter 55 — point share URL at the OG-aware backend route so social
+  // platforms render an image preview card (WhatsApp/Twitter/iMessage/FB).
+  const backend = process.env.REACT_APP_BACKEND_URL || appUrl;
+  const postUrl = `${backend}/api/share/post/${post.id}`;
   const text = post.content?.slice(0, 200) || 'Check out this post on Network Capital';
   const encoded = encodeURIComponent(text);
   const encodedUrl = encodeURIComponent(postUrl);
