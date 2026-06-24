@@ -79,7 +79,11 @@ const SharedProductPage = () => {
   }
 
   const heroImg = (product.images || [])[0];
-  const shareUrl = `${process.env.REACT_APP_BACKEND_URL}/api/share/p/${product.creator_username || username}/${product.slug || slug}`;
+  // Iter 56b — share URL always points at the production brand domain.
+  // We use the /api/share/* OG-aware backend route so WhatsApp/Twitter/iMessage
+  // render preview cards, but anchor it to networkcapitalapp.co.za so the visible
+  // URL is the canonical brand domain (NOT the preview/cluster pod URL).
+  const shareUrl = `https://networkcapitalapp.co.za/api/share/p/${product.creator_username || username}/${product.slug || slug}`;
   const isGrowth = product.creator_type === 'growth';
   const fileAccess = product.file_access || 'free';
 

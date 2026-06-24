@@ -5636,7 +5636,11 @@ def _share_html_response(
     request: Request, *, title: str, description: str,
     image: Optional[str], redirect_to: str, status_code: int = 200,
 ) -> HTMLResponse:
-    base = f"{request.url.scheme}://{request.url.netloc}"
+    # Iter 56b — always use the production brand domain for OG canonical / redirect,
+    # regardless of which host the crawler hit (preview / cluster / production).
+    # This ensures shared links never leak internal preview hostnames into
+    # WhatsApp / Twitter / Slack / iMessage previews.
+    base = "https://networkcapitalapp.co.za"
     canonical = f"{base}{redirect_to}"
     # Use html.escape to defend against <, >, & and " in user-supplied content.
     safe_title = _html.escape((title or "")[:240], quote=True)

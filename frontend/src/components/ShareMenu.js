@@ -35,9 +35,10 @@ const ShareMenu = ({ post, onShared, onClose }) => {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
   const appUrl = window.location.origin;
-  // Iter 55 — point share URL at the OG-aware backend route so social
-  // platforms render an image preview card (WhatsApp/Twitter/iMessage/FB).
-  const backend = process.env.REACT_APP_BACKEND_URL || appUrl;
+  // Iter 56b — share URL always points at the production brand domain so the
+  // visible URL in WhatsApp/Twitter previews is networkcapitalapp.co.za rather
+  // than the preview/cluster pod hostname.
+  const backend = 'https://networkcapitalapp.co.za';
   const postUrl = `${backend}/api/share/post/${post.id}`;
   const text = post.content?.slice(0, 200) || 'Check out this post on Network Capital';
   const encoded = encodeURIComponent(text);
