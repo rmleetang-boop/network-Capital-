@@ -21,8 +21,9 @@ const PromotionsWelcomeModal = ({ user }) => {
   useEffect(() => {
     if (!user) return;
     // Iter 56 — never auto-open on commerce-flow routes (interrupts the <2-min selling flow).
+    // Iter 56d — also suppress on the entire /admin/* tree so admin work isn't interrupted.
     const path = (typeof window !== 'undefined' && window.location?.pathname) || '';
-    const SUPPRESS = ['/products/create', '/my-store', '/store/'];
+    const SUPPRESS = ['/products/create', '/my-store', '/store/', '/admin/'];
     if (SUPPRESS.some((p) => path === p || path.startsWith(p))) return;
     const last = (() => { try { return localStorage.getItem(STORAGE_KEY); } catch { return null; } })();
     if (last === todayKey()) return;

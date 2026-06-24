@@ -13808,6 +13808,7 @@ async def _send_single_outreach(*, admin: dict, email: str, name: str, subject: 
     opt_out_url = f"https://networkcapitalapp.co.za/api/outreach/never-contact?token={opt_out_token}"
     html = _outreach_email_html(recipient_name=name, template_id=template_id, opt_out_url=opt_out_url)
     delivered = False
+    failure_reason: Optional[str] = None
     try:
         delivered = await _brevo_send(
             to_email=em,
@@ -13817,9 +13818,12 @@ async def _send_single_outreach(*, admin: dict, email: str, name: str, subject: 
             reply_to="creative@networkcapitalapp.co.za",
             tags=["outreach", f"template:{template_id}"],
         )
+        if not delivered:
+            failure_reason = "brevo_returned_falsy"
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"[OUTREACH-FAIL] to={em} err={exc}")
         delivered = False
+        failure_reason = str(exc)[:240]
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.outreach_invitations.insert_one({
         "id": invitation_id,
@@ -13830,6 +13834,7 @@ async def _send_single_outreach(*, admin: dict, email: str, name: str, subject: 
         "sender_id": admin["id"],
         "sender_username": admin.get("username") or "admin",
         "status": "sent" if delivered else "failed",
+        "failure_reason": failure_reason,
         "sent_at": now_iso,
         "resent_count": 0,
         "never_contact": False,

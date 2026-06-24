@@ -347,3 +347,39 @@ Mobile-first **Community Resource Ecosystem**. Network Score = community engagem
 - Iter 56c: 20/20 backend pytest PASS (8 new canonical-domain + 12 iter56 regression).
 - Frontend Share button verified live via Playwright clipboard capture.
 - Regression guard: `/app/backend/tests/test_iter56c_share_canonical.py`.
+
+
+## Iter 56d (Feb 28, 2026) — Bundle: Outreach + Digital Files + Growth-Creator Restore + Store Entry Point
+
+### 1) Non-User Outreach Email System (Admin + Super-Admin)
+New `/admin/outreach` page. Three professional Brevo-delivered email templates: `future_through_network`, `income_streams`, `join_the_movement`. Sender-defined subject. Optional first-name personalisation. Embedded landing-page screenshot (`/landing-preview.png`). Contact: creative@networkcapitalapp.co.za + WhatsApp +27 74 574 7401. Footer: "You received this from the Network Capital Team because we want you to build a great future with your network."
+
+**Compliance (per user spec):**
+- "Never contact me again" opt-out (NOT "Unsubscribe") via signed JWT token. Records into `outreach_suppressions` collection; future sends auto-skip.
+- No tracking pixels.
+- Existing registered users auto-suppressed (don't re-invite).
+- Per-admin rate limit: 500/day.
+- Bulk cap: 100 recipients per call.
+
+**Endpoints** (all admin-gated, super_admin sees all history):
+- `GET /api/admin/outreach/templates` · `POST /api/admin/outreach/preview`
+- `POST /api/admin/outreach/send` (single) · `POST /api/admin/outreach/bulk` · `POST /api/admin/outreach/upload-csv`
+- `GET /api/admin/outreach/list` (history + stats_30d) · `POST /api/admin/outreach/{id}/resend`
+- `GET /api/admin/outreach/suppressions` · `GET /api/outreach/never-contact?token=<jwt>` (public opt-out)
+
+### 2) Digital file upload in lean wizard (Gumroad-style)
+On Step 4 → More Options, a new "Digital download" section. Sellers attach PDF/EPUB/DOC/PPT/ZIP/XLS/CSV/TXT/MD up to 100 MB via existing `/api/uploads/file` endpoint. **Seller defines access mode themselves**: Free / Email-gated / Paid (price-per-download). Backend persists `file_url`, `file_name`, `file_size_bytes`, `file_mime`, `file_access`, `file_price` on the product. Buyer-side download flow already wired from iter 52.
+
+### 3) Growth-creator support flow restored
+Third tile on the kind-chooser screen: **"Need support to build this →"** (Growth-creator pill). Opens the standard wizard with `with_support=true`; Step 4 reveals a `SupportRequestPanel` requiring at-least-one category (Funding/Partnerships/Mentorship/Customers/Marketing/Team/Technical/Distribution) + optional message + T&C acknowledgement. New backend flag `apply_for_growth: bool` on `CreateProductRequest` — when true with `support_needed=true`, server promotes the user's `creator_type` from `independent`→`growth` and the product is created with `status='pending_review'` for admin moderation (existing iter 52 logic).
+
+### 4) Store entry points added
+- `/profile` → quick-access grid now has a **"My Store"** tile (Package icon, highlighted).
+- `/admin/owner/pin` (super_admin) → Owner Control Center QuickActionGrid now has **"Invite non-users"** tile linking to `/admin/outreach`.
+
+### Routing / UX guards
+- `PromotionsWelcomeModal` suppression extended to ALL `/admin/*` routes (was already on commerce routes). PIN page no longer blocked.
+
+### Testing
+- Iter 56d: Backend 19/19 PASS (templates + admin-gate + preview HTML compliance + send single guards + bulk 100-cap + CSV parse + history stats + resend counter + JWT opt-out + apply_for_growth promotion). Tests live at `/app/backend/tests/test_iter56d_outreach.py`.
+- Frontend: My Store tile + 3rd kind tile + full Outreach page (4 tabs, all selectors) + qa-outreach Owner Center tile all verified live.
