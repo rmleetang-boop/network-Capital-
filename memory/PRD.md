@@ -444,3 +444,21 @@ Added `{ icon: Package, label: 'My Store', path: '/my-store', highlight: true }`
 - `pages/AdminProfileDetailPage.js` — admin viewing OTHER users (wallet-adjust etc.) · NOT a duplicate.
 
 Both grids now carry the "My Store" tile (iter 56d added it to `ProfilePage`; iter 56g adds it to `UserPublicProfilePage`).
+
+
+## Iter 57 (Feb 28, 2026) — Profile pages DRY refactor
+
+**Goal**: Single source of truth for the own-profile module tile grid, eliminating the duplicate-update bug (e.g. iter 56d → iter 56g had to add "My Store" tile in two places).
+
+### What changed
+- **NEW**: `/app/frontend/src/components/profile/OwnModuleGrid.jsx` (126 lines) — shared component owning the canonical 16-tile base list + conditional Ambassador / Admin / Owner Center tiles. Takes `profile`, `onNavigate`, `variant` props.
+- **Variants** preserve all existing data-testids:
+  - `variant="own-module"` (used on `/u/:me` via `UserPublicProfilePage`) — wrapper `own-module-grid`, per-tile `module-<slug>`, header right `"<N> tools"`, single gold halo.
+  - `variant="quick-access"` (used on `/profile` via `ProfilePage`) — wrapper `quick-access-grid-wrap`, inner `quick-access-grid`, per-tile `quick-<slug>`, header right `"Tap to open"`, gold + blue halos.
+- `ProfilePage.js`: removed inline 60-line grid markup + 10 unused icon imports (Wallet, TrendingUp, Trophy, Activity, Inbox, Bell, Settings, Shield, Star, Crown); now `<OwnModuleGrid profile={profileUser} variant="quick-access" />`.
+- `UserPublicProfilePage.js`: removed inline `OwnModuleGrid` definition + 10 unused icon imports (Star, Users, Wallet, Package, TrendingUp, Activity, Trophy, Bell, Shield, MessageCircleIcon); now `<OwnModuleGrid profile={profile} onNavigate={navigate} variant="own-module" />`.
+- File-size delta: ProfilePage.js 842→783 (−59), UserPublicProfilePage.js 438→379 (−59). Net duplication eliminated.
+
+### Testing
+- Iter 57: Backend **100%**, Frontend **95%** (`/app/test_reports/iteration_57.json`). All 12 verified assertions pass — both variants render correctly, all `module-*` and `quick-*` testids present, tile-counts match, navigation works. The single flake (`module-owner-center` first-click race) is a pre-existing onboarding-modal overlay issue NOT introduced by the refactor.
+- Lint clean on all 3 files.
