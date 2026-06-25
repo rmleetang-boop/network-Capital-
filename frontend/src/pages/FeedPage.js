@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+// Iter 58 — framer-motion is dynamically loaded after first paint to keep the
+// initial JS bundle small. While it's loading we render plain <div>/<span>
+// placeholders so the feed never flickers/blocks.
 import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check, Plus, Film, Layers, Loader2, Eye, EyeOff } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
 import NativeFeedAd from '../components/NativeFeedAd';
@@ -14,12 +16,20 @@ import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import NetworkScore from '../components/NetworkScore';
 import { useNavigate } from 'react-router-dom';
+import { MotionDiv, MotionSpan, AnimatePresenceLazy } from '../lib/motionLazy';
+
+const motion = { div: MotionDiv, span: MotionSpan };
+const AnimatePresence = AnimatePresenceLazy;
+
+const PAGE_SIZE = 10;
 
 const buildInitialComposer = () => ({ content: '', mode: 'photos', slides: [], reel: null });
 
 const FeedPage = ({ user }) => {
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [showCreatePost, setShowCreatePost] = useState(false);
   // Iter 51 — composer rewrite for carousel + reels.
   // `mode`: 'photos' = single image OR 2-10 image carousel; 'reel' = one ≤30s video.
@@ -29,22 +39,44 @@ const FeedPage = ({ user }) => {
   const [sharingPost, setSharingPost] = useState(null);
   const [posting, setPosting] = useState(false);
   const [storyGroup, setStoryGroup] = useState(null);
+  const sentinelRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchPosts();
+    fetchPosts(0, true);
   }, []);
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (skip = 0, replace = false) => {
+    if (skip === 0) setLoading(true);
+    else setLoadingMore(true);
     try {
-      const response = await axiosInstance.get('/posts');
-      setPosts(response.data);
+      const response = await axiosInstance.get('/posts', { params: { skip, limit: PAGE_SIZE } });
+      const next = response.data || [];
+      setHasMore(next.length === PAGE_SIZE);
+      setPosts((prev) => (replace ? next : [...prev, ...next]));
     } catch (error) {
-      toast.error('Failed to load posts');
+      if (skip === 0) toast.error('Failed to load posts');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || loading || !hasMore) return;
+    fetchPosts(posts.length, false);
+  }, [loadingMore, loading, hasMore, posts.length]);
+
+  // IntersectionObserver-based infinite scroll on a sentinel below the feed.
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node) return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) loadMore();
+    }, { rootMargin: '400px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loadMore]);
 
   const resetComposer = () => { setUploadProgress(0); setUploading(false); };
 
@@ -399,9 +431,32 @@ const FeedPage = ({ user }) => {
           />
         ))}
 
-        {posts.length === 0 && (
+        {posts.length === 0 && !loading && (
           <div className="text-center py-12">
             <p className="text-text-secondary">No posts yet. Be the first to post!</p>
+          </div>
+        )}
+
+        {/* Iter 58 — infinite scroll sentinel + load-more fallback button */}
+        {posts.length > 0 && (
+          <div ref={sentinelRef} className="py-6 text-center" data-testid="feed-sentinel">
+            {hasMore ? (
+              loadingMore ? (
+                <div className="inline-flex items-center gap-2 text-text-muted text-sm" data-testid="feed-loading-more">
+                  <Loader2 size={14} className="animate-spin" /> Loading more posts…
+                </div>
+              ) : (
+                <button
+                  onClick={loadMore}
+                  className="text-xs font-semibold text-primary border border-primary/40 px-4 py-2 rounded-full hover:bg-primary/5"
+                  data-testid="feed-load-more"
+                >
+                  Load more
+                </button>
+              )
+            ) : (
+              <p className="text-[11px] text-text-muted" data-testid="feed-end">You&apos;re all caught up.</p>
+            )}
           </div>
         )}
       </div>

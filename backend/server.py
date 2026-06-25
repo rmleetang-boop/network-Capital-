@@ -232,8 +232,6 @@ class Post(BaseModel):
     user_score: int
     content: str
     image: Optional[str] = None
-    # Iter 55 — base64 fallback for single-image posts
-    image_data_url: Optional[str] = None
     video: Optional[str] = None
     # Iter 51 — carousel + reels (returned to frontend so it can render slides / reel UI)
     slides: Optional[List[Dict[str, Any]]] = None
@@ -253,16 +251,12 @@ class CarouselSlide(BaseModel):
     video: Optional[str] = None
     caption: Optional[str] = None
     duration_seconds: Optional[int] = None  # only for video slides
-    # Iter 55 — base64 fallback so feed survives ephemeral-disk redeploys
-    image_data_url: Optional[str] = None
 
 
 class CreatePostRequest(BaseModel):
     content: str
     image: Optional[str] = None
     video: Optional[str] = None
-    # Iter 55 — base64 fallback for single-image posts
-    image_data_url: Optional[str] = None
     is_official: Optional[bool] = False  # admin-only — triggers broadcast email fan-out
     # Iter 51 — carousel + reels
     slides: Optional[List[CarouselSlide]] = None  # 2-10 slides → renders as carousel
@@ -1453,7 +1447,25 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
     if request.bio is not None:
         update_data["bio"] = request.bio
     if request.photo is not None:
-        update_data["photo"] = request.photo
+        # Iter 58 — coerce data: URLs into Cloudinary secure URLs so we never
+        # persist base64 blobs on the user document.
+        photo_val = request.photo or ""
+        if photo_val.startswith("data:"):
+            try:
+                import base64 as _b64, re as _re
+                m = _re.match(r"data:([^;]+);base64,(.+)", photo_val, _re.DOTALL)
+                if m:
+                    mime, payload = m.group(1), m.group(2)
+                    raw = _b64.b64decode(payload)
+                    ext = (mime.split("/")[-1] or "jpg").lower()
+                    res = await cloudinary_service.upload_bytes(
+                        raw, folder="profile", filename=f"avatar.{ext}", resource_type="image",
+                    )
+                    if res and res.get("url"):
+                        photo_val = res["url"]
+            except Exception as _e:
+                logger.warning(f"[PROFILE-PHOTO-COERCE] failed: {_e}")
+        update_data["photo"] = photo_val
     if request.city is not None:
         update_data["city"] = request.city
     if request.country is not None:
@@ -3593,8 +3605,6 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
                 "video": s.video,
                 "caption": (s.caption or "").strip()[:280],
                 "duration_seconds": s.duration_seconds,
-                # Iter 55 — base64 fallback for ephemeral-disk redeploys
-                "image_data_url": getattr(s, "image_data_url", None),
             })
         media_type = media_type or "carousel"
     # Reel = single vertical video ≤30s
@@ -3606,6 +3616,48 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
     if not media_type:
         media_type = "single"
 
+    # ── Iter 58 — Cloudinary coercion: posts.image / users.user_photo must be URLs only.
+    # If the client sent a base64 data URL (legacy clients), upload it to Cloudinary
+    # right now and replace the field with the secure URL. The base64
+    # `image_data_url` fallback is NO LONGER persisted on new rows.
+    async def _coerce(blob: str, folder: str, kind: str = "image") -> str:
+        if not blob:
+            return blob or ""
+        if blob.startswith(("http://", "https://")):
+            return blob
+        if blob.startswith("data:"):
+            try:
+                import base64 as _b64, re as _re
+                m = _re.match(r"data:([^;]+);base64,(.+)", blob, _re.DOTALL)
+                if not m:
+                    return blob
+                mime, payload = m.group(1), m.group(2)
+                raw = _b64.b64decode(payload)
+                ext = (mime.split("/")[-1] or "bin").lower()
+                resource_type = "video" if kind == "video" or mime.startswith("video/") else "image"
+                res = await cloudinary_service.upload_bytes(
+                    raw, folder=folder, filename=f"upload.{ext}", resource_type=resource_type,
+                )
+                if res and res.get("url"):
+                    return res["url"]
+            except Exception as _e:
+                logger.warning(f"[POST-IMAGE-COERCE] failed: {_e}")
+        return blob
+
+    coerced_image = await _coerce(request.image or "", "posts", "image")
+    coerced_video = await _coerce(request.video or "", "posts", "video")
+    for slide in slides_payload:
+        if slide.get("image"):
+            slide["image"] = await _coerce(slide["image"], "posts", "image")
+        if slide.get("video"):
+            slide["video"] = await _coerce(slide["video"], "posts", "video")
+        # Drop the legacy base64 fallback — Cloudinary URLs are persistent.
+        slide.pop("image_data_url", None)
+
+    # Author snapshot — only persist the photo when it's already a URL.
+    raw_photo = current_user.get("photo") or ""
+    snapshot_photo = raw_photo if raw_photo.startswith(("http://", "https://")) else ""
+
     # Only admins/moderators can flag a post as "official" (broadcasts to all users).
     is_official = bool(request.is_official) and current_user.get("role") in ("admin", "moderator")
     post_id = str(uuid.uuid4())
@@ -3613,12 +3665,12 @@ async def create_post(request: CreatePostRequest, current_user: dict = Depends(g
         "id": post_id,
         "user_id": current_user["id"],
         "username": current_user.get("username") or "",
-        "user_photo": current_user.get("photo") or "",
+        "user_photo": snapshot_photo,
         "user_score": current_user.get("network_score") or 0,
         "content": request.content,
-        "image": request.image,
-        "image_data_url": request.image_data_url,  # iter 55 — base64 fallback
-        "video": request.video,
+        "image": coerced_image,
+        # image_data_url intentionally omitted — Iter 58 (URLs only).
+        "video": coerced_video,
         "slides": slides_payload or None,
         "media_type": media_type,
         "duration_seconds": request.duration_seconds,
@@ -3770,10 +3822,19 @@ async def delete_comment(post_id: str, comment_id: str, current_user: dict = Dep
     return {"deleted": True, "score_revoked": revoked}
 
 @api_router.get("/posts", response_model=List[Post])
-async def get_posts(skip: int = 0, limit: int = 20):
-    # Iter 56e — hidden posts (soft-hidden by admin) are excluded from public feed.
+async def get_posts(skip: int = 0, limit: int = 10):
+    """Paginated public feed. Default page size = 10.
+
+    Iter 56e — hidden posts (soft-hidden by admin) are excluded.
+    Iter 58 — `image_data_url` (base64 fallback) is explicitly excluded from
+    the projection so the wire payload stays compact. Clients should use
+    `image` (Cloudinary URL) instead.
+    """
+    skip = max(0, int(skip or 0))
+    limit = max(1, min(50, int(limit or 10)))
     posts = await db.posts.find(
-        {"hidden": {"$ne": True}}, {"_id": 0},
+        {"hidden": {"$ne": True}},
+        {"_id": 0, "image_data_url": 0},
     ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return await _enrich_posts_with_live_score(posts)
 
@@ -3782,7 +3843,12 @@ async def _enrich_posts_with_live_score(posts: List[dict]) -> List[dict]:
     """Replace the denormalised `user_score` on each post with the author's
     current `network_score`.  This fixes the Feed-vs-Profile drift where the
     chip on the post header would lag behind the user's actual score until they
-    posted again.  Idempotent and safe on empty input."""
+    posted again.  Idempotent and safe on empty input.
+
+    Iter 58 — `user_photo` is only updated when the author's stored photo is a
+    URL (Cloudinary or remote). Legacy base64 data URLs are NOT propagated onto
+    posts — they would balloon the JSON payload by hundreds of KB per page.
+    """
     if not posts:
         return posts
     author_ids = list({p.get("user_id") for p in posts if p.get("user_id")})
@@ -3797,11 +3863,12 @@ async def _enrich_posts_with_live_score(posts: List[dict]) -> List[dict]:
         live = by_id.get(p.get("user_id"))
         if live:
             p["user_score"] = int(live.get("network_score") or 0)
-            # Also refresh the username/photo snapshots so renames propagate.
             if live.get("username"):
                 p["username"] = live["username"]
-            if live.get("photo"):
-                p["user_photo"] = live["photo"]
+            photo = live.get("photo") or ""
+            # Only propagate URL photos. Skip base64 data URLs and empty strings.
+            if photo.startswith(("http://", "https://")):
+                p["user_photo"] = photo
     return posts
 
 @api_router.post("/posts/{post_id}/like")
@@ -10667,8 +10734,6 @@ async def admin_announce_as_network_capital(
                 "video": s.video,
                 "caption": (s.caption or "").strip()[:280],
                 "duration_seconds": s.duration_seconds,
-                # Iter 55 — base64 fallback for ephemeral-disk redeploys
-                "image_data_url": getattr(s, "image_data_url", None),
             })
         media_type = media_type or "carousel"
     if media_type == "reel":

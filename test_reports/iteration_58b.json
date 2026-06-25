@@ -1,0 +1,39 @@
+{
+  "summary": "Iter 58b — Perf + Cloudinary cleanup + sitemap PDF: backend 10/10 pytest cases PASSED on the public ingress; FeedPage infinite scroll verified end-to-end (skip=0/10/20/.../100 all fire, feed-sentinel + feed-load-more present, 0 motion errors); migration script second-run reports 'DONE — users migrated=0, posts migrated=0' confirming idempotency; sitemap PDF served via HEAD/GET (7019 bytes, application/pdf, %PDF- header); nginx -t syntax OK; /app/deploy/nginx-gzip.conf reference snippet present with full gzip block.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter58b_perf_cloudinary_pagination.py",
+    "/app/test_reports/pytest/iter58b_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FeedPage fired TWO initial GET /api/posts?skip=0&limit=10 calls back-to-back on mount. Most likely cause: React 18 StrictMode double-invoke of the initial useEffect, OR an unmemoised dependency in the loadMore callback being recreated and re-triggering the IntersectionObserver bootstrap. Functionally harmless (skip=0 is idempotent) but wastes one round-trip on every feed mount. Recommend guarding with a `loadedFirstPage` ref or wrapping the fetcher in useCallback with a stable identity.",
+    "Migration script second run prints one WARNING line: 'upload failed in folder=profile: Incorrect padding' before it correctly emits DONE users=0, posts=0. There's still at least one user document with `photo` matching `^data:image` whose base64 payload is malformed (padding error on b64decode). It's stuck and will keep firing the warning on every future migration run. Recommend either (a) null out that photo, or (b) extend the migration script to $unset/$set='' the field on decode failure so it stops getting picked up by the regex on future runs.",
+    "Public Post model and CreatePostRequest no longer expose `image_data_url` — confirmed by GET /api/posts?limit=50 audit across every post and every slide. No leak found.",
+    "Default GET /api/posts limit is correctly 10, cap at 50 enforced (limit=200 → 50). skip pagination math validated — skip=0 and skip=10 returned non-overlapping post id sets.",
+    "POST /api/posts with `image='data:image/png;base64,...'` is correctly coerced to a Cloudinary URL (https://res.cloudinary.com/dwocjyvys/...) before persistence. Pre-existing posts may still serve from /api/uploads/posts/... — that's the older same-origin uploader path and is acceptable (no `data:` blob; satisfies payload-hygiene contract).",
+    "PUT /api/users/me with `photo='data:...'` correctly coerces to https Cloudinary URL on persist and is reflected in GET /api/users/me.",
+    "Sitemap PDF (7019 bytes) is a valid PDF — starts with %PDF- magic header, content-type application/pdf, fits the ~7KB target. Served at /Network-Capital-Sitemap.pdf via the public ingress (HTTP 200)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter58b_perf_cloudinary_pagination.py (NEW — 10 test cases covering pagination, payload audit, base64 coercion on POST + PUT, sitemap PDF)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": "Platform Owner rmleetang@gmail.com / OwnerTest123! used for owner_token + photo coercion test (photo restored at end of test). Standing admin not exercised this run.",
+  "seed_data_creation": "POST /api/posts created and then DELETE'd a single ephemeral 'TEST_iter58b_base64_coerce' post during base64-coercion verification. One Cloudinary asset was uploaded to the `posts/` folder and one to the `profile/` folder (the owner's photo PUT path) — these are tiny 1x1 PNGs and can be left as-is or pruned manually in Cloudinary.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression command: `cd /app/backend && REACT_APP_BACKEND_URL=<public-url> python -m pytest tests/test_iter58b_perf_cloudinary_pagination.py -v` — runs in ~3s. Frontend FeedPage data-testids verified live: feed-sentinel, feed-load-more (present once hasMore=true), feed-end (only appears after exhausting all posts; this env has >110 posts so feed-end wasn't reached during scroll — main agent can verify on a smaller dataset). The IntersectionObserver bootstrap fires the FIRST page twice (StrictMode double-mount most likely) — see code review comment #1. Cloudinary cloud name in use: dwocjyvys. Migration script can be safely re-run anytime — idempotent.",
+  "rca of the issue": "N/A — no defects found that block iter58b acceptance. Two minor observations only: (1) duplicate initial /api/posts call on FeedPage mount (StrictMode), (2) one user photo with corrupt base64 padding still in DB triggers a benign WARNING in the migration script. Neither affects user-facing behaviour."
+}
