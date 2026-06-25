@@ -455,10 +455,53 @@ Both grids now carry the "My Store" tile (iter 56d added it to `ProfilePage`; it
 - **Variants** preserve all existing data-testids:
   - `variant="own-module"` (used on `/u/:me` via `UserPublicProfilePage`) — wrapper `own-module-grid`, per-tile `module-<slug>`, header right `"<N> tools"`, single gold halo.
   - `variant="quick-access"` (used on `/profile` via `ProfilePage`) — wrapper `quick-access-grid-wrap`, inner `quick-access-grid`, per-tile `quick-<slug>`, header right `"Tap to open"`, gold + blue halos.
-- `ProfilePage.js`: removed inline 60-line grid markup + 10 unused icon imports (Wallet, TrendingUp, Trophy, Activity, Inbox, Bell, Settings, Shield, Star, Crown); now `<OwnModuleGrid profile={profileUser} variant="quick-access" />`.
-- `UserPublicProfilePage.js`: removed inline `OwnModuleGrid` definition + 10 unused icon imports (Star, Users, Wallet, Package, TrendingUp, Activity, Trophy, Bell, Shield, MessageCircleIcon); now `<OwnModuleGrid profile={profile} onNavigate={navigate} variant="own-module" />`.
+- `ProfilePage.js`: removed inline 60-line grid markup + 10 unused icon imports; now `<OwnModuleGrid profile={profileUser} variant="quick-access" />`.
+- `UserPublicProfilePage.js`: removed inline `OwnModuleGrid` definition + 10 unused icon imports; now `<OwnModuleGrid profile={profile} onNavigate={navigate} variant="own-module" />`.
 - File-size delta: ProfilePage.js 842→783 (−59), UserPublicProfilePage.js 438→379 (−59). Net duplication eliminated.
 
 ### Testing
-- Iter 57: Backend **100%**, Frontend **95%** (`/app/test_reports/iteration_57.json`). All 12 verified assertions pass — both variants render correctly, all `module-*` and `quick-*` testids present, tile-counts match, navigation works. The single flake (`module-owner-center` first-click race) is a pre-existing onboarding-modal overlay issue NOT introduced by the refactor.
-- Lint clean on all 3 files.
+- Iter 57: Backend **100%**, Frontend **95%** (`/app/test_reports/iteration_57.json`).
+
+
+## Iter 58 (Feb 28, 2026) — Perf, MongoDB indexes, image opt, Site Map, Store/Jobs CRUD
+
+### Group C — Performance (FE)
+- `App.js` rewritten: every feature route now imported via `React.lazy` + `Suspense` (Layout / Auth / Onboarding / Landing / PremiumLoadingScreen / PromotionsWelcomeModal stay eager). Single `<RouteFallback>` (`data-testid='route-loading'`) shows during chunk load.
+- `PremiumLoadingScreen` no longer enforces a `minDuration` timer; parent controls visibility via `visible` prop. Boot loader disappears the moment `/users/me` resolves (no artificial wait).
+- New `lib/stokvelIntro.js` — extracted helpers so `App.js` can statically import `hasSeenStokvelIntro` without forcing the whole `StokvelIntroPage` into the initial bundle.
+- `lucide-react`: audited — already all named imports (no barrel `import *`); no change needed.
+- `recharts`: confirmed unused in src/.
+- `leaflet`, `react-leaflet`: only `PlacesPage.js` imports them — already isolated to that lazy chunk.
+- `framer-motion`: legitimately required by `LandingPage`, `AuthPage`, `OnboardingPage`, `PremiumLoadingScreen` (all part of the eager boot bundle); other usages are inside lazy chunks.
+
+### Group D — MongoDB indexes (BE)
+- Extended `ensure_indexes` startup hook (server.py ~7328) with hot-path indexes:
+  - `posts`: `created_at desc`, `(author_id, created_at desc)`, `hidden sparse`.
+  - `users`: `id unique`, `username unique sparse`, `email unique sparse`.
+  - `notifications`: `(user_id, read, created_at desc)`, `(user_id, created_at desc)`.
+- Each spec is wrapped in its own try/except so one failure doesn't block the rest.
+- One-off cleanup: deduplicated a stale `rmleetang@gmail.com` user record to allow `users_email_unique` to build cleanly.
+
+### Group E — Image assets
+- Resized in-place: `logo-mark.png` 2000×2000 → 256×256 (1.5MB → 43KB), `logo-main.png` 2000×2000 → 1200×1200 (962KB → 354KB), `logo-secondary.png` 2000×500 → 1024×256 (232KB → 104KB), `favicon.png` 2000×2000 → 32×32 (772KB → 1KB).
+- WebP siblings generated (`.webp` for each logo) at q=82.
+- New favicon set: `favicon-32.png`, `favicon-192.png`, `apple-touch-icon.png` (180×180), `logo192.png`, `logo512.png` for PWA manifest.
+- New `public/manifest.json` (PWA shell) — `index.html` `<link rel="manifest">` added; favicon links updated to proper sized set.
+- New reusable `components/BrandImg.jsx` — `<picture>` wrapper that emits a WebP `<source>` + PNG `<img>` fallback. Wired into `PremiumLoadingScreen` and `LandingPage` header (highest-traffic surfaces).
+
+### Group B — Site Map + Landing
+- New `pages/AdminSitemapPage.js` at `/admin/sitemap` — 7 sections (Core / Score / Commerce / Community / Ambassador / Admin / Owner), 42 tiles total, each with icon + one-line description + route. Search input filters live. Premium dark-navy + gradient halos, click any icon to open. Admin/super_admin/moderator only.
+- Sitemap entry points: gold "★ Site Map" button on `AdminMetricsDashboardPage` (`admin-go-sitemap`); "Site map" tile in `OwnerControlCenterPage` QuickActionGrid (`qa-sitemap`).
+- `LandingPage` FEATURES grid extended from 9 → 13 user-facing tiles (added My Store, Creator System, Stokvels, My Places) — admin-only features intentionally NOT advertised on the public landing.
+
+### Group A — Store + Jobs CRUD
+- **Storefront follow** — new `POST /api/storefront/{username}/follow` (toggle, idempotent via `$addToSet`/`$pull` on `user.store_followers`) + `GET /api/storefront/{username}/follow-status`. `get_public_storefront` now returns `follower_count` from this list. 400 if user tries to follow own store.
+- **Product soft-delete** — new `DELETE /api/products/{id}` sets `status='deleted'` (preserved for audit). Owner or admin/super_admin/moderator. Public storefront filter `status: approved` already excludes deleted rows. Writes `audit_log` row.
+- **Storefront UI** — `StorefrontPage.js` follow button wired to new endpoint, busy spinner, live `follower_count` (`data-testid='storefront-follower-count'`).
+- **My Store UI** — `MyStorePage.js` per-product Trash icon (`mystore-product-delete-<id>`) → confirm prompt → DELETE → optimistic list update.
+- **Admin Jobs CRUD** — new dedicated `pages/AdminJobsPage.js` (replaces generic re-export from `AdminListPages`) with: Post (+ /jobs/new), per-row inline Edit modal (`admin-job-edit-modal`), per-row Delete with reason prompt, per-row View, and global "Applications" link to `/admin/job-applications` (where iter48 approve/reject already lives).
+- **Backend jobs gate fix** — `PATCH /api/jobs/{id}` and `DELETE /api/jobs/{id}` used `current_user.get("is_admin")` (field doesn't exist, so admins could never edit other people's jobs). Replaced with `role in ('admin','super_admin','moderator')`.
+
+### Testing
+- Iter 58: Backend **100%**, Frontend **100%** (`/app/test_reports/iteration_58.json`). Pytest regression suite at `/app/backend/tests/test_iter58_perf_follow_sitemap.py`. No defects found. `retest_needed: false`.
+
