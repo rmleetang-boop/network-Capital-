@@ -2510,8 +2510,9 @@ def extract_mentions(text: str):
 @api_router.get("/hashtags/{tag}/posts")
 async def hashtag_posts(tag: str, limit: int = 50):
     tag = tag.lower().lstrip("#")
+    # Iter 56e — exclude admin-hidden posts from public hashtag surface
     posts = await db.posts.find(
-        {"hashtags": tag}, {"_id": 0}
+        {"hashtags": tag, "hidden": {"$ne": True}}, {"_id": 0}
     ).sort("created_at", -1).limit(limit).to_list(limit)
     return {"tag": tag, "posts": posts, "count": len(posts)}
 
@@ -3308,8 +3309,9 @@ async def list_user_posts(user_id: str, limit: int = 60):
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    # Iter 56e — user-profile post list also hides admin-hidden posts
     posts = await db.posts.find(
-        {"user_id": user_id},
+        {"user_id": user_id, "hidden": {"$ne": True}},
         {"_id": 0, "id": 1, "content": 1, "image": 1, "video": 1,
          "is_official": 1, "created_at": 1, "likes": 1, "comments": 1},
     ).sort("created_at", -1).limit(min(limit, 200)).to_list(length=None)

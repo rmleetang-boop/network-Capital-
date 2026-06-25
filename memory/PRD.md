@@ -383,3 +383,24 @@ Third tile on the kind-chooser screen: **"Need support to build this →"** (Gro
 ### Testing
 - Iter 56d: Backend 19/19 PASS (templates + admin-gate + preview HTML compliance + send single guards + bulk 100-cap + CSV parse + history stats + resend counter + JWT opt-out + apply_for_growth promotion). Tests live at `/app/backend/tests/test_iter56d_outreach.py`.
 - Frontend: My Store tile + 3rd kind tile + full Outreach page (4 tabs, all selectors) + qa-outreach Owner Center tile all verified live.
+
+
+## Iter 56e (Feb 28, 2026) — Influencer Outreach + Feed Moderation + Profile Store Pill
+
+### 1) Influencer-targeted outreach template
+Replaced `join_the_movement` with new **`influencer_collab`** template (Aspirational · founding-creator angle for creators we contacted off-platform). Headline: "We've been watching your work — let's collaborate." Body emphasises Network Score as a transparent activity-tracking reputation system, opportunities/partnerships/rewards reserved only for high-score members, founding-creator status, and first-wave web-based membership. Per-template CTA labels added (`cta_label`). Influencer CTA: "Claim your founding-creator spot →".
+
+### 2) Profile header "My Store" pill
+Prominent yellow `[profile-my-store-button]` added next to the Edit Profile icon (visible above-the-fold on first profile load — not hidden by the welcome modal). Still available via the existing iter-56d Quick-Access grid tile.
+
+### 3) Admin/Super-Admin feed moderation
+- New `POST /api/admin/posts/{id}/hide` — soft-hide (reversible). Records `hidden_at`, `hidden_by`, `hidden_reason`. AuditLog `post.hide`.
+- New `POST /api/admin/posts/{id}/unhide` — restore. AuditLog `post.unhide`.
+- Existing `DELETE /api/admin/posts/{id}` already wired (audit `post.delete`).
+- **Global suppression**: `{hidden:{$ne:true}}` filter applied to **every public post-read surface**: `/api/posts` (main feed), `/api/hashtags/{tag}`, trending ranker (`/api/posts/trending`), and `/api/users/{id}/posts` (profile feed). Hidden posts disappear everywhere.
+- 403 to non-admins; 404 on unknown post id.
+- Frontend: `PostCard` on Feed now shows an "Admin actions" section in the 3-dot menu when viewer role ∈ {admin, super_admin, moderator}: **Hide from feed / Restore post** + **Delete (admin)**. Hidden posts show `[post-hidden-badge-<idx>]` with the reason & moderator.
+
+### Testing
+- Iter 56e: Backend **11/11** (regression: `/app/backend/tests/test_iter56e_moderation_outreach.py`). Frontend: all 4 selectors verified end-to-end (profile-my-store-button, influencer template card + iframe, admin post menu hide/delete, post-hidden-badge toggle).
+- Global-suppression verified live via curl: hide a post → public feed, profile feed, hashtag feed, trending ranker ALL exclude it; unhide → all surfaces restore.
