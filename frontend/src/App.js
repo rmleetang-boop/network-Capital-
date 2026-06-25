@@ -1,90 +1,108 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Toaster } from '@/components/ui/sonner';
+
+// Eager — chrome / boot / auth (always needed before any feature page mounts)
 import AuthPage from './pages/AuthPage';
 import OnboardingPage from './pages/OnboardingPage';
 import LandingPage from './pages/LandingPage';
-import HelpCenterPage from './pages/HelpCenterPage';
-import LegalDocumentsPage from './pages/LegalDocumentsPage';
-import AdminDashboardPage from './pages/AdminDashboardPage';
-import FeedPage from './pages/FeedPage';
-import ProfilePage from './pages/ProfilePage';
-import LeaderboardPage from './pages/LeaderboardPage';
-import LeaderboardsPage from './pages/LeaderboardsPage';
-import NotificationsPage from './pages/NotificationsPage';
-import DashboardPage from './pages/DashboardPage';
-import ReferralPage from './pages/ReferralPage';
-import WalletPage from './pages/WalletPage';
-import StokvelListPage from './pages/StokvelListPage';
-import StokvelIntroPage, { hasSeenStokvelIntro } from './pages/StokvelIntroPage';
+import Layout from './components/Layout';
+import PremiumLoadingScreen from './components/PremiumLoadingScreen';
+import PromotionsWelcomeModal from './components/PromotionsWelcomeModal';
+import { hasSeenStokvelIntro } from './lib/stokvelIntro';
+import useHeartbeat from './hooks/useHeartbeat';
+import { CurrencyProvider } from './context/CurrencyContext';
+import './App.css';
+
+// Lazy — every feature page is split into its own chunk
+const HelpCenterPage = lazy(() => import('./pages/HelpCenterPage'));
+const LegalDocumentsPage = lazy(() => import('./pages/LegalDocumentsPage'));
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
+const FeedPage = lazy(() => import('./pages/FeedPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+const LeaderboardsPage = lazy(() => import('./pages/LeaderboardsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const ReferralPage = lazy(() => import('./pages/ReferralPage'));
+const WalletPage = lazy(() => import('./pages/WalletPage'));
+const StokvelListPage = lazy(() => import('./pages/StokvelListPage'));
+const StokvelIntroPage = lazy(() => import('./pages/StokvelIntroPage'));
+const CreateStokvelPage = lazy(() => import('./pages/CreateStokvelPage'));
+const StokvelDetailPage = lazy(() => import('./pages/StokvelDetailPage'));
+const ScoreDashboardPage = lazy(() => import('./pages/ScoreDashboardPage'));
+const RewardsPage = lazy(() => import('./pages/RewardsPage'));
+const ProductListPage = lazy(() => import('./pages/ProductListPage'));
+const ProductDetailPage = lazy(() => import('./pages/ProductDetailPage'));
+const SharedProductPage = lazy(() => import('./pages/SharedProductPage'));
+const CreateProductPage = lazy(() => import('./pages/CreateProductPage'));
+const MyStorePage = lazy(() => import('./pages/MyStorePage'));
+const StorefrontPage = lazy(() => import('./pages/StorefrontPage'));
+const NetWorthPage = lazy(() => import('./pages/NetWorthPage'));
+const AudienceInsightsPage = lazy(() => import('./pages/AudienceInsightsPage'));
+const RegionalHubsPage = lazy(() => import('./pages/RegionalHubsPage'));
+const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage'));
+const ActivityTrackerPage = lazy(() => import('./pages/ActivityTrackerPage'));
+const ExplorePage = lazy(() => import('./pages/ExplorePage'));
+const HashtagPage = lazy(() => import('./pages/HashtagPage'));
+const PremiumSuccessPage = lazy(() => import('./pages/PremiumSuccessPage'));
+const MessagesPage = lazy(() => import('./pages/MessagesPage'));
+const ChatThreadPage = lazy(() => import('./pages/ChatThreadPage'));
+const ActivitiesPage = lazy(() => import('./pages/ActivitiesPage'));
+const AccountSettingsPage = lazy(() => import('./pages/AccountSettingsPage'));
+const JobsPage = lazy(() => import('./pages/JobsPage'));
+const JobDetailPage = lazy(() => import('./pages/JobDetailPage'));
+const CreateJobPage = lazy(() => import('./pages/CreateJobPage'));
+const PlacesPage = lazy(() => import('./pages/PlacesPage'));
+const PlaceDetailPage = lazy(() => import('./pages/PlaceDetailPage'));
+const CreatePlacePage = lazy(() => import('./pages/CreatePlacePage'));
+const NetworkPage = lazy(() => import('./pages/NetworkPage'));
+const NetworkUserPage = lazy(() => import('./pages/NetworkUserPage'));
+const AdminMetricsDashboardPage = lazy(() => import('./pages/AdminMetricsDashboardPage'));
+const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
+const AdminSitemapPage = lazy(() => import('./pages/AdminSitemapPage'));
+const AdminAuditLogPage = lazy(() => import('./pages/AdminAuditLogPage'));
+const AdminStokvelsPage = lazy(() => import('./pages/AdminStokvelsPage'));
+const AdminProfileDetailPage = lazy(() => import('./pages/AdminProfileDetailPage'));
+const AdminAnnouncePage = lazy(() => import('./pages/AdminAnnouncePage'));
+const AdminOutreachPage = lazy(() => import('./pages/AdminOutreachPage'));
+const AdminJobsPage = lazy(() => import('./pages/AdminJobsPage'));
+const AdminPlacesPage = lazy(() => import('./pages/AdminListPages').then((m) => ({ default: m.AdminPlacesPage })));
+const AdminActivitiesPage = lazy(() => import('./pages/AdminListPages').then((m) => ({ default: m.AdminActivitiesPage })));
+const AmbassadorDashboardPage = lazy(() => import('./pages/AmbassadorDashboardPage'));
+const AmbassadorCommandCenterPage = lazy(() => import('./pages/AmbassadorCommandCenterPage'));
+const AmbassadorLeaderboardPage = lazy(() => import('./pages/AmbassadorLeaderboardPage'));
+const PromotionsListPage = lazy(() => import('./pages/PromotionsListPage'));
+const PromotionDetailPage = lazy(() => import('./pages/PromotionDetailPage'));
+const MyPromotionsPage = lazy(() => import('./pages/MyPromotionsPage'));
+const AdminWithdrawalsPage = lazy(() => import('./pages/AdminWithdrawalsPage'));
+const AdminAdsPage = lazy(() => import('./pages/AdminAdsPage'));
+const BecomeAmbassadorPage = lazy(() => import('./pages/BecomeAmbassadorPage'));
+const OwnerControlCenterPage = lazy(() => import('./pages/OwnerControlCenterPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const AdminLockedAccountsPage = lazy(() => import('./pages/AdminLockedAccountsPage'));
+const AdminAmbassadorApplicationsPage = lazy(() => import('./pages/AdminAmbassadorApplicationsPage'));
+const AdminJobApplicationsPage = lazy(() => import('./pages/AdminJobApplicationsPage'));
+const OwnerUserCleanupPage = lazy(() => import('./pages/OwnerUserCleanupPage'));
+const ReferralLandingPage = lazy(() => import('./pages/ReferralLandingPage'));
+const SuperPinPage = lazy(() => import('./pages/SuperPinPage'));
+const UserPublicProfilePage = lazy(() => import('./pages/UserPublicProfilePage'));
 
 const StokvelEntryRoute = ({ user }) => (
   hasSeenStokvelIntro() ? <StokvelListPage user={user} /> : <StokvelIntroPage />
 );
-import CreateStokvelPage from './pages/CreateStokvelPage';
-import StokvelDetailPage from './pages/StokvelDetailPage';
-import ScoreDashboardPage from './pages/ScoreDashboardPage';
-import RewardsPage from './pages/RewardsPage';
-import ProductListPage from './pages/ProductListPage';
-import ProductDetailPage from './pages/ProductDetailPage';
-import SharedProductPage from './pages/SharedProductPage';
-import CreateProductPage from './pages/CreateProductPage';
-import MyStorePage from './pages/MyStorePage';
-import StorefrontPage from './pages/StorefrontPage';
-import NetWorthPage from './pages/NetWorthPage';
-import AudienceInsightsPage from './pages/AudienceInsightsPage';
-import RegionalHubsPage from './pages/RegionalHubsPage';
-import ConnectionsPage from './pages/ConnectionsPage';
-import ActivityTrackerPage from './pages/ActivityTrackerPage';
-import ExplorePage from './pages/ExplorePage';
-import HashtagPage from './pages/HashtagPage';
-import PremiumSuccessPage from './pages/PremiumSuccessPage';
-import MessagesPage from './pages/MessagesPage';
-import ChatThreadPage from './pages/ChatThreadPage';
-import ActivitiesPage from './pages/ActivitiesPage';
-import AccountSettingsPage from './pages/AccountSettingsPage';
-import JobsPage from './pages/JobsPage';
-import JobDetailPage from './pages/JobDetailPage';
-import CreateJobPage from './pages/CreateJobPage';
-import PlacesPage from './pages/PlacesPage';
-import PlaceDetailPage from './pages/PlaceDetailPage';
-import CreatePlacePage from './pages/CreatePlacePage';
-import NetworkPage from './pages/NetworkPage';
-import NetworkUserPage from './pages/NetworkUserPage';
-import AdminMetricsDashboardPage from './pages/AdminMetricsDashboardPage';
-import AdminUsersPage from './pages/AdminUsersPage';
-import AdminAuditLogPage from './pages/AdminAuditLogPage';
-import AdminStokvelsPage from './pages/AdminStokvelsPage';
-import AdminProfileDetailPage from './pages/AdminProfileDetailPage';
-import AdminAnnouncePage from './pages/AdminAnnouncePage';
-import AdminOutreachPage from './pages/AdminOutreachPage';
-import { AdminJobsPage, AdminPlacesPage, AdminActivitiesPage } from './pages/AdminListPages';
-import AmbassadorDashboardPage from './pages/AmbassadorDashboardPage';
-import AmbassadorCommandCenterPage from './pages/AmbassadorCommandCenterPage';
-import AmbassadorLeaderboardPage from './pages/AmbassadorLeaderboardPage';
-import PromotionsListPage from './pages/PromotionsListPage';
-import PromotionDetailPage from './pages/PromotionDetailPage';
-import MyPromotionsPage from './pages/MyPromotionsPage';
-import PromotionsWelcomeModal from './components/PromotionsWelcomeModal';
-import AdminWithdrawalsPage from './pages/AdminWithdrawalsPage';
-import AdminAdsPage from './pages/AdminAdsPage';
-import BecomeAmbassadorPage from './pages/BecomeAmbassadorPage';
-import OwnerControlCenterPage from './pages/OwnerControlCenterPage';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import AdminLockedAccountsPage from './pages/AdminLockedAccountsPage';
-import AdminAmbassadorApplicationsPage from './pages/AdminAmbassadorApplicationsPage';
-import AdminJobApplicationsPage from './pages/AdminJobApplicationsPage';
-import OwnerUserCleanupPage from './pages/OwnerUserCleanupPage';
-import ReferralLandingPage from './pages/ReferralLandingPage';
-import SuperPinPage from './pages/SuperPinPage';
-import UserPublicProfilePage from './pages/UserPublicProfilePage';
-import PremiumLoadingScreen from './components/PremiumLoadingScreen';
-import useHeartbeat from './hooks/useHeartbeat';
-import Layout from './components/Layout';
-import { CurrencyProvider } from './context/CurrencyContext';
-import './App.css';
+
+// Lightweight in-flight fallback shown while a lazy chunk is loading
+const RouteFallback = () => (
+  <div
+    data-testid="route-loading"
+    className="min-h-[60vh] flex items-center justify-center bg-[#04101e]"
+  >
+    <div className="w-10 h-10 border-2 border-[#E8A817]/30 border-t-[#E8A817] rounded-full animate-spin" />
+  </div>
+);
 
 // Captures referral context from a personalised invite link.
 // Supports two formats:
@@ -96,12 +114,10 @@ const JoinHandler = () => {
     let ref = null;
     let joined = null;
     let bm = null;
-    // Path style: /join/<code>
     const pathMatch = pathname.match(/^\/join\/(.+)$/);
     if (pathMatch && pathMatch[1]) {
       ref = decodeURIComponent(pathMatch[1]);
     }
-    // Query style fallback / overlay
     const params = new URLSearchParams(search);
     if (!ref) ref = params.get('ref');
     joined = params.get('joined');
@@ -111,7 +127,6 @@ const JoinHandler = () => {
         ref, joined: joined || null, bm: bm || null,
         captured_at: new Date().toISOString(),
       }));
-      // Fire-and-forget click-tracking (no auth required)
       try {
         fetch(`${BACKEND_URL}/api/referrals/track-click`, {
           method: 'POST',
@@ -119,9 +134,9 @@ const JoinHandler = () => {
           body: JSON.stringify({ ref, user_agent: navigator.userAgent }),
           keepalive: true,
         }).catch(() => {});
-      } catch {}
+      } catch { /* ignored */ }
     }
-  } catch {}
+  } catch { /* ignored */ }
   const token = localStorage.getItem('token');
   return <Navigate to={token ? '/' : '/auth'} replace />;
 };
@@ -138,7 +153,6 @@ axiosInstance.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-  // Optional super-admin PIN token (15-min) — only attached if still valid.
   try {
     const pinToken = sessionStorage.getItem('nc_super_pin_token');
     const exp = parseInt(sessionStorage.getItem('nc_super_pin_exp') || '0', 10);
@@ -156,21 +170,16 @@ function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [bootSplash, setBootSplash] = useState(() => {
-    try { return sessionStorage.getItem('nc_splash_shown') !== '1'; } catch { return true; }
-  });
 
-  // Heartbeat: ping every 60s while authenticated for time-on-app score
   useHeartbeat(!!user);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
-    
+
     if (token) {
       fetchCurrentUser();
     } else {
-      // Show onboarding for new visitors
       if (!hasSeenOnboarding) {
         setShowOnboarding(true);
       }
@@ -205,16 +214,9 @@ function App() {
     setUser(null);
   };
 
-  if (loading || bootSplash) {
-    return (
-      <PremiumLoadingScreen
-        minDuration={bootSplash ? 2600 : 1600}
-        onDone={() => {
-          try { sessionStorage.setItem('nc_splash_shown', '1'); } catch {}
-          setBootSplash(false);
-        }}
-      />
-    );
+  // Initial boot only — disappears the moment user fetch resolves (no artificial timer)
+  if (loading) {
+    return <PremiumLoadingScreen visible={true} />;
   }
 
   if (!user) {
@@ -231,19 +233,19 @@ function App() {
         <>
           <Toaster position="top-center" />
           <BrowserRouter>
-            <Routes>
-              <Route path="/legal" element={<LegalDocumentsPage />} />
-              <Route path="/admin" element={<AdminDashboardPage />} />
-              <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
-              <Route path="/join" element={<JoinHandler />} />
-              <Route path="/join/:slug" element={<JoinHandler />} />
-              <Route path="/r/:username" element={<ReferralLandingPage />} />
-              {/* Iter 52 — shareable product page (unauth visitors) */}
-              <Route path="/p/:username/:slug" element={<SharedProductPage />} />
-              {/* Iter 56 — public storefront (unauth buyers) */}
-              <Route path="/store/:username" element={<StorefrontPage user={null} />} />
-              <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
-            </Routes>
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route path="/legal" element={<LegalDocumentsPage />} />
+                <Route path="/admin" element={<AdminDashboardPage />} />
+                <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
+                <Route path="/join" element={<JoinHandler />} />
+                <Route path="/join/:slug" element={<JoinHandler />} />
+                <Route path="/r/:username" element={<ReferralLandingPage />} />
+                <Route path="/p/:username/:slug" element={<SharedProductPage />} />
+                <Route path="/store/:username" element={<StorefrontPage user={null} />} />
+                <Route path="*" element={<LandingPage onContinue={handleOnboardingComplete} />} />
+              </Routes>
+            </Suspense>
           </BrowserRouter>
         </>
       );
@@ -253,24 +255,23 @@ function App() {
       <>
         <Toaster position="top-center" />
         <BrowserRouter>
-          <Routes>
-            <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-
-            <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
-            <Route path="/legal" element={<LegalDocumentsPage />} />
-            <Route path="/admin" element={<AdminDashboardPage />} />
-            <Route path="/join" element={<JoinHandler />} />
-            <Route path="/join/:slug" element={<JoinHandler />} />
-            <Route path="/r/:username" element={<ReferralLandingPage />} />
-            {/* Iter 52 — shareable product page accessible without auth too */}
-            <Route path="/p/:username/:slug" element={<SharedProductPage />} />
-            {/* Iter 56 — public storefront accessible without auth too */}
-            <Route path="/store/:username" element={<StorefrontPage user={null} />} />
-            <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes>
+              <Route path="/auth" element={<AuthPage onLogin={handleLogin} />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/onboarding" element={<OnboardingPage onComplete={handleOnboardingComplete} onLogin={handleLogin} />} />
+              <Route path="/legal" element={<LegalDocumentsPage />} />
+              <Route path="/admin" element={<AdminDashboardPage />} />
+              <Route path="/join" element={<JoinHandler />} />
+              <Route path="/join/:slug" element={<JoinHandler />} />
+              <Route path="/r/:username" element={<ReferralLandingPage />} />
+              <Route path="/p/:username/:slug" element={<SharedProductPage />} />
+              <Route path="/store/:username" element={<StorefrontPage user={null} />} />
+              <Route path="/" element={<LandingPage onContinue={handleOnboardingComplete} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </>
     );
@@ -282,95 +283,93 @@ function App() {
       <BrowserRouter>
         <CurrencyProvider user={user} setUser={setUser}>
           <Layout user={user} onLogout={handleLogout}>
-          <PromotionsWelcomeModal user={user} />
-          <Routes>
-            <Route path="/" element={<FeedPage user={user} />} />
-            <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} />} />
-            <Route path="/profile/:userId" element={<ProfilePage user={user} setUser={setUser} />} />
-            <Route path="/u/:username" element={<UserPublicProfilePage user={user} />} />
-            <Route path="/leaderboard" element={<LeaderboardPage currentUser={user} />} />
-            <Route path="/notifications" element={<NotificationsPage user={user} />} />
-            <Route path="/dashboard" element={<DashboardPage user={user} />} />
-            <Route path="/referral" element={<ReferralPage user={user} />} />
-            <Route path="/wallet" element={<WalletPage user={user} />} />
-            <Route path="/stokvels" element={<StokvelEntryRoute user={user} />} />
-            <Route path="/stokvels/intro" element={<StokvelIntroPage />} />
-            <Route path="/stokvels/create" element={<CreateStokvelPage />} />
-            <Route path="/stokvels/:stokvelId" element={<StokvelDetailPage user={user} />} />
-            <Route path="/stokvels/:stokvelId/score" element={<ScoreDashboardPage user={user} />} />
-            <Route path="/stokvels/:stokvelId/rewards" element={<RewardsPage />} />
-            <Route path="/products" element={<ProductListPage user={user} />} />
-            <Route path="/products/create" element={<CreateProductPage user={user} />} />
-            <Route path="/products/:productId" element={<ProductDetailPage user={user} />} />
-            {/* Iter 52 — shareable slug-based product page */}
-            <Route path="/p/:username/:slug" element={<SharedProductPage />} />
-            <Route path="/products/:productId/insights" element={<AudienceInsightsPage user={user} />} />
-            {/* Iter 56 — seller dashboard + public storefront */}
-            <Route path="/my-store" element={<MyStorePage user={user} />} />
-            <Route path="/store/:username" element={<StorefrontPage user={user} />} />
-            <Route path="/net-worth" element={<NetWorthPage user={user} />} />
-            <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
-            <Route path="/connections" element={<ConnectionsPage user={user} />} />
-            <Route path="/activity" element={<Navigate to="/tracker" replace />} />
-            <Route path="/tracker" element={<ActivityTrackerPage user={user} />} />
-            <Route path="/activities" element={<ActivitiesPage user={user} />} />
-            <Route path="/explore" element={<ExplorePage user={user} />} />
-            <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
-            <Route path="/premium/success" element={<PremiumSuccessPage />} />
-            <Route path="/messages" element={<MessagesPage user={user} />} />
-            <Route path="/messages/:userId" element={<ChatThreadPage user={user} />} />
-            <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
-            <Route path="/help" element={<HelpCenterPage />} />
-            <Route path="/settings" element={<AccountSettingsPage user={user} onLogout={handleLogout} />} />
-            <Route path="/jobs" element={<JobsPage user={user} />} />
-            <Route path="/jobs/new" element={<CreateJobPage user={user} />} />
-            <Route path="/jobs/:jobId" element={<JobDetailPage user={user} />} />
-            <Route path="/places" element={<PlacesPage user={user} />} />
-            <Route path="/places/new" element={<CreatePlacePage user={user} />} />
-            <Route path="/places/:placeId" element={<PlaceDetailPage user={user} />} />
-            <Route path="/network" element={<NetworkPage user={user} />} />
-            <Route path="/network/:userId" element={<NetworkUserPage user={user} />} />
-            <Route path="/admin/dashboard" element={<AdminMetricsDashboardPage user={user} setUser={setUser} />} />
-            <Route path="/admin/users" element={<AdminUsersPage user={user} />} />
-            <Route path="/admin/profiles/:userId" element={<AdminProfileDetailPage user={user} />} />
-            <Route path="/admin/audit-log" element={<AdminAuditLogPage user={user} />} />
-            <Route path="/admin/stokvels" element={<AdminStokvelsPage user={user} />} />
-            <Route path="/admin/jobs" element={<AdminJobsPage user={user} />} />
-            <Route path="/admin/places" element={<AdminPlacesPage user={user} />} />
-            <Route path="/admin/activities" element={<AdminActivitiesPage user={user} />} />
-            <Route path="/admin/announce" element={<AdminAnnouncePage user={user} />} />
-            {/* Iter 56d — Non-user outreach email system (admin + super_admin) */}
-            <Route path="/admin/outreach" element={<AdminOutreachPage user={user} />} />
-            <Route path="/admin/promotions" element={<PromotionsListPage user={user} />} />
-            <Route path="/admin/promotions/:promotionId" element={<PromotionDetailPage user={user} />} />
-            <Route path="/admin/withdrawals" element={<AdminWithdrawalsPage user={user} />} />
-            <Route path="/admin/ads" element={<AdminAdsPage user={user} />} />
-            <Route path="/admin/ambassador-applications" element={<AdminAmbassadorApplicationsPage user={user} />} />
-            <Route path="/ambassadors/apply" element={<BecomeAmbassadorPage user={user} />} />
-            <Route path="/promotions/me" element={<MyPromotionsPage user={user} />} />
-            <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
-            {/* Iter 53 — Dashboard 2.0 Command Center */}
-            <Route path="/ambassadors/command-center" element={<AmbassadorCommandCenterPage user={user} />} />
-            <Route path="/ambassador-dashboard" element={<AmbassadorDashboardPage user={user} />} />
-            <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
-            <Route path="/legal" element={<LegalDocumentsPage />} />
-            <Route path="/admin" element={<AdminDashboardPage />} />
-            <Route path="/admin/owner" element={<OwnerControlCenterPage user={user} />} />
-            <Route path="/admin/owner/pin" element={<SuperPinPage user={user} />} />
-            <Route path="/admin/locked-accounts" element={<AdminLockedAccountsPage user={user} />} />
-            <Route path="/admin/job-applications" element={<AdminJobApplicationsPage user={user} />} />
-            <Route path="/admin/owner/cleanup" element={<OwnerUserCleanupPage user={user} />} />
+            <PromotionsWelcomeModal user={user} />
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route path="/" element={<FeedPage user={user} />} />
+                <Route path="/profile" element={<ProfilePage user={user} setUser={setUser} />} />
+                <Route path="/profile/:userId" element={<ProfilePage user={user} setUser={setUser} />} />
+                <Route path="/u/:username" element={<UserPublicProfilePage user={user} />} />
+                <Route path="/leaderboard" element={<LeaderboardPage currentUser={user} />} />
+                <Route path="/notifications" element={<NotificationsPage user={user} />} />
+                <Route path="/dashboard" element={<DashboardPage user={user} />} />
+                <Route path="/referral" element={<ReferralPage user={user} />} />
+                <Route path="/wallet" element={<WalletPage user={user} />} />
+                <Route path="/stokvels" element={<StokvelEntryRoute user={user} />} />
+                <Route path="/stokvels/intro" element={<StokvelIntroPage />} />
+                <Route path="/stokvels/create" element={<CreateStokvelPage />} />
+                <Route path="/stokvels/:stokvelId" element={<StokvelDetailPage user={user} />} />
+                <Route path="/stokvels/:stokvelId/score" element={<ScoreDashboardPage user={user} />} />
+                <Route path="/stokvels/:stokvelId/rewards" element={<RewardsPage />} />
+                <Route path="/products" element={<ProductListPage user={user} />} />
+                <Route path="/products/create" element={<CreateProductPage user={user} />} />
+                <Route path="/products/:productId" element={<ProductDetailPage user={user} />} />
+                <Route path="/p/:username/:slug" element={<SharedProductPage />} />
+                <Route path="/products/:productId/insights" element={<AudienceInsightsPage user={user} />} />
+                <Route path="/my-store" element={<MyStorePage user={user} />} />
+                <Route path="/store/:username" element={<StorefrontPage user={user} />} />
+                <Route path="/net-worth" element={<NetWorthPage user={user} />} />
+                <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
+                <Route path="/connections" element={<ConnectionsPage user={user} />} />
+                <Route path="/activity" element={<Navigate to="/tracker" replace />} />
+                <Route path="/tracker" element={<ActivityTrackerPage user={user} />} />
+                <Route path="/activities" element={<ActivitiesPage user={user} />} />
+                <Route path="/explore" element={<ExplorePage user={user} />} />
+                <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
+                <Route path="/premium/success" element={<PremiumSuccessPage />} />
+                <Route path="/messages" element={<MessagesPage user={user} />} />
+                <Route path="/messages/:userId" element={<ChatThreadPage user={user} />} />
+                <Route path="/leaderboards" element={<LeaderboardsPage user={user} />} />
+                <Route path="/help" element={<HelpCenterPage />} />
+                <Route path="/settings" element={<AccountSettingsPage user={user} onLogout={handleLogout} />} />
+                <Route path="/jobs" element={<JobsPage user={user} />} />
+                <Route path="/jobs/new" element={<CreateJobPage user={user} />} />
+                <Route path="/jobs/:jobId" element={<JobDetailPage user={user} />} />
+                <Route path="/places" element={<PlacesPage user={user} />} />
+                <Route path="/places/new" element={<CreatePlacePage user={user} />} />
+                <Route path="/places/:placeId" element={<PlaceDetailPage user={user} />} />
+                <Route path="/network" element={<NetworkPage user={user} />} />
+                <Route path="/network/:userId" element={<NetworkUserPage user={user} />} />
+                <Route path="/admin/dashboard" element={<AdminMetricsDashboardPage user={user} setUser={setUser} />} />
+                <Route path="/admin/users" element={<AdminUsersPage user={user} />} />
+                <Route path="/admin/sitemap" element={<AdminSitemapPage user={user} />} />
+                <Route path="/admin/profiles/:userId" element={<AdminProfileDetailPage user={user} />} />
+                <Route path="/admin/audit-log" element={<AdminAuditLogPage user={user} />} />
+                <Route path="/admin/stokvels" element={<AdminStokvelsPage user={user} />} />
+                <Route path="/admin/jobs" element={<AdminJobsPage user={user} />} />
+                <Route path="/admin/places" element={<AdminPlacesPage user={user} />} />
+                <Route path="/admin/activities" element={<AdminActivitiesPage user={user} />} />
+                <Route path="/admin/announce" element={<AdminAnnouncePage user={user} />} />
+                <Route path="/admin/outreach" element={<AdminOutreachPage user={user} />} />
+                <Route path="/admin/promotions" element={<PromotionsListPage user={user} />} />
+                <Route path="/admin/promotions/:promotionId" element={<PromotionDetailPage user={user} />} />
+                <Route path="/admin/withdrawals" element={<AdminWithdrawalsPage user={user} />} />
+                <Route path="/admin/ads" element={<AdminAdsPage user={user} />} />
+                <Route path="/admin/ambassador-applications" element={<AdminAmbassadorApplicationsPage user={user} />} />
+                <Route path="/ambassadors/apply" element={<BecomeAmbassadorPage user={user} />} />
+                <Route path="/promotions/me" element={<MyPromotionsPage user={user} />} />
+                <Route path="/ambassadors/me" element={<AmbassadorDashboardPage user={user} />} />
+                <Route path="/ambassadors/command-center" element={<AmbassadorCommandCenterPage user={user} />} />
+                <Route path="/ambassador-dashboard" element={<AmbassadorDashboardPage user={user} />} />
+                <Route path="/ambassadors/leaderboard" element={<AmbassadorLeaderboardPage />} />
+                <Route path="/legal" element={<LegalDocumentsPage />} />
+                <Route path="/admin" element={<AdminDashboardPage />} />
+                <Route path="/admin/owner" element={<OwnerControlCenterPage user={user} />} />
+                <Route path="/admin/owner/pin" element={<SuperPinPage user={user} />} />
+                <Route path="/admin/locked-accounts" element={<AdminLockedAccountsPage user={user} />} />
+                <Route path="/admin/job-applications" element={<AdminJobApplicationsPage user={user} />} />
+                <Route path="/admin/owner/cleanup" element={<OwnerUserCleanupPage user={user} />} />
 
-            {/* Public auth pages — also reachable while logged in so email links work */}
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-            <Route path="/join" element={<Navigate to="/" replace />} />
-            <Route path="/join/:slug" element={<Navigate to="/" replace />} />
-            <Route path="/r/:username" element={<ReferralLandingPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Layout>
+                <Route path="/join" element={<Navigate to="/" replace />} />
+                <Route path="/join/:slug" element={<Navigate to="/" replace />} />
+                <Route path="/r/:username" element={<ReferralLandingPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </Layout>
         </CurrencyProvider>
       </BrowserRouter>
     </>
@@ -378,4 +377,3 @@ function App() {
 }
 
 export default App;
-

@@ -3,14 +3,11 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, Users, Trophy, Coins, FileText, Lock, Mail, ArrowRight, Check, Sparkles } from 'lucide-react';
 
-const STORAGE_KEY = 'nc_stokvel_intro_seen';
-
-export const markStokvelIntroSeen = () => {
-  try { localStorage.setItem(STORAGE_KEY, '1'); } catch {}
-};
-export const hasSeenStokvelIntro = () => {
-  try { return localStorage.getItem(STORAGE_KEY) === '1'; } catch { return false; }
-};
+// Re-export the gating helpers from a tiny standalone module so callers
+// (e.g. App.js) can import them without forcing this full page into the
+// initial JS bundle.
+export { hasSeenStokvelIntro, markStokvelIntroSeen } from '../lib/stokvelIntro';
+import { markStokvelIntroSeen } from '../lib/stokvelIntro';
 
 const Section = ({ icon: Icon, title, children, testid }) => (
   <div className="rounded-2xl border border-white/10 bg-white/5 p-5" data-testid={testid}>

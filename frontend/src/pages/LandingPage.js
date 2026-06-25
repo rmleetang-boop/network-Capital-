@@ -5,9 +5,10 @@ import {
   ShieldCheck, ArrowRight, Users, MessageSquare, Trophy, TrendingUp,
   Lock, ShieldCheck as ShieldIcon, Users2, Star, Crown, Bell, Wallet,
   Activity, BarChart3, Briefcase, UserPlus, Megaphone, Home, Compass,
-  Globe2, User
+  Globe2, User, Store, MapPin, PiggyBank, Package,
 } from 'lucide-react';
 import Footer from '../components/Footer';
+import BrandImg from '../components/BrandImg';
 import { axiosInstance } from '../App';
 
 /** Premium landing — Deep Navy + Brand Gold (#E8A817).  Composition mirrors the
@@ -40,7 +41,7 @@ const LandingPage = ({ onContinue }) => {
             className="flex items-center gap-3"
             data-testid="landing-logo"
           >
-            <img src="/brand/logo-mark.png" alt="" className="h-10 w-10 rounded-lg" />
+            <BrandImg src="/brand/logo-mark.png" alt="" className="h-10 w-10 rounded-lg" />
             <span className="font-heading font-bold tracking-wide text-base hidden sm:inline">
               NETWORK <span className="font-light">CAPITAL</span>
             </span>
@@ -386,15 +387,19 @@ const TRUST = [
    gold accents. Each tile has icon halo + chevron + hover-lift.
    ─────────────────────────────────────────────────────────── */
 const FEATURES = [
-  { icon: Users,        title: 'My Network',     body: 'Three-lane connection graph: social, financial, professional.', tag: 'CORE' },
-  { icon: Activity,     title: 'Activities',     body: 'Discover events, meetups and community moments near you.',     tag: 'COMMUNITY' },
-  { icon: Wallet,       title: 'Stokvel+ Wallet', body: 'Multi-currency wallet, group savings & shared backing pools.', tag: 'PREMIUM' },
-  { icon: BarChart3,    title: 'Net Worth',      body: 'Track your network capital across every relationship lane.',   tag: 'INSIGHTS' },
-  { icon: Trophy,       title: 'Score Tracker',  body: 'Earn Network Score from real engagement — uncapped & ranked.', tag: 'GAMIFIED' },
-  { icon: Briefcase,    title: 'Jobs',           body: 'Post & apply for roles — admins moderate every application.',  tag: 'OPPORTUNITY' },
-  { icon: MessageSquare,title: 'Direct Messages',body: 'Encrypted in-app messaging with media and stokvel handoffs.',  tag: 'COMMS' },
-  { icon: Crown,        title: 'Ambassador',     body: 'R8,500 ZAR allocation + tiered withdrawals on referral milestones.', tag: 'TOP TIER' },
-  { icon: Megaphone,    title: 'Promotions',     body: 'Time-windowed SAST campaigns. Earn at R10/100 pts conversion.', tag: 'REWARDS' },
+  { icon: Users,         title: 'My Network',      body: 'Three-lane connection graph: social, financial, professional.',           tag: 'CORE' },
+  { icon: Store,         title: 'My Store',        body: 'Spin up a free storefront. Sell products, services, or digital downloads.', tag: 'NEW' },
+  { icon: Package,       title: 'Creator System',  body: 'Publish products in under 2 minutes — independent or with platform support.', tag: 'NEW' },
+  { icon: PiggyBank,     title: 'Stokvels',        body: 'Group savings circles with shared backing pools and milestone payouts.',  tag: 'COMMUNITY' },
+  { icon: Activity,      title: 'Activities',      body: 'Discover events, meetups and community moments near you.',                tag: 'COMMUNITY' },
+  { icon: MapPin,        title: 'My Places',       body: 'Trustpilot-style reviews for local businesses across 54 countries.',      tag: 'COMMUNITY' },
+  { icon: Wallet,        title: 'Stokvel+ Wallet', body: 'Multi-currency wallet, group savings & shared backing pools.',           tag: 'PREMIUM' },
+  { icon: BarChart3,     title: 'Net Worth',       body: 'Track your network capital across every relationship lane.',             tag: 'INSIGHTS' },
+  { icon: Trophy,        title: 'Score Tracker',   body: 'Earn Network Score from real engagement — uncapped & ranked.',          tag: 'GAMIFIED' },
+  { icon: Briefcase,     title: 'Jobs',            body: 'Post & apply for roles — admins moderate every application.',           tag: 'OPPORTUNITY' },
+  { icon: MessageSquare, title: 'Direct Messages', body: 'Encrypted in-app messaging with media and stokvel handoffs.',           tag: 'COMMS' },
+  { icon: Crown,         title: 'Ambassador',      body: 'R8,500 ZAR allocation + tiered withdrawals on referral milestones.',    tag: 'TOP TIER' },
+  { icon: Megaphone,     title: 'Promotions',      body: 'Time-windowed SAST campaigns. Earn at R10/100 pts conversion.',         tag: 'REWARDS' },
 ];
 
 const FeatureTile = ({ icon: Icon, title, body, tag, delay = 0 }) => (

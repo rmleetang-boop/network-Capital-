@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Store as StoreIcon, Wallet, ShoppingBag, Eye, Users, Settings as SettingsIcon,
-  ExternalLink, Copy, Check, QrCode, Loader2, Package, Sparkles, ChevronRight,
+  ExternalLink, Copy, Check, QrCode, Loader2, Package, Sparkles, ChevronRight, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { axiosInstance } from '../App';
@@ -30,7 +30,7 @@ const StatCard = ({ icon: Icon, label, value, suffix, accent, testid }) => (
   </div>
 );
 
-const ProductRow = ({ product, currency, onClick }) => {
+const ProductRow = ({ product, currency, onClick, onDelete }) => {
   const img = (product.images || [])[0];
   const price = product.price_min || product.estimated_cost || 0;
   const statusChip =
@@ -38,32 +38,47 @@ const ProductRow = ({ product, currency, onClick }) => {
     product.status === 'approved'   ? { label: 'Live',          cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' } :
     product.status === 'pending_review' ? { label: 'In review', cls: 'bg-blue-100 text-blue-700 border-blue-200' } :
     { label: product.status, cls: 'bg-gray-100 text-gray-700 border-gray-200' };
+  const handleDeleteClick = (e) => {
+    e.stopPropagation();
+    onDelete?.(product);
+  };
   return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-2xl hover:border-primary/30 transition-all text-left"
-      data-testid={`mystore-product-${product.id}`}
-    >
-      <div className="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
-        {img ? <img src={img} alt={product.name} className="w-full h-full object-cover" /> : <Package size={18} className="text-gray-400" />}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-full border ${statusChip.cls}`}>
-            {statusChip.label}
-          </span>
-          <span className="text-[10px] uppercase tracking-wider text-text-muted">{product.type === 'service' ? 'Service' : 'Product'}</span>
+    <div className="flex items-stretch gap-1 group" data-testid={`mystore-product-row-${product.id}`}>
+      <button
+        onClick={onClick}
+        className="flex-1 flex items-center gap-3 p-3 bg-white border border-gray-100 rounded-2xl hover:border-primary/30 transition-all text-left"
+        data-testid={`mystore-product-${product.id}`}
+      >
+        <div className="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center">
+          {img ? <img src={img} alt={product.name} className="w-full h-full object-cover" /> : <Package size={18} className="text-gray-400" />}
         </div>
-        <p className="font-semibold text-sm text-text-primary truncate">{product.name}</p>
-        <p className="text-[11px] text-text-muted">
-          {currency} {Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          {product.view_count > 0 && (
-            <span className="ml-2"><Eye size={10} className="inline mr-0.5" />{product.view_count}</span>
-          )}
-        </p>
-      </div>
-      <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
-    </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className={`text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded-full border ${statusChip.cls}`}>
+              {statusChip.label}
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-text-muted">{product.type === 'service' ? 'Service' : 'Product'}</span>
+          </div>
+          <p className="font-semibold text-sm text-text-primary truncate">{product.name}</p>
+          <p className="text-[11px] text-text-muted">
+            {currency} {Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {product.view_count > 0 && (
+              <span className="ml-2"><Eye size={10} className="inline mr-0.5" />{product.view_count}</span>
+            )}
+          </p>
+        </div>
+        <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
+      </button>
+      <button
+        onClick={handleDeleteClick}
+        className="px-3 rounded-2xl bg-white border border-gray-100 text-red-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-all flex items-center justify-center flex-shrink-0"
+        data-testid={`mystore-product-delete-${product.id}`}
+        aria-label={`Delete ${product.name}`}
+        title="Delete product"
+      >
+        <Trash2 size={15} />
+      </button>
+    </div>
   );
 };
 
@@ -112,6 +127,18 @@ const MyStorePage = ({ user }) => {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error('Could not copy');
+    }
+  };
+
+  const handleDelete = async (product) => {
+    const ok = window.confirm(`Delete "${product.name}"? It will be removed from your store immediately. You can ask an admin to restore it later.`);
+    if (!ok) return;
+    try {
+      await axiosInstance.delete(`/products/${product.id}`);
+      setAllProducts((prev) => prev.filter((p) => p.id !== product.id));
+      toast.success('Product deleted');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not delete product');
     }
   };
 
@@ -249,6 +276,7 @@ const MyStorePage = ({ user }) => {
                   product={p}
                   currency={p.currency || currency}
                   onClick={() => navigate(`/p/${p.creator_username || username}/${p.slug}`)}
+                  onDelete={handleDelete}
                 />
               ))}
             </div>

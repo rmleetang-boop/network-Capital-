@@ -5340,7 +5340,7 @@ async def get_public_storefront(username: str):
         {"_id": 0, "id": 1, "username": 1, "full_name": 1, "photo": 1, "bio": 1,
          "country": 1, "city": 1, "profession": 1, "store_name": 1, "store_bio": 1,
          "store_cover": 1, "is_creator": 1, "network_score": 1, "rank": 1,
-         "creator_classification": 1, "creator_type": 1, "premium": 1},
+         "creator_classification": 1, "creator_type": 1, "premium": 1, "store_followers": 1},
     )
     if not seller:
         raise HTTPException(status_code=404, detail="Store not found")
@@ -5355,9 +5355,7 @@ async def get_public_storefront(username: str):
          "file_url": 0},
     ).sort("created_at", -1).to_list(length=None)
 
-    follower_count = sum(len(p.get("followers") or []) for p in await db.products.find(
-        {"creator_id": seller["id"]}, {"_id": 0, "followers": 1}
-    ).to_list(length=None))
+    follower_count = len(seller.get("store_followers") or [])
 
     return {
         "store": {
@@ -5404,6 +5402,105 @@ async def customize_my_storefront(payload: CustomizeStoreRequest, current_user: 
         return {"ok": True, "updated": 0}
     await db.users.update_one({"id": current_user["id"]}, {"$set": updates})
     return {"ok": True, "updated": len(updates), **updates}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Iter 58 — Store-level follow + soft-delete product
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api_router.post("/storefront/{username}/follow")
+async def follow_store(username: str, current_user: dict = Depends(get_current_user)):
+    """Toggle-follow a seller's storefront. Lightweight: appends/removes the viewer's
+    user id on the seller user document under `store_followers`. Idempotent."""
+    seller = await db.users.find_one(
+        {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "username": 1, "store_followers": 1},
+    )
+    if not seller:
+        raise HTTPException(status_code=404, detail="Store not found")
+    if seller["id"] == current_user["id"]:
+        raise HTTPException(status_code=400, detail="You cannot follow your own store.")
+
+    followers = seller.get("store_followers") or []
+    is_following = current_user["id"] in followers
+    if is_following:
+        await db.users.update_one(
+            {"id": seller["id"]},
+            {"$pull": {"store_followers": current_user["id"]}},
+        )
+        new_count = max(0, len(followers) - 1)
+        action = "unfollowed"
+    else:
+        await db.users.update_one(
+            {"id": seller["id"]},
+            {"$addToSet": {"store_followers": current_user["id"]}},
+        )
+        new_count = len(followers) + 1
+        action = "followed"
+    return {"action": action, "following": not is_following, "follower_count": new_count}
+
+
+@api_router.get("/storefront/{username}/follow-status")
+async def store_follow_status(username: str, current_user: dict = Depends(get_current_user)):
+    """Returns whether the current user follows this store + the total follower count."""
+    seller = await db.users.find_one(
+        {"username": {"$regex": f"^{re.escape(username)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "store_followers": 1},
+    )
+    if not seller:
+        raise HTTPException(status_code=404, detail="Store not found")
+    followers = seller.get("store_followers") or []
+    return {
+        "following": current_user["id"] in followers,
+        "follower_count": len(followers),
+    }
+
+
+@api_router.delete("/products/{product_id}")
+async def delete_product(product_id: str, current_user: dict = Depends(get_current_user)):
+    """Soft-delete a product. Owner OR admin/super_admin can delete.
+
+    Sets `status='deleted'` so it disappears from storefront/list reads
+    (which filter `status='approved'`). Data is preserved for audit + admin recovery.
+    """
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    is_owner = product.get("creator_id") == current_user["id"]
+    is_admin_role = current_user.get("role") in ("admin", "super_admin", "moderator")
+    if not (is_owner or is_admin_role):
+        raise HTTPException(status_code=403, detail="You can only delete your own products.")
+
+    if product.get("status") == "deleted":
+        return {"ok": True, "already_deleted": True}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.products.update_one(
+        {"id": product_id},
+        {"$set": {
+            "status": "deleted",
+            "deleted_at": now_iso,
+            "deleted_by": current_user["id"],
+        }},
+    )
+
+    # Audit log row for accountability
+    try:
+        await db.audit_log.insert_one({
+            "id": str(uuid.uuid4()),
+            "actor_id": current_user["id"],
+            "actor_username": current_user.get("username"),
+            "action": "product.delete",
+            "target_id": product_id,
+            "target_owner_id": product.get("creator_id"),
+            "by_admin": is_admin_role and not is_owner,
+            "created_at": now_iso,
+        })
+    except Exception:
+        pass
+
+    return {"ok": True, "product_id": product_id, "deleted_at": now_iso}
 
 
 @api_router.get("/products/{product_id}")
@@ -7327,10 +7424,15 @@ async def cancel_deletion(current_user: dict = Depends(get_current_user)):
 
 @app.on_event("startup")
 async def ensure_indexes():
-    """Idempotent index creation for security-critical collections.
+    """Idempotent index creation for security-critical collections and hot read paths.
 
     ``ad_reward_claims.key`` MUST be unique to atomically prevent duplicate ad-reward
-    claims (race-condition proof).  Also indexes the wallet adjustment audit log."""
+    claims (race-condition proof).  Also indexes the wallet adjustment audit log.
+
+    Hot-path indexes (added iter 58) keep feed / profile / notification reads fast
+    as collection counts grow into the millions of rows.
+    """
+    # ── Security-critical (uniqueness) ──
     try:
         await db.ad_reward_claims.create_index("key", unique=True, background=True)
     except Exception as e:
@@ -7340,6 +7442,26 @@ async def ensure_indexes():
         await db.wallet_adjustments_audit.create_index("target_user_id", background=True)
     except Exception as e:
         logger.warning(f"wallet_adjustments_audit index ensure failed: {e}")
+
+    # ── Hot read paths (iter 58) ──
+    # posts: chronological feed scans + per-author profile feed
+    for spec in (
+        ("posts", [("created_at", -1)], {"name": "posts_created_at_desc"}),
+        ("posts", [("author_id", 1), ("created_at", -1)], {"name": "posts_author_created"}),
+        ("posts", "hidden", {"sparse": True, "name": "posts_hidden"}),
+        # users: id (PK) + username (@handle) + email (login lookup). All unique.
+        ("users", "id", {"unique": True, "name": "users_id_unique"}),
+        ("users", "username", {"unique": True, "sparse": True, "name": "users_username_unique"}),
+        ("users", "email", {"unique": True, "sparse": True, "name": "users_email_unique"}),
+        # notifications: per-user inbox, with unread-first sort
+        ("notifications", [("user_id", 1), ("read", 1), ("created_at", -1)], {"name": "notif_user_read_created"}),
+        ("notifications", [("user_id", 1), ("created_at", -1)], {"name": "notif_user_created"}),
+    ):
+        coll, keys, kwargs = spec
+        try:
+            await getattr(db, coll).create_index(keys, background=True, **kwargs)
+        except Exception as e:
+            logger.warning(f"index ensure failed on {coll} ({kwargs.get('name')}): {e}")
 
 
 
@@ -8415,7 +8537,8 @@ async def update_job(job_id: str, req: UpdateJobRequest, current_user: dict = De
     job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job["employer_id"] != current_user["id"] and not current_user.get("is_admin"):
+    is_admin_role = current_user.get("role") in ("admin", "super_admin", "moderator")
+    if job["employer_id"] != current_user["id"] and not is_admin_role:
         raise HTTPException(status_code=403, detail="You can only edit your own jobs")
     update = {k: v for k, v in req.dict(exclude_unset=True).items() if v is not None}
     if "status" in update and update["status"] not in ("open", "closed"):
@@ -8431,7 +8554,8 @@ async def delete_job(job_id: str, current_user: dict = Depends(get_current_user)
     job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job["employer_id"] != current_user["id"] and not current_user.get("is_admin"):
+    is_admin_role = current_user.get("role") in ("admin", "super_admin", "moderator")
+    if job["employer_id"] != current_user["id"] and not is_admin_role:
         raise HTTPException(status_code=403, detail="You can only delete your own jobs")
     await db.jobs.delete_one({"id": job_id})
     await db.job_applications.delete_many({"job_id": job_id})

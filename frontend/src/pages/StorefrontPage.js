@@ -27,6 +27,8 @@ const StorefrontPage = ({ user }) => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [following, setFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followBusy, setFollowBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const storeUrl = `${SHARE_BASE_URL}/store/${username}`;
@@ -39,6 +41,15 @@ const StorefrontPage = ({ user }) => {
         const res = await axiosInstance.get(`/storefront/${username}`);
         setStore(res.data.store);
         setProducts(res.data.products || []);
+        setFollowerCount(res.data.store?.follower_count || 0);
+        // Only auth'd, non-owner viewers can know their own follow state
+        if (user && !isOwner) {
+          try {
+            const fs = await axiosInstance.get(`/storefront/${username}/follow-status`);
+            setFollowing(!!fs.data.following);
+            setFollowerCount(fs.data.follower_count || 0);
+          } catch { /* non-fatal */ }
+        }
       } catch (e) {
         if (e.response?.status === 404) toast.error('Store not found');
         else toast.error('Could not load store');
@@ -47,7 +58,7 @@ const StorefrontPage = ({ user }) => {
       }
     };
     if (username) load();
-  }, [username]);
+  }, [username, user, isOwner]);
 
   const categories = useMemo(() => {
     const set = new Set(products.map((p) => p.category || 'general'));
@@ -98,16 +109,17 @@ const StorefrontPage = ({ user }) => {
       toast.error('Sign in to follow this seller');
       return;
     }
-    if (isOwner) return;
-    // Use existing follow user endpoint if available — fall back to optimistic toggle
+    if (isOwner || followBusy) return;
+    setFollowBusy(true);
     try {
-      const next = !following;
-      setFollowing(next);
-      await axiosInstance.post(`/users/${store?.owner_username}/follow`);
-      toast.success(next ? 'Following' : 'Unfollowed');
-    } catch {
-      setFollowing((s) => !s);
-      toast.error('Could not update follow');
+      const res = await axiosInstance.post(`/storefront/${username}/follow`);
+      setFollowing(!!res.data.following);
+      setFollowerCount(res.data.follower_count || 0);
+      toast.success(res.data.following ? `Following ${store?.name || 'this store'}` : 'Unfollowed');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not update follow');
+    } finally {
+      setFollowBusy(false);
     }
   };
 
@@ -176,8 +188,9 @@ const StorefrontPage = ({ user }) => {
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {!isOwner ? (
               <>
-                <button onClick={toggleFollow} className={`px-3 py-2 rounded-full text-xs font-bold inline-flex items-center gap-1.5 ${following ? 'bg-white text-primary' : 'bg-white/15 border border-white/20 text-white'}`} data-testid="storefront-follow">
-                  {following ? <><UserCheck size={12} /> Following</> : <><UserPlus size={12} /> Follow</>}
+                <button onClick={toggleFollow} disabled={followBusy} className={`px-3 py-2 rounded-full text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-60 ${following ? 'bg-white text-primary' : 'bg-white/15 border border-white/20 text-white'}`} data-testid="storefront-follow">
+                  {followBusy ? <Loader2 size={12} className="animate-spin" /> : (following ? <UserCheck size={12} /> : <UserPlus size={12} />)}
+                  {following ? 'Following' : 'Follow'}
                 </button>
                 <button onClick={contactSeller} className="px-3 py-2 rounded-full bg-white/15 border border-white/20 text-white text-xs font-bold inline-flex items-center gap-1.5" data-testid="storefront-contact">
                   <MessageCircle size={12} /> Contact seller
@@ -198,7 +211,7 @@ const StorefrontPage = ({ user }) => {
 
           <div className="mt-4 flex items-center gap-4 text-[11px] opacity-90">
             <span>{store.product_count} products</span>
-            <span>{store.follower_count} followers</span>
+            <span data-testid="storefront-follower-count">{followerCount} followers</span>
           </div>
         </div>
       </div>

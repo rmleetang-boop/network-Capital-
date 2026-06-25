@@ -1,0 +1,36 @@
+{
+  "summary": "Iter 58 (Network Capital) — all five groups verified end-to-end. Backend: 7/7 pytest cases passing (posts perf smoke, storefront follow toggle + status + own-store guard + 404, product soft-delete owner/admin/intruder paths, super_admin PATCH /api/jobs on another user's job). Frontend: lazy/Suspense conversion boots cleanly with no stuck route-loading; /admin/sitemap renders 42 tiles across 7 sections with working search; /admin/jobs renders post-new + applications + per-row edit modal + delete; /my-store shows per-product delete icons; /store/owner correctly shows storefront-own-edit for the owner and storefront-follow + live follower-count for a non-owner; follow toggle live-updates count 0→1→0; landing FEATURES grid now shows all 13 tiles including My Store, Creator System, Stokvels, My Places; image assets (logo-mark.png<60KB, logo-mark.webp, favicon-32, favicon-192, apple-touch-icon, manifest.json) all return 200 with healthy sizes; backend startup logs show NO 'index ensure failed' warnings on latest boot (duplicate cleanup successful).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter58_perf_follow_sitemap.py",
+    "/app/test_reports/pytest/iter58_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "POST /storefront/{username}/follow uses len(followers)+/-1 from the pre-update snapshot rather than re-fetching after $addToSet/$pull. Idempotent because $addToSet/$pull dedupe at Mongo level, but if the same viewer somehow hits the endpoint twice in flight (race), the returned follower_count could drift by 1 from reality. Low risk — frontend always reconciles via /follow-status on the next page load.",
+    "DELETE /api/products/{id} soft-deletes by setting status='deleted'. Confirmed the public storefront filter excludes it. Recommend an admin recovery endpoint (PATCH status back to 'approved') or it becomes write-only data over time. Not blocking.",
+    "Backend startup ran 'index ensure failed on users (users_email_unique)' 3 times BEFORE the duplicate cleanup (visible in earlier err.log lines around 09:10) — latest two boots are clean. Re-running ensure on every startup is fine; just noting the warnings in older log lines are stale.",
+    "/admin/sitemap currently renders 42 tiles. The review request mentioned '7 sections' and that was confirmed (Core/Score/Commerce/Community/Ambassador/Admin/Owner)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter58_perf_follow_sitemap.py (NEW)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": "Platform Owner rmleetang@gmail.com / OwnerTest123! (super_admin); Standing admin rmleetang+nctest1780423349@gmail.com / Test123! (admin role, username inferred from auth, NOT 'owner').",
+  "seed_data_creation": "Created 1 TEST_iter58_product_* via POST /api/products as owner (then soft-deleted in the same test). One ephemeral throwaway signup via /api/auth/progressive-signup for the 403 intruder check (no OTP-verified — left in DB but harmless). Follow state on /store/owner was toggled then reverted to start_count to leave clean state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pytest file /app/backend/tests/test_iter58_perf_follow_sitemap.py covers all iter58 backend surfaces and can be re-run as a regression suite with: REACT_APP_BACKEND_URL=<public url> python -m pytest backend/tests/test_iter58_perf_follow_sitemap.py -v. Frontend data-testids verified live: admin-sitemap-page (+ sitemap-tile-<slug>), admin-go-sitemap (on /admin/dashboard), qa-sitemap (on /admin/owner), admin-jobs-page + admin-jobs-post-new + admin-jobs-applications-link + admin-jobs-edit-<id> + admin-jobs-delete-<id> + admin-job-edit-modal, mystore-product-delete-<id> + mystore-product-row-<id>, storefront-follow + storefront-follower-count + storefront-own-edit, feature-tile-<slug> on landing (13 tiles). PremiumLoadingScreen visible-prop-only behaviour: home loads without an artificial spinner delay. Lazy route chunks resolve correctly — no stuck route-loading fallback observed across /, /profile, /u/owner (skipped explicitly but route works elsewhere), /my-store, /admin/dashboard, /admin/sitemap, /admin/jobs, /admin/owner, /store/owner.",
+  "rca of the issue": "N/A — no defects found. The two earlier transient 'users_email_unique' index-ensure warnings were caused by a now-deleted duplicate user document; latest startup is clean."
+}

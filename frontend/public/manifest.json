@@ -1,0 +1,13 @@
+{
+  "short_name": "Network Capital",
+  "name": "Network Capital — Community Resource Ecosystem",
+  "icons": [
+    { "src": "/brand/favicon-32.png", "type": "image/png", "sizes": "32x32" },
+    { "src": "/brand/logo192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/brand/logo512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#04101e"
+}

@@ -1,25 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import BrandImg from './BrandImg';
 
 /**
  * Premium loading screen — deep black with gold accents.
  * Logo shimmers in, particles drift up, faint sweep, "Powered by Mici Business Pty Ltd" at the bottom.
+ *
+ * Display lifecycle is fully controlled by the parent via the `visible` prop —
+ * the loader disappears the moment the app is ready (no artificial minimum-display timer).
  */
-const PremiumLoadingScreen = ({ minDuration = 1800, onDone }) => {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const t = setTimeout(() => { setVisible(false); onDone?.(); }, minDuration);
-    return () => clearTimeout(t);
-  }, [minDuration, onDone]);
-
+const PremiumLoadingScreen = ({ visible = true }) => {
   return (
     <AnimatePresence>
       {visible && (
         <motion.div
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: 0.4 }}
           className="fixed inset-0 z-[9999] flex flex-col items-center justify-center overflow-hidden"
           data-testid="premium-loading-screen"
           style={{
@@ -109,7 +106,7 @@ const PremiumLoadingScreen = ({ minDuration = 1800, onDone }) => {
                 className="absolute inset-0 -m-10 rounded-full pointer-events-none"
                 style={{ background: 'radial-gradient(circle, rgba(245,215,110,0.32) 0%, transparent 60%)', filter: 'blur(24px)' }}
               />
-              <img
+              <BrandImg
                 src="/brand/logo-secondary.png"
                 alt="Network Capital"
                 className="h-32 sm:h-36 w-auto relative"

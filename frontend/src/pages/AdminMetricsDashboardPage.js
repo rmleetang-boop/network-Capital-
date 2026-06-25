@@ -118,6 +118,7 @@ const AdminMetricsDashboardPage = ({ user, setUser }) => {
     <div className="min-h-screen bg-background-DEFAULT pb-24" data-testid="admin-metrics-dashboard">
       <div className="sticky top-0 z-10 bg-white/85 backdrop-blur-lg border-b border-gray-200 px-4 py-3 flex items-center gap-2 flex-wrap">
         <h1 className="text-base font-heading font-bold text-primary flex-1">Platform overview</h1>
+        <button onClick={() => navigate('/admin/sitemap')} className="text-xs font-bold bg-gradient-to-r from-[#E8A817] to-amber-400 text-[#04101e] px-3 py-1.5 rounded-full shadow-md hover:shadow-lg" data-testid="admin-go-sitemap">★ Site Map</button>
         <button onClick={() => navigate('/admin/users')} className="text-xs font-semibold bg-secondary text-primary px-3 py-1.5 rounded-full" data-testid="admin-go-users">Users</button>
         <button onClick={() => navigate('/admin/stokvels')} className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-full" data-testid="admin-go-stokvels">Stokvels</button>
         <button onClick={() => navigate('/admin/jobs')} className="text-xs font-semibold bg-amber-100 text-amber-700 px-3 py-1.5 rounded-full" data-testid="admin-go-jobs">Jobs</button>
