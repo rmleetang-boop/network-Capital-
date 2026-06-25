@@ -281,7 +281,18 @@ const ProfilePage = ({ user, setUser }) => {
             </div>
 
             {isOwnProfile && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                {/* Iter 56e — visible "My Store" entry from the profile header */}
+                {!editing && (
+                  <button
+                    onClick={() => navigate('/my-store')}
+                    className="inline-flex items-center gap-1.5 bg-gradient-to-r from-secondary to-yellow-500 hover:from-yellow-500 hover:to-secondary text-primary px-3 py-2 rounded-full text-xs font-bold shadow-md hover:shadow-lg active:scale-95 transition-all"
+                    data-testid="profile-my-store-button"
+                    aria-label="Open my store"
+                  >
+                    <Package size={14} /> My Store
+                  </button>
+                )}
                 {editing ? (
                   <>
                     <button

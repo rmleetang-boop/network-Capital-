@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check, Plus, Film, Layers, Loader2 } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Image as ImageIcon, Video as VideoIcon, X, Sparkles, Compass, MoreHorizontal, Edit2, Trash2, Check, Plus, Film, Layers, Loader2, Eye, EyeOff } from 'lucide-react';
 import ShareMenu from '../components/ShareMenu';
 import NativeFeedAd from '../components/NativeFeedAd';
 import StoriesRibbon from '../components/StoriesRibbon';
@@ -154,6 +154,43 @@ const FeedPage = ({ user }) => {
       toast.success('Post deleted');
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Could not delete post');
+    }
+  };
+
+  // Iter 56e — Admin/super-admin can delete or hide ANY post on the feed.
+  const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin' || user.role === 'moderator');
+
+  const handleAdminDeletePost = async (postId) => {
+    const reason = window.prompt('Delete this post as admin? Optional reason for the audit log:');
+    if (reason === null) return;   // user cancelled
+    try {
+      await axiosInstance.delete(`/admin/posts/${postId}`, { params: { reason: reason || '' } });
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+      toast.success('Post deleted (admin)');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not delete post');
+    }
+  };
+
+  const handleAdminHidePost = async (postId, hidden) => {
+    if (hidden) {
+      const reason = window.prompt('Hide this post (reversible). Optional reason:');
+      if (reason === null) return;
+      try {
+        await axiosInstance.post(`/admin/posts/${postId}/hide`, null, { params: { reason: reason || '' } });
+        setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, hidden: true } : p));
+        toast.success('Post hidden from public feed');
+      } catch (e) {
+        toast.error(e.response?.data?.detail || 'Could not hide post');
+      }
+    } else {
+      try {
+        await axiosInstance.post(`/admin/posts/${postId}/unhide`);
+        setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, hidden: false } : p));
+        toast.success('Post restored');
+      } catch (e) {
+        toast.error(e.response?.data?.detail || 'Could not restore post');
+      }
     }
   };
 
@@ -353,6 +390,9 @@ const FeedPage = ({ user }) => {
               }
             }}
             onDeletePost={handleDeletePost}
+            isAdmin={isAdmin}
+            onAdminDelete={handleAdminDeletePost}
+            onAdminHide={handleAdminHidePost}
             onEditPost={handleEditPost}
             onDeleteComment={handleDeleteComment}
             index={index}
@@ -523,7 +563,7 @@ const FeedPage = ({ user }) => {
   );
 };
 
-const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, onDeletePost, onEditPost, onDeleteComment, index }) => {
+const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, onDeletePost, onEditPost, onDeleteComment, index, isAdmin, onAdminDelete, onAdminHide }) => {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [showHeart, setShowHeart] = useState(false);
@@ -609,8 +649,8 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
           </p>
         </div>
 
-        {/* Owner-only actions menu */}
-        {isOwner && (
+        {/* Owner / Admin actions menu */}
+        {(isOwner || isAdmin) && (
           <div className="relative flex-shrink-0">
             <button
               onClick={() => setMenuOpen((v) => !v)}
@@ -623,27 +663,59 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-lg border border-gray-100 z-20 overflow-hidden" data-testid={`post-menu-${index}`}>
-                  <button
-                    onClick={() => { setEditing(true); setEditValue(post.content || ''); setMenuOpen(false); }}
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-text-primary"
-                    data-testid={`post-edit-button-${index}`}
-                  >
-                    <Edit2 size={14} /> Edit post
-                  </button>
-                  <button
-                    onClick={() => { setMenuOpen(false); onDeletePost && onDeletePost(post.id); }}
-                    className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-50 flex items-center gap-2 text-red-600 border-t border-gray-100"
-                    data-testid={`post-delete-button-${index}`}
-                  >
-                    <Trash2 size={14} /> Delete post
-                  </button>
+                <div className="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-lg border border-gray-100 z-20 overflow-hidden" data-testid={`post-menu-${index}`}>
+                  {isOwner && (
+                    <>
+                      <button
+                        onClick={() => { setEditing(true); setEditValue(post.content || ''); setMenuOpen(false); }}
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-text-primary"
+                        data-testid={`post-edit-button-${index}`}
+                      >
+                        <Edit2 size={14} /> Edit post
+                      </button>
+                      <button
+                        onClick={() => { setMenuOpen(false); onDeletePost && onDeletePost(post.id); }}
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-50 flex items-center gap-2 text-red-600 border-t border-gray-100"
+                        data-testid={`post-delete-button-${index}`}
+                      >
+                        <Trash2 size={14} /> Delete post
+                      </button>
+                    </>
+                  )}
+                  {/* Iter 56e — Admin moderation actions */}
+                  {isAdmin && (
+                    <>
+                      {isOwner && <div className="border-t border-gray-100" />}
+                      <div className="px-4 py-1.5 bg-amber-50 text-[10px] uppercase tracking-wider font-bold text-amber-700">Admin actions</div>
+                      <button
+                        onClick={() => { setMenuOpen(false); onAdminHide && onAdminHide(post.id, !post.hidden); }}
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-amber-50 flex items-center gap-2 text-amber-700"
+                        data-testid={`post-admin-hide-${index}`}
+                      >
+                        {post.hidden ? <><Eye size={14} /> Restore post</> : <><EyeOff size={14} /> Hide from feed</>}
+                      </button>
+                      <button
+                        onClick={() => { setMenuOpen(false); onAdminDelete && onAdminDelete(post.id); }}
+                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-50 flex items-center gap-2 text-red-700 border-t border-gray-100"
+                        data-testid={`post-admin-delete-${index}`}
+                      >
+                        <Trash2 size={14} /> Delete (admin)
+                      </button>
+                    </>
+                  )}
                 </div>
               </>
             )}
           </div>
         )}
       </div>
+
+      {/* Iter 56e — Hidden-post badge (visible to admins viewing hidden posts) */}
+      {post.hidden && (
+        <div className="mx-4 mb-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-1.5" data-testid={`post-hidden-badge-${index}`}>
+          <EyeOff size={11} /> This post is hidden from the public feed{post.hidden_by ? ` · by @${post.hidden_by}` : ''}{post.hidden_reason ? ` · ${post.hidden_reason}` : ''}
+        </div>
+      )}
 
       {/* Content text — switches to inline editor when owner taps Edit */}
       {editing ? (

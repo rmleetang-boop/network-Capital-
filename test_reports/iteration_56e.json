@@ -1,0 +1,35 @@
+{
+  "summary": "Iter 56e — Influencer outreach template replaces join_the_movement; admin/super_admin can hide/unhide/delete posts on feed with AuditLog + public-feed exclusion; profile header now exposes a prominent yellow My Store pill. Backend 11/11 pytest passing against preview env (templates list contains influencer_collab + future_through_network + income_streams, join_the_movement removed; influencer preview HTML contains all 10 required phrases incl. 'Claim your founding-creator spot', 'opportunities, partnerships and rewards reserved only for high-score members', 'first wave of web-based members', 'founding-creator status', 'Network Score', '+27 74 574 7401', 'creative@networkcapitalapp.co.za', 'Never contact me again' AND no 'unsubscribe' / no 1x1 tracking pixel; POST /admin/posts/{id}/hide sets hidden=true and excludes the post from GET /posts (public feed); POST /admin/posts/{id}/unhide reverses; DELETE /admin/posts/{id} still works; all 3 endpoints 404 on unknown id; all 3 endpoints return 403 to a regular user; anonymous /posts still filters hidden). Frontend (Playwright vs preview as super_admin): FE#1 [profile-my-store-button] present at (1115,91,96x32) — clicking navigates to /my-store; FE#2 /admin/outreach quick-send tab shows 3 template cards [outreach-template-influencer_collab|future_through_network|income_streams] (join_the_movement absent), selecting influencer_collab + [outreach-preview-btn] opens [outreach-preview-modal] whose iframe contains the influencer headline; FE#3 every post on /feed has [post-menu-button-<idx>] that opens [post-menu-<idx>] containing an 'Admin actions' section with [post-admin-hide-0] ('Hide from feed') and [post-admin-delete-0] ('Delete (admin)'); FE#4 clicking hide flips the post to hidden — [post-hidden-badge-0] appears, the menu label flips to 'Restore post' on re-open, clicking Restore removes the badge and shows a 'Post restored' toast.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56e_moderation_outreach.py",
+    "/app/test_reports/pytest/iter56e_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "/api/admin/posts/{id}/hide accepts ?reason= as a query-string parameter. For free-text moderator reasons this works but a JSON body would be safer if reasons ever contain reserved URL chars; either is acceptable.",
+    "GET /posts filter is {hidden:{$ne:true}} which is correct, but the same filter is NOT (yet) re-applied to other surfaces that read from db.posts directly (e.g. user-profile feed, hub feeds, search). If hide-from-feed is supposed to be a global suppression rather than only the public timeline, those endpoints need the same {hidden:{$ne:true}} guard.",
+    "AdminUnhide $unset removes hidden_at/by/reason but leaves hidden=false on the doc. That's correct semantics, but consider $unset-ing 'hidden' too so the doc shape matches a never-hidden post (purely cosmetic).",
+    "FeedPage PostCard now branches on (isOwner||isAdmin) for the menu button — confirmed working. Note that on the public/feed page, anonymous viewers won't render this branch (no token) so no leakage.",
+    "Profile My Store button uses gradient-to-r secondary→yellow-500 with text-primary which is dark-blue on yellow: contrast ~ AAA. Good. The button is only rendered when isOwnProfile && !editing — matches spec."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter56e_moderation_outreach.py (NEW — 11 tests covering BE#1/BE#2/BE#3)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% (FE#1, FE#2, FE#3, FE#4 all verified end-to-end)"
+  },
+  "test_credentials": "Super admin: rmleetang@gmail.com / OwnerTest123! (role=super_admin). Regular users for permission gating are seeded directly into Mongo via motor (signup OTP flow now uses real Brevo — no _mock_code), with HS256 JWT minted using JWT_SECRET_KEY from /app/backend/.env.",
+  "seed_data_creation": "Each test class creates ~1-3 ephemeral users with email prefix test_iter56e_<hex>@example.com and a handful of throw-away posts (content prefixed 'iter56e ...'). Safe to bulk-delete with {email:/^test_iter56e_/} on db.users and {content:/^iter56e /} on db.posts.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "BACKEND IS GREEN (11/11) — /app/backend/tests/test_iter56e_moderation_outreach.py is the canonical iter56e regression guard. Seed pattern: motor insert into db.users with id/email/username/email_verified=true/network_score=0/rank=Iron/referral_code, then HS256-jwt-encode {user_id,sub,exp} with JWT_SECRET_KEY (HS256). The /posts public endpoint enforces {hidden:{$ne:true}} so a hidden post will not appear in subsequent feed fetches. /api/admin/posts/{id}/hide and /unhide accept ?reason=... as query string. AuditLog entries are written under action='post.hide'/'post.unhide'/'post.delete'. Permission gating: require_admin_user returns 403 for role='user' — verified across all 3 endpoints. FRONTEND: the dismiss-modals helper needs to handle TWO welcome modals (FIRST LOOK on /feed, 'Community participation pays' on /profile, and on /admin/owner/pin) — clicking the close [x] or 'Got it' button works. data-testid='post-menu-button-<idx>' has the menu rendered conditionally on menuOpen state; clicking via element.click() in evaluate() dispatches React's onClick. Anchor selectors for iter56e: [profile-my-store-button], [outreach-template-influencer_collab], [outreach-preview-btn], [outreach-preview-modal], [post-menu-button-0..N], [post-admin-hide-0..N], [post-admin-delete-0..N], [post-hidden-badge-0..N].",
+  "rca_of_the_issue": "No bugs found. All three feature groups (influencer outreach template, admin post moderation, profile My Store header pill) wired correctly on both ends, with the public-feed exclusion working at the DB-filter layer (not just UI-hidden), audit logs written on every state change, and 403 gating enforced for non-admins."
+}

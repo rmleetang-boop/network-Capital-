@@ -3764,7 +3764,10 @@ async def delete_comment(post_id: str, comment_id: str, current_user: dict = Dep
 
 @api_router.get("/posts", response_model=List[Post])
 async def get_posts(skip: int = 0, limit: int = 20):
-    posts = await db.posts.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    # Iter 56e — hidden posts (soft-hidden by admin) are excluded from public feed.
+    posts = await db.posts.find(
+        {"hidden": {"$ne": True}}, {"_id": 0},
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     return await _enrich_posts_with_live_score(posts)
 
 
@@ -9899,6 +9902,40 @@ async def admin_delete_post(post_id: str, reason: str = "", admin: dict = Depend
     return {"ok": True}
 
 
+# Iter 56e — Admin soft-hide / unhide a post on the feed (reversible).
+@api_router.post("/admin/posts/{post_id}/hide")
+async def admin_hide_post(post_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
+    res = await db.posts.update_one(
+        {"id": post_id},
+        {"$set": {"hidden": True, "hidden_at": datetime.now(timezone.utc).isoformat(),
+                  "hidden_by": admin.get("username") or "admin",
+                  "hidden_reason": (reason or "").strip() or None}},
+    )
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Post not found")
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="post.hide", target_type="post", target_id=post_id, reason=reason,
+    )
+    return {"ok": True, "hidden": True}
+
+
+@api_router.post("/admin/posts/{post_id}/unhide")
+async def admin_unhide_post(post_id: str, admin: dict = Depends(require_admin_user)):
+    res = await db.posts.update_one(
+        {"id": post_id},
+        {"$set": {"hidden": False},
+         "$unset": {"hidden_at": "", "hidden_by": "", "hidden_reason": ""}},
+    )
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Post not found")
+    await AuditLog.write(
+        actor_id=admin["id"], actor_username=admin.get("username") or "admin",
+        action="post.unhide", target_type="post", target_id=post_id,
+    )
+    return {"ok": True, "hidden": False}
+
+
 @api_router.delete("/admin/messages/{message_id}")
 async def admin_delete_message(message_id: str, reason: str = "", admin: dict = Depends(require_admin_user)):
     res = await db.messages.delete_one({"id": message_id})
@@ -13612,6 +13649,7 @@ OUTREACH_TEMPLATES: Dict[str, Dict[str, str]] = {
         "label": "Build a future through your network",
         "preview": "Aspirational · highlights Ambassador + Marketplace earnings",
         "headline": "Your network is your net worth.",
+        "cta_label": "Join Network Capital →",
         "body_intro": (
             "Network Capital is the digital infrastructure helping people across Africa "
             "build a better future by expanding their network, accessing new opportunities, "
@@ -13634,6 +13672,7 @@ OUTREACH_TEMPLATES: Dict[str, Dict[str, str]] = {
         "label": "Multiple income streams, one platform",
         "preview": "Pragmatic · focuses on earnings + financial growth",
         "headline": "Two ways to grow your income on Network Capital.",
+        "cta_label": "Start earning on Network Capital →",
         "body_intro": (
             "We've built Network Capital as a community resource ecosystem — a place where "
             "your participation, your network, and your hustle translate into real, "
@@ -13651,24 +13690,32 @@ OUTREACH_TEMPLATES: Dict[str, Dict[str, str]] = {
             "receiving orders through your own shareable storefront."
         ),
     },
-    "join_the_movement": {
-        "label": "Join the movement",
-        "preview": "Warm · community-led tone with stronger CTA",
-        "headline": "Built by Africans. For Africans. With Africans.",
+    "influencer_collab": {
+        "label": "Influencer collaboration (founding-creator)",
+        "preview": "Aspirational · for creators we've contacted off-platform",
+        "headline": "We've been watching your work — let's collaborate.",
+        "cta_label": "Claim your founding-creator spot →",
         "body_intro": (
-            "Network Capital is a fast-growing digital infrastructure connecting members "
-            "across South Africa, Nigeria, Kenya, Ghana and beyond. We exist to help you "
-            "build, earn, and grow alongside a community that's invested in your success."
+            "Your content has caught our attention. We've reached out because we believe "
+            "you'd be a perfect fit for Network Capital — Africa's fast-growing digital "
+            "infrastructure for creators, builders and ambitious professionals."
         ),
-        "opp1_title": "Ambassador rewards programme",
+        "opp1_title": "Your Network Score — your reputation, quantified",
         "opp1_body": (
-            "Every introduction counts. Track your growing network, unlock exclusive "
-            "perks, and earn through our transparent rewards system."
+            "Unlike the platforms you're already on, Network Capital actually rewards the "
+            "depth of your influence. Every interaction, post, referral and follower "
+            "contributes to your Network Score — a transparent, growing reputation metric "
+            "that compounds the longer you stay active. A higher Network Score unlocks "
+            "real benefits: paid Ambassador rewards, premium tier access, marketplace "
+            "boosts, exclusive opportunities, partnerships and rewards reserved only for "
+            "high-score members, and priority placement on regional hubs."
         ),
-        "opp2_title": "Sell in the marketplace",
+        "opp2_title": "Founding-creator status — be among our first web-based members",
         "opp2_body": (
-            "Open your own digital store on Network Capital. Products, services, "
-            "downloads — your audience, your prices, your terms."
+            "Your audience moves with you — and on Network Capital, your audience finally "
+            "pays you back. You'd be joining as one of our first wave of web-based "
+            "members, which means founding-creator status, early-mover visibility, and "
+            "a direct line to our team to shape the platform with us."
         ),
     },
 }
@@ -13685,6 +13732,7 @@ def _outreach_email_html(*, recipient_name: Optional[str], template_id: str, opt
     greeting = f"Hi {_html.escape(name, quote=True)},"
     landing_img = "https://networkcapitalapp.co.za/landing-preview.png"
     cta_url = "https://networkcapitalapp.co.za/?utm_source=outreach&utm_medium=email"
+    cta_label = tpl.get("cta_label") or "Join Network Capital →"
     whatsapp_url = "https://wa.me/27745747401"
     return f"""<!doctype html>
 <html lang="en">
@@ -13714,7 +13762,7 @@ def _outreach_email_html(*, recipient_name: Optional[str], template_id: str, opt
     <div style="padding:18px 28px 8px;text-align:center;">
       <a href="{cta_url}" target="_blank"
          style="display:inline-block;background:#f5d76e;color:#0a1628;font-weight:800;font-size:15px;text-decoration:none;padding:14px 32px;border-radius:999px;box-shadow:0 6px 18px rgba(245,215,110,0.35);">
-        Join Network Capital →
+        {_html.escape(cta_label)}
       </a>
       <p style="margin:10px 0 0;font-size:11px;color:#94a3b8;">Free to join · POPIA-aligned · Mobile-first</p>
     </div>
