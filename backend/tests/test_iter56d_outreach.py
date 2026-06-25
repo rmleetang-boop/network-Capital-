@@ -74,7 +74,7 @@ class TestOutreachTemplates:
         body = r.json()
         assert "templates" in body
         ids = sorted([t["id"] for t in body["templates"]])
-        assert ids == sorted(["future_through_network", "income_streams", "join_the_movement"])
+        assert ids == sorted(["future_through_network", "income_streams", "influencer_collab"])
         for t in body["templates"]:
             assert "label" in t and "preview" in t and "headline" in t
 
@@ -117,7 +117,7 @@ class TestOutreachPreview:
         assert "Jane" in html
 
     def test_preview_handles_all_3_templates(self, super_admin):
-        for tpl in ["future_through_network", "income_streams", "join_the_movement"]:
+        for tpl in ["future_through_network", "income_streams", "influencer_collab"]:
             r = requests.post(f"{API}/admin/outreach/preview",
                               json={"name": "", "template": tpl},
                               headers=super_admin["headers"], timeout=15)

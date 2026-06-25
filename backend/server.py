@@ -3421,7 +3421,9 @@ async def upload_media(
     scope: str = Form("posts"),
     current_user: dict = Depends(get_current_user),
 ):
-    """Streams a single image or video to disk and returns a public-facing URL.
+    """Iter 56f — uploads a single image or video to **Cloudinary** (CDN-backed,
+    survives pod redeploys); falls back to local disk only if Cloudinary credentials
+    are missing from /app/backend/.env.
 
     Scopes (iter 52):
       • ``posts`` (default) — any authenticated user (Feed)
@@ -3429,12 +3431,11 @@ async def upload_media(
       • ``announcements`` — admin/super_admin only
       • ``files`` — see ``POST /uploads/file`` for downloadable assets
 
-    The returned URL is mounted via StaticFiles at ``/api/uploads/<scope>/<filename>``.
+    Response shape (unchanged for FE compatibility):
+      ``{url, kind, size_bytes, filename, mime, [data_url], [public_id], [storage], [duration]}``
 
-    Iter 55 — IMAGES also persist a base64 ``data_url`` payload (max 4 MB sources
-    only — anything larger stays disk-only) so production survives ephemeral
-    pod redeploys. Frontend prefers the URL but falls back to ``data_url`` when
-    the URL 404s."""
+    Iter 55 — for images ≤ 4 MB the response also includes a base64 ``data_url``
+    so SafeImage/MediaRenderer can fall back if the CDN URL is briefly unreachable."""
 
     if scope not in _UPLOAD_SCOPES or scope == "files":
         raise HTTPException(status_code=400, detail="Unknown upload scope")

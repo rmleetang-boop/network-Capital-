@@ -404,3 +404,32 @@ Prominent yellow `[profile-my-store-button]` added next to the Edit Profile icon
 ### Testing
 - Iter 56e: Backend **11/11** (regression: `/app/backend/tests/test_iter56e_moderation_outreach.py`). Frontend: all 4 selectors verified end-to-end (profile-my-store-button, influencer template card + iframe, admin post menu hide/delete, post-hidden-badge toggle).
 - Global-suppression verified live via curl: hide a post → public feed, profile feed, hashtag feed, trending ranker ALL exclude it; unhide → all surfaces restore.
+
+
+## Iter 56f (Feb 28, 2026) — Cloudinary Migration ✅
+
+**Root problem solved**: Kubernetes pods wipe `/app/backend/uploads/` on every redeploy. All user-uploaded media (post images, reels, carousel images, product images, profile photos, story media, creator product files) was at risk of disappearing on every production deploy.
+
+### What changed
+- **NEW**: `/app/backend/services/cloudinary_service.py` — async-aware Cloudinary client (lazy-configured from env vars; gracefully no-ops if creds missing).
+- **`POST /api/uploads/media`** (images + videos) rewritten: Cloudinary first (folders: `posts/`, `products/`, `announcements/`, `stories/`); disk fallback retained for resilience.
+- **`POST /api/uploads/file`** (PDF/EPUB/DOC/PPT/ZIP/XLS/CSV/TXT/MD) rewritten: Cloudinary `resource_type='raw'` (folder: `files/`); disk fallback retained.
+- **Auto-optimization**: all image + video delivery URLs include `f_auto,q_auto` for automatic WebP/AVIF format + perceptual quality (30-60% smaller files, faster loads).
+- **Response shape unchanged** — adds new fields (`public_id`, `storage`, `duration` for videos) but preserves every prior field (`url`, `size_bytes`, `filename`, `mime`, `data_url`). Frontend untouched.
+- **Env**: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` added to `/app/backend/.env` (never in code, never committed).
+- **Dependency**: `cloudinary==1.44.2` added to `requirements.txt`.
+
+### URL pattern examples
+- Image: `https://res.cloudinary.com/dwocjyvys/image/upload/f_auto,q_auto/v.../posts/<pubid>.png`
+- Video: `https://res.cloudinary.com/dwocjyvys/video/upload/f_auto,q_auto/v.../posts/<pubid>.mp4`
+- PDF/raw: `https://res.cloudinary.com/dwocjyvys/raw/upload/v.../files/<pubid>.pdf`
+
+### Testing
+- Iter 56f: **13/13** backend pytest PASS (`/app/backend/tests/test_iter56f_cloudinary.py`) covering image/video/raw uploads, scope guards, size limits, CDN GET retrieval, disk-fallback code path, end-to-end product flow with Cloudinary asset URLs.
+- Regression: **All prior iter 56*-suite tests pass (after fixing iter56d's stale `join_the_movement` template-id assertion to `influencer_collab`).** 19/19 outreach + 11/11 moderation/influencer + 12/12 lean-creator + 20/20 share-canonical + 18/18 ambassador-email-dedupe.
+- Manual smoke: PNG upload → Cloudinary URL with `f_auto,q_auto` → publicly fetchable; PDF upload → raw resource URL → publicly fetchable.
+
+### Production impact (zero-downtime migration)
+- **Existing uploaded files**: keep working — their `/api/uploads/*` URLs still resolve from disk until the next pod redeploy.
+- **New uploads (post-deploy)**: go straight to Cloudinary; survive every future redeploy.
+- **No data migration script** required — existing prod URLs continue to work; the disk-wipe-on-redeploy problem stops occurring for any NEW uploads.
