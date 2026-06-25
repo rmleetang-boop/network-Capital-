@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Wallet, TrendingUp, Trophy, Activity, Inbox, Package, Bell, MessageCircle, Sparkles, Settings, Briefcase, Shield, Star, Crown } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Package, MessageCircle, Sparkles, Briefcase, Trophy } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -9,6 +9,7 @@ import NetworkScore from '../components/NetworkScore';
 import RankBadge from '../components/RankBadge';
 import FeatureIntroModal from '../components/FeatureIntroModal';
 import { Progress } from '@/components/ui/progress';
+import OwnModuleGrid from '../components/profile/OwnModuleGrid';
 
 const MONTHS = [
   { v: 1, l: 'January' }, { v: 2, l: 'February' }, { v: 3, l: 'March' },
@@ -695,68 +696,8 @@ const ProfilePage = ({ user, setUser }) => {
 
           {isOwnProfile && (
             <>
-              {/* Quick Access grid — dark navy premium */}
-              <div className="relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#04101e] via-[#0a1f3a] to-[#04101e] border border-white/10 p-4 sm:p-5" data-testid="quick-access-grid-wrap">
-                {/* Halo */}
-                <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full pointer-events-none opacity-40 blur-3xl" style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.25) 0%, transparent 65%)' }} />
-                <div className="absolute -bottom-24 -left-24 w-64 h-64 rounded-full pointer-events-none opacity-30 blur-3xl" style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(30,79,165,0.5) 0%, transparent 65%)' }} />
-                <div className="relative flex items-center justify-between mb-3">
-                  <p className="text-[10px] uppercase tracking-[0.25em] font-bold text-[#E8A817]">Your modules</p>
-                  <span className="text-[10px] uppercase tracking-wider text-white/40">Tap to open</span>
-                </div>
-                <div className="relative grid grid-cols-3 gap-2.5" data-testid="quick-access-grid">
-                {[
-                  { icon: Users, label: 'My Network', path: '/network' },
-                  { icon: MapPin, label: 'My Places', path: '/places' },
-                  { icon: MessageCircle, label: 'Messages', path: '/messages' },
-                  { icon: Sparkles, label: 'Activities', path: '/activities' },
-                  { icon: Wallet, label: 'Wallet', path: '/wallet' },
-                  { icon: Package, label: 'My Store', path: '/my-store', highlight: true },
-                  { icon: Package, label: 'Products', path: '/products' },
-                  { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
-                  { icon: Activity, label: 'Score Tracker', path: '/tracker' },
-                  { icon: Briefcase, label: 'Jobs', path: '/jobs' },
-                  { icon: Sparkles, label: 'Promotions', path: '/promotions/me' },
-                  { icon: Star, label: 'Become Ambassador', path: '/ambassadors/apply' },
-                  { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
-                  { icon: Bell, label: 'Notifications', path: '/notifications' },
-                  { icon: HelpCircle, label: 'Help', path: '/help' },
-                  { icon: Settings, label: 'Settings', path: '/settings' },
-                  ...(profileUser?.is_ambassador
-                    ? [{ icon: Trophy, label: 'Ambassador', path: '/ambassadors/me', highlight: true }]
-                    : []),
-                  ...(profileUser?.role === 'admin' || profileUser?.role === 'moderator' || profileUser?.role === 'super_admin'
-                    ? [{ icon: Shield, label: 'Admin', path: '/admin/dashboard', highlight: true }]
-                    : []),
-                  ...(profileUser?.role === 'super_admin'
-                    ? [{ icon: Crown, label: 'Owner Center', path: '/admin/owner/pin', highlight: true }]
-                    : []),
-                ].map((q) => {
-                  const QIcon = q.icon;
-                  return (
-                    <button
-                      key={q.path}
-                      onClick={() => (window.location.href = q.path)}
-                      className={`group relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-200 active:scale-95 ${
-                        q.highlight
-                          ? 'bg-gradient-to-br from-[#E8A817]/20 to-[#E8A817]/5 border-[#E8A817]/40 hover:border-[#E8A817]/70'
-                          : 'bg-white/[0.06] border-white/10 hover:bg-white/[0.10] hover:border-[#E8A817]/30'
-                      }`}
-                      data-testid={`quick-${q.label.toLowerCase().replace(/\s+/g, '-')}`}
-                    >
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
-                        q.highlight
-                          ? 'bg-[#E8A817]/15 border-[#E8A817]/40'
-                          : 'bg-white/5 border-white/10 group-hover:border-[#E8A817]/40 group-hover:bg-[#E8A817]/10'
-                      } transition-colors`}>
-                        <QIcon size={18} className={q.highlight ? 'text-[#E8A817]' : 'text-white/85 group-hover:text-[#E8A817]'} />
-                      </div>
-                      <span className="text-[11px] font-semibold leading-tight text-center text-white/85 group-hover:text-white">{q.label}</span>
-                    </button>
-                  );
-                })}
-                </div>
-              </div>
+              {/* Quick Access grid — shared OwnModuleGrid component */}
+              <OwnModuleGrid profile={profileUser} variant="quick-access" />
 
               <button
                 onClick={() => window.location.href = '/referral'}
