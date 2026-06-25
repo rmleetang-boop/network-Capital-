@@ -79,6 +79,11 @@ async def migrate_users(db) -> int:
     async for u in cursor:
         url = await _upload(u["photo"], "profile")
         if not url:
+            # Couldn't decode/upload — most likely corrupt base64 padding. Clear
+            # the field so the regex stops matching it on future runs (idempotency).
+            if not DRY_RUN:
+                await db.users.update_one({"id": u["id"]}, {"$set": {"photo": ""}})
+            log.info(f"users[{u['id']}] @{u.get('username')} → CLEARED (corrupt base64)")
             continue
         if not DRY_RUN:
             await db.users.update_one({"id": u["id"]}, {"$set": {"photo": url}})

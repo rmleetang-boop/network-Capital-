@@ -40,9 +40,13 @@ const FeedPage = ({ user }) => {
   const [posting, setPosting] = useState(false);
   const [storyGroup, setStoryGroup] = useState(null);
   const sentinelRef = useRef(null);
+  const firstLoadRef = useRef(false);
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Guard against React 18 StrictMode double-invoke firing two skip=0 calls back-to-back.
+    if (firstLoadRef.current) return;
+    firstLoadRef.current = true;
     fetchPosts(0, true);
   }, []);
 
