@@ -3448,59 +3448,57 @@ async def upload_media(
         raise HTTPException(status_code=415, detail=f"Unsupported media type: {mime or 'unknown'}")
 
     cap = _MAX_UPLOAD_IMAGE_BYTES if is_image else _MAX_UPLOAD_VIDEO_BYTES
-    # Stream to disk in chunks so we never load the whole video in memory.
+    # Iter 56f — read into memory (≤50 MB), Cloudinary first, disk fallback.
+    raw = await file.read()
+    total = len(raw)
+    if total > cap:
+        human = "11 MB" if is_image else "50 MB"
+        raise HTTPException(status_code=413, detail=f"File exceeds the {human} limit for this media type.")
+    try:
+        await file.close()
+    except Exception:
+        pass
+
     fallback_ext = "jpg" if is_image else "mp4"
-    ext = _ext_from_filename(file.filename or "", fallback_ext)
+    original_name = file.filename or f"upload.{fallback_ext}"
+
+    cloud_result = await cloudinary_service.upload_bytes(
+        raw, folder=scope, filename=original_name,
+        resource_type="image" if is_image else "video",
+    )
+    if cloud_result and cloud_result.get("url"):
+        payload: Dict[str, Any] = {
+            "url": cloud_result["url"],
+            "kind": "image" if is_image else "video",
+            "size_bytes": cloud_result.get("bytes") or total,
+            "filename": cloud_result.get("public_id") or original_name,
+            "mime": mime,
+            "public_id": cloud_result.get("public_id"),
+            "storage": "cloudinary",
+        }
+        if is_video and cloud_result.get("duration"):
+            payload["duration"] = float(cloud_result["duration"])
+        if is_image and total <= 4 * 1024 * 1024:
+            import base64 as _b64
+            payload["data_url"] = f"data:{mime};base64,{_b64.b64encode(raw).decode('ascii')}"
+        return payload
+
+    # Disk fallback (legacy)
+    ext = _ext_from_filename(original_name, fallback_ext)
     filename = f"{uuid.uuid4().hex}.{ext}"
     target_dir = UPLOAD_DIR / scope
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / filename
-
-    total = 0
-    # Iter 55 — capture small image bytes for the base64 fallback (max 4 MB).
-    BASE64_FALLBACK_CAP = 4 * 1024 * 1024
-    buffer = bytearray() if is_image else None
-    keep_buffer = is_image
-    try:
-        with open(target, "wb") as out:
-            while True:
-                chunk = await file.read(1 << 20)  # 1 MiB chunks
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > cap:
-                    out.close()
-                    try:
-                        target.unlink()
-                    except Exception:
-                        pass
-                    human = "11 MB" if is_image else "50 MB"
-                    raise HTTPException(status_code=413, detail=f"File exceeds the {human} limit for this media type.")
-                out.write(chunk)
-                if keep_buffer:
-                    if total > BASE64_FALLBACK_CAP:
-                        # Image too big for an inline fallback — keep disk only.
-                        keep_buffer = False
-                        buffer = None
-                    else:
-                        buffer.extend(chunk)
-    finally:
-        try:
-            await file.close()
-        except Exception:
-            pass
-
-    url = f"/api/uploads/{scope}/{filename}"
-    payload: Dict[str, Any] = {
-        "url": url,
+    with open(target_dir / filename, "wb") as out:
+        out.write(raw)
+    payload = {
+        "url": f"/api/uploads/{scope}/{filename}",
         "kind": "image" if is_image else "video",
-        "size_bytes": total,
-        "filename": filename,
-        "mime": mime,
+        "size_bytes": total, "filename": filename, "mime": mime,
+        "storage": "disk",
     }
-    if buffer is not None and len(buffer) > 0:
+    if is_image and total <= 4 * 1024 * 1024:
         import base64 as _b64
-        payload["data_url"] = f"data:{mime};base64,{_b64.b64encode(bytes(buffer)).decode('ascii')}"
+        payload["data_url"] = f"data:{mime};base64,{_b64.b64encode(raw).decode('ascii')}"
     return payload
 
 
@@ -3520,33 +3518,38 @@ async def upload_file_asset(
             detail=f"Unsupported file type: {mime or 'unknown'}. Allowed: PDF, PPT/PPTX, DOC/DOCX, XLS/XLSX, EPUB, ZIP, TXT, MD, CSV.",
         )
     safe_name = (file.filename or "download").rsplit("/", 1)[-1][:120]
+    # Iter 56f — read into memory (≤100 MB), Cloudinary first, disk fallback.
+    raw = await file.read()
+    total = len(raw)
+    if total > _MAX_UPLOAD_DOC_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 100 MB limit.")
+    try:
+        await file.close()
+    except Exception:
+        pass
+
+    cloud_result = await cloudinary_service.upload_bytes(
+        raw, folder="files", filename=safe_name, resource_type="raw",
+    )
+    if cloud_result and cloud_result.get("url"):
+        return {
+            "url": cloud_result["url"],
+            "kind": "file",
+            "file_name": safe_name,
+            "size_bytes": cloud_result.get("bytes") or total,
+            "mime": mime,
+            "public_id": cloud_result.get("public_id"),
+            "storage": "cloudinary",
+        }
+
+    # Disk fallback (legacy)
     ext = _ext_from_filename(safe_name, "bin")
     filename = f"{uuid.uuid4().hex}.{ext}"
     target_dir = UPLOAD_DIR / "files"
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / filename
-
-    total = 0
-    try:
-        with open(target, "wb") as out:
-            while True:
-                chunk = await file.read(1 << 20)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > _MAX_UPLOAD_DOC_BYTES:
-                    out.close()
-                    try:
-                        target.unlink()
-                    except Exception:
-                        pass
-                    raise HTTPException(status_code=413, detail="File exceeds the 100 MB limit.")
-                out.write(chunk)
-    finally:
-        try:
-            await file.close()
-        except Exception:
-            pass
+    with open(target, "wb") as out:
+        out.write(raw)
 
     return {
         "url": f"/api/uploads/files/{filename}",
@@ -3554,6 +3557,7 @@ async def upload_file_asset(
         "file_name": safe_name,
         "size_bytes": total,
         "mime": mime,
+        "storage": "disk",
     }
 
 
@@ -6235,6 +6239,8 @@ async def founders_status():
 import logging as _otp_logging
 import secrets as _otp_secrets
 from services.email_service import send_transactional_email as _brevo_send, is_configured as _brevo_configured
+# Iter 56f — Cloudinary upload service (images/videos/raw files survive pod redeploys)
+from services import cloudinary_service  # noqa: E402  — module is import-safe even without creds
 
 
 def _generate_otp() -> str:
