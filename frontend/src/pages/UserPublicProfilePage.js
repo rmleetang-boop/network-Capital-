@@ -385,6 +385,7 @@ const OwnModuleGrid = ({ profile, navigate }) => {
     { icon: MessageCircleIcon, label: 'Messages', path: '/messages' },
     { icon: Sparkles, label: 'Activities', path: '/activities' },
     { icon: Wallet, label: 'Wallet', path: '/wallet' },
+    { icon: Package, label: 'My Store', path: '/my-store', highlight: true },
     { icon: Package, label: 'Products', path: '/products' },
     { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
     { icon: Activity, label: 'Score Tracker', path: '/tracker' },

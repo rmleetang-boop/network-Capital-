@@ -433,3 +433,14 @@ Prominent yellow `[profile-my-store-button]` added next to the Edit Profile icon
 - **Existing uploaded files**: keep working — their `/api/uploads/*` URLs still resolve from disk until the next pod redeploy.
 - **New uploads (post-deploy)**: go straight to Cloudinary; survive every future redeploy.
 - **No data migration script** required — existing prod URLs continue to work; the disk-wipe-on-redeploy problem stops occurring for any NEW uploads.
+
+
+## Iter 56g (Feb 28, 2026) — My Store tile in Profile-tab module grid
+Added `{ icon: Package, label: 'My Store', path: '/my-store', highlight: true }` to **`OwnModuleGrid`** in `/app/frontend/src/pages/UserPublicProfilePage.js` (line 388). This is the grid the user sees when tapping the bottom-nav **Profile** tab (which routes to `/u/<username>` when a username is set — see `Layout.js:15`). Now 18 tools, gold-highlighted, visible above-the-fold. Verified live via Playwright screenshot.
+
+### Duplicate-component audit
+- `pages/ProfilePage.js` line 707 — `quick-access-grid` — used when user has **no username** → `/profile`.
+- `pages/UserPublicProfilePage.js` line 405 — `own-module-grid` — used when user **has a username** → `/u/<username>` (current Profile-tab default).
+- `pages/AdminProfileDetailPage.js` — admin viewing OTHER users (wallet-adjust etc.) · NOT a duplicate.
+
+Both grids now carry the "My Store" tile (iter 56d added it to `ProfilePage`; iter 56g adds it to `UserPublicProfilePage`).
