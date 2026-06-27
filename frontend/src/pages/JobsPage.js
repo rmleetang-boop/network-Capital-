@@ -85,8 +85,11 @@ const JobsPage = ({ user }) => {
     }
   };
 
+  const isAdminRole = user && ['admin', 'super_admin', 'moderator'].includes(user.role);
+  const canPostFree = !!user?.job_post_unlocked || isAdminRole;
+
   const handlePost = () => {
-    if (user?.job_post_unlocked) navigate('/jobs/new');
+    if (canPostFree) navigate('/jobs/new');
     else startEmployerUnlock();
   };
 
@@ -116,8 +119,8 @@ const JobsPage = ({ user }) => {
             className="bg-primary hover:bg-primary-hover text-white font-semibold rounded-full px-4 py-2 text-sm flex items-center gap-1.5"
             data-testid="post-job-button"
           >
-            {user?.job_post_unlocked ? <Plus size={16} /> : <Lock size={14} />}
-            {user?.job_post_unlocked ? 'Post' : `Unlock $50`}
+            {canPostFree ? <Plus size={16} /> : <Lock size={14} />}
+            {canPostFree ? 'Post' : `Unlock $50`}
           </button>
         </div>
 
@@ -178,7 +181,7 @@ const JobsPage = ({ user }) => {
                 className="mt-3 bg-primary text-white px-5 py-2 rounded-full text-sm font-semibold"
                 data-testid="post-first-job-button"
               >
-                {user?.job_post_unlocked ? 'Post your first job' : `Unlock job posting · $50`}
+                {canPostFree ? 'Post your first job' : `Unlock job posting · $50`}
               </button>
             </div>
           ) : mine.map((j) => (

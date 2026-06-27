@@ -7520,6 +7520,8 @@ async def ensure_indexes():
         ("users", "id", {"unique": True, "name": "users_id_unique"}),
         ("users", "username", {"unique": True, "sparse": True, "name": "users_username_unique"}),
         ("users", "email", {"unique": True, "sparse": True, "name": "users_email_unique"}),
+        ("users", [("created_at", -1)], {"name": "users_created_at_desc"}),
+        ("users", [("network_score", -1)], {"name": "users_score_desc"}),
         # notifications: per-user inbox, with unread-first sort
         ("notifications", [("user_id", 1), ("read", 1), ("created_at", -1)], {"name": "notif_user_read_created"}),
         ("notifications", [("user_id", 1), ("created_at", -1)], {"name": "notif_user_created"}),
@@ -8521,8 +8523,14 @@ async def jobs_checkout_status(session_id: str, current_user: dict = Depends(get
 
 @api_router.post("/jobs", response_model=Dict[str, Any])
 async def create_job(req: CreateJobRequest, current_user: dict = Depends(get_current_user)):
-    """Create a job posting. Requires $50 once-off employer unlock OR seeded Network Capital admin."""
-    if not current_user.get("job_post_unlocked") and not current_user.get("is_admin"):
+    """Create a job posting.
+
+    Requires the once-off $50 employer unlock (`job_post_unlocked: true`) for
+    regular users. Iter 58c — admins, super-admins, and moderators can post
+    jobs without paying anything.
+    """
+    is_admin_role = current_user.get("role") in ("admin", "super_admin", "moderator")
+    if not (current_user.get("job_post_unlocked") or is_admin_role):
         raise HTTPException(
             status_code=402,
             detail=f"Posting jobs requires a one-time ${int(JOB_POST_FEE_USD)} unlock. Tap 'Unlock Job Posting' on the Jobs page.",
@@ -9072,10 +9080,19 @@ async def admin_set_user_role(
 async def admin_list_users(
     q: Optional[str] = None,
     role: Optional[str] = None,
+    sort: Optional[str] = "newest",
     limit: int = 100,
+    skip: int = 0,
     admin: dict = Depends(require_admin_user),
 ):
-    """Paginated user list for the admin User-Management page."""
+    """Paginated user list for the admin User-Management page.
+
+    Iter 58c — supports a `sort` query param:
+      * ``newest`` (default) — most-recently registered first (created_at desc)
+      * ``oldest`` — registration chronological (created_at asc)
+      * ``name``   — full_name then username (alphabetical, A→Z)
+      * ``score``  — highest network score first
+    """
     query: Dict[str, Any] = {}
     if role:
         query["role"] = role
@@ -9085,9 +9102,19 @@ async def admin_list_users(
             {"username": {"$regex": q, "$options": "i"}},
             {"full_name": {"$regex": q, "$options": "i"}},
         ]
-    cursor = db.users.find(query, {
-        "_id": 0, "password": 0,
-    }).limit(min(limit, 500))
+    sort_spec = [("created_at", -1)]
+    if sort == "oldest":
+        sort_spec = [("created_at", 1)]
+    elif sort == "name":
+        sort_spec = [("full_name", 1), ("username", 1)]
+    elif sort == "score":
+        sort_spec = [("network_score", -1)]
+    cursor = (
+        db.users.find(query, {"_id": 0, "password": 0})
+        .sort(sort_spec)
+        .skip(max(0, int(skip or 0)))
+        .limit(min(max(1, int(limit or 100)), 500))
+    )
     return await cursor.to_list(length=None)
 
 

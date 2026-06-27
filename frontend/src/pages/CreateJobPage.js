@@ -80,7 +80,9 @@ const CreateJobPage = ({ user }) => {
     }
   };
 
-  if (!user?.job_post_unlocked) {
+  const isAdminRole = user && ['admin', 'super_admin', 'moderator'].includes(user.role);
+
+  if (!user?.job_post_unlocked && !isAdminRole) {
     return (
       <div className="min-h-screen bg-background-DEFAULT flex items-center justify-center p-6" data-testid="job-post-unlock-gate">
         <div className="max-w-md w-full bg-white rounded-2xl border border-gray-100 p-6 text-center shadow-sm">

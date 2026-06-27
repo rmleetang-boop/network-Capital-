@@ -529,3 +529,11 @@ Both grids now carry the "My Store" tile (iter 56d added it to `ProfilePage`; it
 ### Testing
 - Iter 58b: Backend **100% (10/10 pytest)**, Frontend **100%** (`/app/test_reports/iteration_58b.json`). Two minor observations from the test agent (StrictMode duplicate fetch + corrupt-padding migration loop) **both fixed in this same iteration**.
 
+
+## Iter 58c (Feb 28, 2026) — Admin job-post bypass + user chronological sort
+
+- **Free job posting for admins** — `POST /api/jobs` 402 paywall now exempts `role in ('admin', 'super_admin', 'moderator')`. UI: `CreateJobPage` and `JobsPage` both honour `isAdminRole`, so the "Unlock $50" gate is hidden and the **Post** button goes straight to `/jobs/new`. Replaces the old `is_admin` field check (which never existed on the user document).
+- **User chronological sort** — `GET /api/admin/users-list` now accepts `sort=newest|oldest|name|score`. Default is `newest`. New indexes `users.created_at desc` + `users.network_score desc` added to the startup ensure-indexes hook.
+- **AdminUsersPage UI** — new "Sort" select (`data-testid='admin-users-sort'`) with 4 options; each user row now shows a "Joined …" date (`data-testid='admin-user-joined-<id>'`) in localized short format.
+- Verified live: super-admin POSTed a job with zero payment (200 OK); `?sort=newest` & `?sort=oldest` returned correct chronological pages.
+

@@ -33,6 +33,7 @@ const AdminUsersPage = ({ user }) => {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [scoreFilter, setScoreFilter] = useState(null);   // { min, max } | null
   const [customRange, setCustomRange] = useState({ min: '', max: '' });
+  const [sort, setSort] = useState('newest'); // 'newest' | 'oldest' | 'name' | 'score'
 
   const isAdmin = user && (user.role === 'admin' || user.role === 'super_admin');
   const isSuperAdmin = user && user.role === 'super_admin';
@@ -49,7 +50,7 @@ const AdminUsersPage = ({ user }) => {
         const r = await axiosInstance.get('/admin/users/by-score', { params });
         setUsers(r.data?.users || []);
       } else {
-        const params = {};
+        const params = { sort };
         if (q.trim()) params.q = q.trim();
         if (roleFilter) params.role = roleFilter;
         const r = await axiosInstance.get('/admin/users-list', { params });
@@ -62,7 +63,7 @@ const AdminUsersPage = ({ user }) => {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [roleFilter, scoreFilter]);
+  useEffect(() => { load(); }, [roleFilter, scoreFilter, sort]);
 
   const applyCustomRange = () => {
     const lo = Number(customRange.min);
@@ -177,6 +178,18 @@ const AdminUsersPage = ({ user }) => {
             <option value="">All roles</option>
             {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-full text-sm outline-none focus:border-primary"
+            data-testid="admin-users-sort"
+            title="Sort users"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">A → Z</option>
+            <option value="score">Highest score</option>
+          </select>
           <button onClick={load} className="bg-primary text-white text-xs font-semibold px-3 py-2 rounded-full" data-testid="admin-users-go">Go</button>
         </div>
 
@@ -266,6 +279,11 @@ const AdminUsersPage = ({ user }) => {
                     <p className="text-[11px] text-text-muted truncate">
                       {u.email} · ${(u.wallet_balance || 0).toFixed(2)} · {u.monthly_score || 0} pts
                     </p>
+                    {u.created_at && (
+                      <p className="text-[10px] text-text-muted/80 mt-0.5" data-testid={`admin-user-joined-${u.id}`}>
+                        Joined {new Date(u.created_at).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
                   </div>
                   <select
                     value={u.is_ambassador ? 'ambassador' : (u.role || 'user')}
