@@ -6404,6 +6404,7 @@ async def founders_status():
 import logging as _otp_logging
 import secrets as _otp_secrets
 from services.email_service import send_transactional_email as _brevo_send, is_configured as _brevo_configured
+from services import email_service as _email_svc  # iter 58d — monthly payout email
 # Iter 56f — Cloudinary upload service (images/videos/raw files survive pod redeploys)
 from services import cloudinary_service  # noqa: E402  — module is import-safe even without creds
 
@@ -7626,20 +7627,109 @@ async def bootstrap_super_admin():
         logger.warning(f"bootstrap_super_admin skipped: {e}")
 
 
-# ============== JUNE 2026 PAYOUT BLOCK ==============
-# Hard server-side gate: no withdrawals (creation or admin approval) before
-# the cutoff. After cutoff, normal flow resumes. The window is configurable
-# via env if the policy shifts.
-JUNE_PAYOUT_RELEASE_AT = datetime(2026, 6, 30, 21, 59, 59, tzinfo=timezone.utc)  # 23:59:59 SAST
+# ============== ROLLING MONTHLY PAYOUT CYCLE (iter 58d, effective 1 Jul 2026 00:00 SAST) ==============
+# Payouts release on the 1st of each month at 00:00 SAST.
+# Withdrawal request deadline = 5 days before the last day of the month at 23:59 SAST.
+#
+# Backwards-compatibility aliases below preserve the names used elsewhere in this
+# file and in tests (_is_june_payout_locked → now means "current cycle locked",
+# _june_payout_message → returns the current rolling sentence).
+SAST_TZ = timezone(timedelta(hours=2))
 
 
+def _last_day_of_month(year: int, month: int) -> datetime:
+    if month == 12:
+        return datetime(year + 1, 1, 1, tzinfo=SAST_TZ) - timedelta(days=1)
+    return datetime(year, month + 1, 1, tzinfo=SAST_TZ) - timedelta(days=1)
+
+
+def _cycle_for(year: int, month: int) -> tuple[datetime, datetime]:
+    """Returns (request_deadline, payout_release) for the calendar month
+    identified by (year, month). Both in SAST."""
+    last = _last_day_of_month(year, month)
+    deadline = (last - timedelta(days=5)).replace(hour=23, minute=59, second=0, microsecond=0)
+    if month == 12:
+        release = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=SAST_TZ)
+    else:
+        release = datetime(year, month + 1, 1, 0, 0, 0, tzinfo=SAST_TZ)
+    return deadline, release
+
+
+def _payout_window(now: Optional[datetime] = None) -> tuple[datetime, datetime]:
+    """Returns (deadline, release) for the cycle a NEW request submitted at `now`
+    falls into. If `now` is past this month's deadline, the next month's cycle
+    is returned instead."""
+    now = now or datetime.now(timezone.utc)
+    now_sast = now.astimezone(SAST_TZ)
+    d, r = _cycle_for(now_sast.year, now_sast.month)
+    if now_sast > d:
+        if now_sast.month == 12:
+            d, r = _cycle_for(now_sast.year + 1, 1)
+        else:
+            d, r = _cycle_for(now_sast.year, now_sast.month + 1)
+    return d, r
+
+
+def _format_sast(dt: datetime, time_label: str) -> str:
+    """e.g. 'Sunday 26 July 2026 23:59 SAST'. Cross-platform (no %-d)."""
+    day_no_pad = str(dt.day)
+    return f"{dt.strftime('%A')} {day_no_pad} {dt.strftime('%B %Y')} {time_label} SAST"
+
+
+def _current_payout_message(now: Optional[datetime] = None) -> str:
+    """Canonical sentence used in EVERY surface (UI + email + API responses).
+    See ask_human approval iter 58d."""
+    deadline, release = _payout_window(now)
+    return (
+        f"Withdrawal request deadline: {_format_sast(deadline, '23:59')} · "
+        f"Payout released: {_format_sast(release, '00:00')}."
+    )
+
+
+def _is_outside_payout_window(now: Optional[datetime] = None) -> bool:
+    """True until the upcoming payout RELEASE date arrives.
+    Mirrors the original June lock semantics: blocks admin approval before the
+    release date, naturally rolls forward each month."""
+    now = now or datetime.now(timezone.utc)
+    _, release = _payout_window(now)
+    return now.astimezone(SAST_TZ) < release
+
+
+# ---- Backwards-compatible aliases (preserve every existing callsite) ----
 def _is_june_payout_locked() -> bool:
-    return datetime.now(timezone.utc) < JUNE_PAYOUT_RELEASE_AT
+    """Legacy name. Now rolls monthly — True if current cycle's release hasn't passed."""
+    return _is_outside_payout_window()
 
 
 def _june_payout_message() -> str:
-    return ("All June withdrawals are processed from 30 June 2026 (23:59 SAST). "
-            "Requests submitted earlier remain pending until the release date.")
+    """Legacy name. Returns the current rolling-cycle canonical sentence."""
+    return _current_payout_message()
+
+
+# Deprecated constant kept for one or two read-only consumers. Resolves to the
+# CURRENT cycle's release datetime; new code should call `_payout_window()` instead.
+def _legacy_release_at() -> datetime:
+    _, r = _payout_window()
+    return r
+
+
+class _LegacyReleaseProxy:
+    """Acts like `JUNE_PAYOUT_RELEASE_AT` for the few isoformat()/comparison
+    consumers that still reference the old constant name."""
+    def __getattr__(self, item):
+        return getattr(_legacy_release_at(), item)
+
+    def isoformat(self):
+        return _legacy_release_at().isoformat()
+
+    def __lt__(self, other):  # used by the "now < JUNE_PAYOUT_RELEASE_AT" pattern
+        return _legacy_release_at() < other
+
+    def __gt__(self, other):
+        return _legacy_release_at() > other
+
+
+JUNE_PAYOUT_RELEASE_AT = _LegacyReleaseProxy()  # type: ignore[assignment]
 
 
 # ---- ROLE GATES (declared early so downstream endpoints can reference) ----
@@ -12341,6 +12431,158 @@ async def admin_run_rewards_digest(admin: dict = Depends(require_admin_user)):
     """Force-run today's digest sweep. Idempotent — users already emailed today are skipped."""
     sent = await _run_daily_digest_sweep()
     return {"ok": True, "sent": sent, "date_key_sast": _sast_today_key()}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Iter 58d — Monthly payout overview email + public schedule endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api_router.get("/payouts/schedule")
+async def get_payout_schedule():
+    """Public endpoint returning the current rolling payout cycle. Used by
+    every UI surface that previously hard-coded '30 June 2026'.
+    The `message` field is the canonical sentence — render it verbatim."""
+    deadline, release = _payout_window()
+    return {
+        "message": _current_payout_message(),
+        "deadline_iso": deadline.astimezone(timezone.utc).isoformat(),
+        "release_iso": release.astimezone(timezone.utc).isoformat(),
+    }
+
+
+_MONTHLY_PAYOUT_EMAIL_TASK: Optional[asyncio.Task] = None
+_MONTHLY_PAYOUT_POLL_SECONDS = 600  # 10 min — same cadence as the daily digest
+
+
+def _sast_month_key() -> str:
+    """e.g. '2026-07'. Idempotency key per-month."""
+    sast_now = datetime.now(timezone.utc).astimezone(SAST_TZ)
+    return f"{sast_now.year:04d}-{sast_now.month:02d}"
+
+
+def _month_label() -> str:
+    """e.g. 'July 2026'. Used in the email subject."""
+    sast_now = datetime.now(timezone.utc).astimezone(SAST_TZ)
+    return sast_now.strftime("%B %Y")
+
+
+async def _run_monthly_payout_email_sweep() -> int:
+    """Email every verified, non-deactivated user the new-month payout overview.
+
+    Idempotent per-month via `monthly_payout_email_runs.month_key`.  Each user
+    is also marked individually in the same doc so retries don't double-send.
+    """
+    if not _email_svc.is_configured():
+        logger.info("[MONTHLY-PAYOUT] BREVO not configured — skipping sweep")
+        return 0
+
+    month_key = _sast_month_key()
+    month_label = _month_label()
+    run_doc = await db.monthly_payout_email_runs.find_one({"month_key": month_key})
+    if run_doc and run_doc.get("completed"):
+        return 0
+
+    already_sent = set((run_doc or {}).get("sent_user_ids") or [])
+    payout_msg = _current_payout_message()
+
+    # Active promotions (still in course right now)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    promos_cursor = db.promotions.find(
+        {"status": {"$in": ["active", "live"]}, "ends_at": {"$gt": now_iso}},
+        {"_id": 0, "title": 1, "name": 1, "ends_at": 1},
+    ).sort("ends_at", 1).limit(10)
+    promotions = []
+    async for p in promos_cursor:
+        ends_at = p.get("ends_at") or ""
+        try:
+            d = datetime.fromisoformat(ends_at.replace("Z", "+00:00")).astimezone(SAST_TZ)
+            ends_label = _format_sast(d, d.strftime("%H:%M"))
+        except Exception:
+            ends_label = ends_at[:10]
+        promotions.append({
+            "title": p.get("title") or p.get("name") or "Promotion",
+            "ends_iso": ends_at,
+            "ends_label": ends_label,
+        })
+
+    sent = 0
+    cursor = db.users.find(
+        {
+            "email": {"$exists": True, "$ne": ""},
+            "verified": True,
+            "deactivated": {"$ne": True},
+            "id": {"$nin": list(already_sent)},
+        },
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "username": 1,
+         "wallet_balance": 1, "currency": 1},
+    )
+    async for u in cursor:
+        try:
+            email = (u.get("email") or "").strip().lower()
+            if not email or "@" not in email:
+                continue
+            domain = email.rsplit("@", 1)[-1]
+            if domain in _BROADCAST_SKIP_DOMAINS:
+                continue
+            first_name = (u.get("full_name") or u.get("username") or "").split(" ", 1)[0]
+            ok = await _email_svc.send_monthly_payout_overview(
+                to_email=email,
+                first_name=first_name,
+                wallet_balance=float(u.get("wallet_balance") or 0.0),
+                currency=u.get("currency") or "ZAR",
+                payout_message=payout_msg,
+                promotions=promotions,
+                month_label=month_label,
+            )
+            if ok:
+                sent += 1
+                await db.monthly_payout_email_runs.update_one(
+                    {"month_key": month_key},
+                    {
+                        "$setOnInsert": {"month_key": month_key, "started_at": datetime.now(timezone.utc).isoformat()},
+                        "$addToSet": {"sent_user_ids": u["id"]},
+                    },
+                    upsert=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[MONTHLY-PAYOUT-FAIL] user={u.get('id')} err={exc}")
+
+    await db.monthly_payout_email_runs.update_one(
+        {"month_key": month_key},
+        {"$set": {"completed": True, "completed_at": datetime.now(timezone.utc).isoformat(), "sent_total": sent}},
+        upsert=True,
+    )
+    logger.info(f"[MONTHLY-PAYOUT] {month_key} sweep sent={sent}")
+    return sent
+
+
+async def _monthly_payout_email_loop() -> None:
+    """Polls every 10 min. On the 1st of every SAST-month it runs the sweep
+    (which is idempotent on the `month_key` so retries are harmless)."""
+    await asyncio.sleep(60)  # avoid blocking startup
+    while True:
+        try:
+            sast_now = datetime.now(timezone.utc).astimezone(SAST_TZ)
+            if sast_now.day == 1:
+                # Run any time on the 1st (covers servers that miss midnight).
+                await _run_monthly_payout_email_sweep()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[MONTHLY-PAYOUT-LOOP] err={exc}")
+        await asyncio.sleep(_MONTHLY_PAYOUT_POLL_SECONDS)
+
+
+@app.on_event("startup")
+async def start_monthly_payout_email_loop():
+    global _MONTHLY_PAYOUT_EMAIL_TASK
+    if _MONTHLY_PAYOUT_EMAIL_TASK is None or _MONTHLY_PAYOUT_EMAIL_TASK.done():
+        _MONTHLY_PAYOUT_EMAIL_TASK = asyncio.create_task(_monthly_payout_email_loop())
+
+
+@api_router.post("/admin/payouts/monthly-email/run")
+async def admin_run_monthly_payout_email(admin: dict = Depends(require_admin_user)):
+    """Force-run this month's sweep. Idempotent — users already emailed are skipped."""
+    sent = await _run_monthly_payout_email_sweep()
+    return {"ok": True, "sent": sent, "month_key": _sast_month_key()}
 
 
 # ============== OFFICIAL BROADCAST (Brevo) ==============

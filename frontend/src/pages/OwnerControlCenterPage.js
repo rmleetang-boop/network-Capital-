@@ -8,6 +8,7 @@ import {
   CheckCircle2, XCircle, Search, Activity, BarChart3, Banknote, Trash2, Mail, Map,
 } from 'lucide-react';
 import { axiosInstance } from '../App';
+import usePayoutSchedule from '../hooks/usePayoutSchedule';
 
 /** OwnerControlCenterPage — the Platform Owner's single pane of glass.
  *  Surfaces every operational, commercial, content, advertising, rewards, and
@@ -182,13 +183,13 @@ const KpiGrid = ({ overview }) => {
 
 const OpsBanner = ({ overview }) => {
   const locked = overview?.wallet?.payout_locked;
+  const schedule = usePayoutSchedule();
   if (!locked) return null;
   return (
     <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 flex items-start gap-3" data-testid="owner-ops-banner">
       <AlertTriangle size={16} className="text-amber-300 shrink-0 mt-0.5" />
       <div className="text-xs leading-relaxed">
-        <p className="font-bold text-amber-200">June 2026 payout window active</p>
-        <p className="text-amber-100/80">Withdrawals are blocked platform-wide until <strong>30 June 2026 23:59 SAST</strong>. Users see a banner explaining this in their wallet.</p>
+        <p className="text-amber-100/80" data-testid="owner-ops-payout-message">{schedule?.message || 'Loading payout schedule…'}</p>
       </div>
     </div>
   );

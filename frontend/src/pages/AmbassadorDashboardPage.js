@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Star, TrendingUp, Users, Award, CheckCircle2, Circle, Trophy, Coins, Lock, AlertTriangle, Share2, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { axiosInstance } from '../App';
+import usePayoutSchedule from '../hooks/usePayoutSchedule';
 
 const AmbassadorDashboardPage = ({ user }) => {
   const navigate = useNavigate();
@@ -10,6 +11,7 @@ const AmbassadorDashboardPage = ({ user }) => {
   const [error, setError] = useState(null);
   const [incentive, setIncentive] = useState(null);
   const [withdrawing, setWithdrawing] = useState(false);
+  const schedule = usePayoutSchedule();
 
   const loadIncentive = async () => {
     try {
@@ -28,7 +30,7 @@ const AmbassadorDashboardPage = ({ user }) => {
   const handleWithdraw = async () => {
     if (!window.confirm(
       `Request withdrawal of R${incentive?.next_amount_zar?.toLocaleString()}?\n\n` +
-      `This will queue a payout for admin approval. Funds are released on/after 30 June 2026.`
+      `${schedule?.message || ''}`
     )) return;
     setWithdrawing(true);
     try {
@@ -363,8 +365,8 @@ const IncentivePanel = ({ incentive, onWithdraw, loading }) => {
         {incentive.june_payout_locked && (
           <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-2.5 mb-3">
             <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-800 leading-snug">
-              Payouts release on <strong>30 June 2026</strong>. You can still queue requests now — they&apos;ll be processed automatically after that date.
+            <p className="text-[11px] text-amber-800 leading-snug" data-testid="incentive-payout-message">
+              {schedule?.message || 'Loading payout schedule…'}
             </p>
           </div>
         )}

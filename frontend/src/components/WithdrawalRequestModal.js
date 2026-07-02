@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Upload, Loader2, ShieldCheck, AlertTriangle, FileText, Clock, Banknote } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
+import usePayoutSchedule from '../hooks/usePayoutSchedule';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
@@ -23,6 +24,7 @@ const WithdrawalRequestModal = ({ onClose, onSubmitted }) => {
   const [payoutLock, setPayoutLock] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const schedule = usePayoutSchedule();
 
   const [form, setForm] = useState({
     source: 'wallet',
@@ -107,11 +109,9 @@ const WithdrawalRequestModal = ({ onClose, onSubmitted }) => {
         {loading ? (
           <div className="p-12 text-center text-text-muted"><Loader2 className="mx-auto animate-spin" /></div>
         ) : payoutLock?.locked ? (
-          <div className="p-6 text-center" data-testid="withdrawal-june-locked">
+          <div className="p-6 text-center" data-testid="withdrawal-payout-locked">
             <Clock size={36} className="mx-auto text-amber-500 mb-2" />
-            <p className="font-bold text-text-primary mb-1">June 2026 payout window</p>
-            <p className="text-xs text-text-muted leading-relaxed">{payoutLock.message}</p>
-            <p className="text-[11px] text-text-muted mt-2">Your balance is safe — submit a request from <strong>30 June 2026 (23:59 SAST)</strong> onwards.</p>
+            <p className="text-xs text-text-muted leading-relaxed" data-testid="withdrawal-payout-message">{schedule?.message || payoutLock.message}</p>
             <button onClick={onClose} className="mt-4 bg-primary text-white font-bold px-4 py-2 rounded-full text-sm">Got it</button>
           </div>
         ) : !eligibility?.eligible ? (
