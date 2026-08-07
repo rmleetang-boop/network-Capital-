@@ -138,6 +138,100 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
+# ---------------------------------------------------------------------------
+# ARIDJA — AI Net Worth Architect partner integration (machine-to-machine).
+# Server-side proxy so the ARIDJA_API_KEY never reaches the browser.
+# Aridja exposes /api/integration/{health,stats,chat} guarded by X-API-Key.
+# ---------------------------------------------------------------------------
+def _aridja_conf():
+    return (
+        os.environ.get('ARIDJA_API_URL', 'https://aridja.online').rstrip('/'),
+        os.environ.get('ARIDJA_API_KEY', ''),
+    )
+
+def _aridja_is_html(resp) -> bool:
+    ct = resp.headers.get('content-type', '')
+    return 'text/html' in ct
+
+async def _aridja_request(method: str, path: str, json_body=None, timeout: float = 15):
+    """Call the Aridja partner API. Retries without TLS verification if the
+    egress proxy presents a self-signed certificate (key auth still applies)."""
+    import httpx
+    base, key = _aridja_conf()
+    url = f"{base}{path}"
+    headers = {"X-API-Key": key}
+    for verify in (True, False):
+        try:
+            async with httpx.AsyncClient(timeout=timeout, verify=verify) as cx:
+                return await cx.request(method, url, headers=headers, json=json_body)
+        except Exception as e:
+            if verify and 'CERTIFICATE_VERIFY' in str(e).upper():
+                continue  # retry once without verification
+            raise
+    raise RuntimeError("unreachable")
+
+@api_router.get("/aridja/status")
+async def aridja_status(current_user: dict = Depends(get_current_user)):
+    base, key = _aridja_conf()
+    if not key:
+        return {"configured": False, "reachable": False, "ai_ready": False, "detail": "ARIDJA_API_KEY not set"}
+    try:
+        r = await _aridja_request("GET", "/api/integration/health", timeout=12)
+        if _aridja_is_html(r):
+            return {"configured": True, "reachable": True, "ai_ready": False,
+                    "detail": "Aridja integration API not deployed at this URL yet"}
+        if r.status_code == 401:
+            return {"configured": True, "reachable": True, "ai_ready": False, "detail": "Invalid Aridja API key"}
+        data = r.json() if r.status_code == 200 else {}
+        return {"configured": True, "reachable": True,
+                "ai_ready": bool(data.get("ai_ready", data.get("ai", False))),
+                "detail": "ok", "raw": data}
+    except Exception as e:
+        return {"configured": True, "reachable": False, "ai_ready": False, "detail": str(e)[:200]}
+
+@api_router.get("/aridja/stats")
+async def aridja_stats(current_user: dict = Depends(get_current_user)):
+    base, key = _aridja_conf()
+    if not key:
+        raise HTTPException(status_code=503, detail="Aridja integration not configured")
+    try:
+        r = await _aridja_request("GET", "/api/integration/stats", timeout=12)
+        if _aridja_is_html(r) or r.status_code != 200:
+            raise HTTPException(status_code=503, detail="Aridja stats unavailable")
+        return r.json()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Aridja unreachable")
+
+@api_router.post("/aridja/chat")
+async def aridja_chat(payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    base, key = _aridja_conf()
+    if not key:
+        raise HTTPException(status_code=503, detail="Aridja integration not configured")
+    message = (payload.get('message') or '').strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="message is required")
+    context = payload.get('context') or (
+        f"Partner app: Network Capital. Member: {current_user.get('full_name') or current_user.get('username')}. "
+        f"Network Score: {current_user.get('network_score', 0)}."
+    )
+    try:
+        r = await _aridja_request("POST", "/api/integration/chat",
+                                  json_body={"message": message, "context": context}, timeout=40)
+        if _aridja_is_html(r):
+            raise HTTPException(status_code=503, detail="Aridja integration API not deployed at this URL yet")
+        if r.status_code == 401:
+            raise HTTPException(status_code=503, detail="Aridja rejected the API key")
+        if r.status_code != 200:
+            raise HTTPException(status_code=503, detail=f"Aridja chat error ({r.status_code})")
+        return r.json()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=503, detail="Aridja unreachable")
+
+
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str

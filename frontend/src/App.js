@@ -40,6 +40,7 @@ const CreateProductPage = lazy(() => import('./pages/CreateProductPage'));
 const MyStorePage = lazy(() => import('./pages/MyStorePage'));
 const StorefrontPage = lazy(() => import('./pages/StorefrontPage'));
 const NetWorthPage = lazy(() => import('./pages/NetWorthPage'));
+const AridjaPage = lazy(() => import('./pages/AridjaPage'));
 const AudienceInsightsPage = lazy(() => import('./pages/AudienceInsightsPage'));
 const RegionalHubsPage = lazy(() => import('./pages/RegionalHubsPage'));
 const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage'));
@@ -309,6 +310,7 @@ function App() {
                 <Route path="/my-store" element={<MyStorePage user={user} />} />
                 <Route path="/store/:username" element={<StorefrontPage user={user} />} />
                 <Route path="/net-worth" element={<NetWorthPage user={user} />} />
+                <Route path="/aridja" element={<AridjaPage user={user} />} />
                 <Route path="/hubs" element={<RegionalHubsPage user={user} />} />
                 <Route path="/connections" element={<ConnectionsPage user={user} />} />
                 <Route path="/activity" element={<Navigate to="/tracker" replace />} />

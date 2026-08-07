@@ -105,6 +105,18 @@
 user_problem_statement: "Forget about the database for now. Fix the platform. (Platform was completely down: backend/frontend stopped and both .env files were deleted by last git commit. Restored backend/.env from git history, set REACT_APP_BACKEND_URL to the current container's preview endpoint, restarted services.)"
 
 backend:
+  - task: "Aridja partner integration proxy (/api/aridja/status|stats|chat)"
+    implemented: true
+    working: true
+    file: "backend/server.py (lines ~140-230), backend/.env (ARIDJA_API_URL, ARIDJA_API_KEY)"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Verified manually via curl: status returns clean JSON (detects that aridja.online lacks the integration API — SPA fallthrough), chat/stats return 503 with clear detail, no-auth 403. Full success path pending Aridja API going live (preview URL or Fly deploy). NO testing agents per user instruction."
+
   - task: "TEMP data-recovery bridge (db-restore-upload, db-export, pull_prod_data.py) guarded by DB_RESTORE_KEY"
     implemented: true
     working: true

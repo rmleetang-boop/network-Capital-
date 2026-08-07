@@ -1,5 +1,13 @@
 # Network Capital — CHANGELOG
 
+## iter: Aridja deep integration — phase 2 (Aug 7, 2026)
+- **Backend proxy** (key stays server-side, never in browser): `GET /api/aridja/status`, `GET /api/aridja/stats`, `POST /api/aridja/chat` (JWT-auth required; auto-context with member name + network score). Config via `ARIDJA_API_URL` (default https://aridja.online) + `ARIDJA_API_KEY` in backend/.env.
+- `_aridja_request()` helper retries once with verify=False on egress-proxy self-signed-cert TLS failures. Error statuses use 503 (NOT 502/504 — Cloudflare replaces those with its own HTML page).
+- Detects SPA-HTML fallthrough → "integration API not deployed at this URL yet".
+- **Frontend**: new `/aridja` chat page (AridjaPage.js — gold/dark brand, status chip, suggestion chips, sessionStorage thread, graceful offline messages, external link to aridja.online). "Ask Aridja" banner on /net-worth. Route added in App.js (lazy).
+- **FINDING**: aridja.online AND aridja.fly.dev return SPA HTML for /api/integration/* — the partner API only exists in Aridja's Emergent PREVIEW. Needs either ARIDJA_API_URL pointed at Aridja preview URL, or Aridja deployed to Fly with ARIDJA_API_KEY secret set.
+- UI test user: aridja_ui_tester (id b5c4a1fd-f127-45e3-be81-04817d3c8d67) in local test_database.
+
 ## iter: Data-recovery bridge + Fly.io findings (Aug 7, 2026)
 - **PROVEN**: prod Atlas cluster (customer-apps.lfmw5q) is unreachable from BOTH the preview container AND a Fly.io machine (dial tcp i/o timeout on all 3 shards) — IP Access List only allows Emergent deploy infra. mongodump from outside is impossible.
 - **Deployed app is DOWN**: stokvel-plus.emergent.host → 400 "Application not found"; networkcapitalapp.co.za → no response.
