@@ -18,6 +18,7 @@ import bcrypt
 from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest,
 )
+from services.commerce_service import create_commerce_router, ensure_commerce_indexes
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -394,6 +395,9 @@ class CreateProductRequest(BaseModel):
     refund_policy: Optional[str] = None
     variants: Optional[List[Dict[str, Any]]] = None
     delivery_options: Optional[List[str]] = None
+    # Marketplace checkout contract — exact price + fulfilment classification
+    sale_price: Optional[float] = None
+    fulfillment_type: Optional[str] = None  # "digital" | "physical" | "service"
     # Iter 56d — opt-in: promote creator to Growth so support fields apply
     apply_for_growth: Optional[bool] = False
 
@@ -444,6 +448,8 @@ class Product(BaseModel):
     download_count: Optional[int] = 0
     view_count: Optional[int] = 0
     creator_type: Optional[str] = None          # snapshot of creator_type at create time
+    sale_price: Optional[float] = None
+    fulfillment_type: Optional[str] = None      # digital | physical | service
 
 class ProductFollower(BaseModel):
     id: str
@@ -5217,6 +5223,21 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         if not request.file_price or float(request.file_price) <= 0:
             raise HTTPException(status_code=400, detail="Paid downloads require a price > 0.")
 
+    # ── Marketplace checkout classification + exact sale price
+    inferred_fulfillment = "service" if p_type == "service" else ("digital" if request.file_url else "physical")
+    fulfillment_type = (request.fulfillment_type or inferred_fulfillment).strip().lower()
+    if fulfillment_type not in ("digital", "physical", "service"):
+        raise HTTPException(status_code=400, detail="Fulfillment type must be digital, physical, or service.")
+    if p_type == "service" and fulfillment_type != "service":
+        raise HTTPException(status_code=400, detail="Service listings must use service fulfillment.")
+    effective_sale_price = request.sale_price
+    if effective_sale_price is None and fulfillment_type == "digital" and file_access == "paid":
+        effective_sale_price = request.file_price
+    if effective_sale_price is None:
+        effective_sale_price = request.price_min
+    if effective_sale_price is not None and float(effective_sale_price) < 0:
+        raise HTTPException(status_code=400, detail="Sale price cannot be negative.")
+
     # ── Slug generation (URL-friendly, unique per creator)
     base_username = (current_user.get("username") or "creator").lower()
     raw = re.sub(r"[^a-z0-9]+", "-", (request.name or "").lower()).strip("-")[:48] or "untitled"
@@ -5298,6 +5319,8 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
         "refund_policy": (request.refund_policy or "").strip() or None,
         "variants": request.variants or None,
         "delivery_options": request.delivery_options or None,
+        "sale_price": float(effective_sale_price) if effective_sale_price is not None else None,
+        "fulfillment_type": fulfillment_type,
     }
 
     await db.products.insert_one(product_data)
@@ -14558,6 +14581,18 @@ async def list_outreach_suppressions(limit: int = 200, admin: dict = Depends(req
 # Re-register router so all routes added above are picked up (must come AFTER the
 # pre-existing seed `app.include_router(api_router)` block immediately below this).
 app.include_router(api_router)
+
+# Marketplace commerce routes are modular and registered once. PayFast checkout
+# remains fail-closed until real merchant credentials + Split Payments approval exist.
+app.include_router(create_commerce_router(db, get_current_user, require_admin_user))
+
+
+@app.on_event("startup")
+async def ensure_marketplace_commerce_indexes():
+    try:
+        await ensure_commerce_indexes(db)
+    except Exception as exc:
+        logger.warning(f"commerce index ensure failed: {exc}")
 
 # Static mount for disk-backed uploads (carousel slides + reels).
 # Files live under /app/backend/uploads/<scope>/<filename>.
