@@ -1,5 +1,17 @@
 # Network Capital — CHANGELOG
 
+## iter: Data-recovery bridge + Fly.io findings (Aug 7, 2026)
+- **PROVEN**: prod Atlas cluster (customer-apps.lfmw5q) is unreachable from BOTH the preview container AND a Fly.io machine (dial tcp i/o timeout on all 3 shards) — IP Access List only allows Emergent deploy infra. mongodump from outside is impossible.
+- **Deployed app is DOWN**: stokvel-plus.emergent.host → 400 "Application not found"; networkcapitalapp.co.za → no response.
+- **Data bridge built & verified** (all guarded by DB_RESTORE_KEY in backend/.env):
+  - `POST /api/admin/db-restore-upload?append=` — chunked archive/raw upload receiver.
+  - `GET /api/admin/db-export/collections` + `GET /api/admin/db-export?collection=&skip=&limit=` — extended-JSON paged export (bson.json_util).
+  - `/app/backend/scripts/pull_prod_data.py` — pages all collections from a deployed URL into local Mongo (drop-after-first-fetch safety). Self-tested OK.
+  - RECOVERY PLAN: user redeploys on Emergent → run `python3 /app/backend/scripts/pull_prod_data.py --source-url https://<deployed-host> --exclude otps` → restart backend (bootstrap re-promotes owner rmleetang@gmail.com).
+  - REMOVE these temp endpoints after recovery.
+- **Fly.io**: user token works (stored /tmp/flyenv.sh, NOT committed); app `network-capital-app` exists (personal org, no deploy yet). flyctl installed at /root/.fly/bin. NOTE: `-c` in `bash -c` must be escaped from flyctl flag parsing with `--` separator on `fly machine run`.
+- Aridja deep integration pending: user will supply Aridja API after deployment.
+
 ## iter: DB reconnection attempt + Aridja tile (Aug 7, 2026)
 - **Database**: Owner supplied production Atlas URI (customer-apps.lfmw5q.mongodb.net / stokvel-plus-test_database). Connection from preview FAILS at TCP level — Atlas IP Access List blocks preview egress IP 34.170.12.145 (egress port 27017 confirmed open via portquiz). URI stored COMMENTED in backend/.env as MONGO_URL_PROD. Support agent: preview→managed-prod-DB connectivity requires support@emergent.sh. Alternative offered to user: admin-guarded export endpoint on deployed app → HTTPS import into preview.
 - **Aridja integration (phase 1)**: New highlighted "Aridja AI" tile (Gem icon) in OwnModuleGrid (shows on /profile Quick Access + /u/:me modules), opens https://aridja.online in new tab (external:true + window.open noopener). Deep API integration deferred until owner provides Aridja API endpoints/keys.

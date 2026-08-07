@@ -105,6 +105,18 @@
 user_problem_statement: "Forget about the database for now. Fix the platform. (Platform was completely down: backend/frontend stopped and both .env files were deleted by last git commit. Restored backend/.env from git history, set REACT_APP_BACKEND_URL to the current container's preview endpoint, restarted services.)"
 
 backend:
+  - task: "TEMP data-recovery bridge (db-restore-upload, db-export, pull_prod_data.py) guarded by DB_RESTORE_KEY"
+    implemented: true
+    working: true
+    file: "backend/server.py, backend/scripts/pull_prod_data.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Verified manually: 403 without key, upload+append works, export pages extended JSON, puller round-trips data safely. Atlas prod cluster unreachable from preview AND Fly.io (IP allowlist). Awaiting user redeploy on Emergent to pull real data. User instructed NO testing agents until they confirm."
+
   - task: "Platform restoration - backend up with restored .env (MONGO_URL, DB_NAME, JWT, Stripe, Brevo, Cloudinary keys)"
     implemented: true
     working: true

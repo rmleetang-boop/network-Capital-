@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Header, Request, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response as RawResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -72,6 +72,54 @@ def verify_admin(x_admin_password: str = Header(None)):
     if not expected or x_admin_password != expected:
         raise HTTPException(status_code=403, detail="Admin access required")
     return True
+
+# ---------------------------------------------------------------------------
+# TEMPORARY: production-DB restore bridge (guarded by DB_RESTORE_KEY env).
+# A one-shot Fly.io machine runs mongodump against the production Atlas
+# cluster and streams the gzip archive here in chunks. Remove after recovery.
+# ---------------------------------------------------------------------------
+@api_router.post("/admin/db-restore-upload")
+async def db_restore_upload(request: Request, append: bool = False, x_restore_key: str = Header(None)):
+    expected = os.environ.get('DB_RESTORE_KEY')
+    if not expected or x_restore_key != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    dest_dir = os.path.join(os.path.dirname(__file__), 'uploads', 'restore')
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, 'dump.archive.gz')
+    mode = 'ab' if append else 'wb'
+    total = 0
+    with open(dest, mode) as f:
+        async for chunk in request.stream():
+            f.write(chunk)
+            total += len(chunk)
+    size = os.path.getsize(dest)
+    logger.warning(f"[DB-RESTORE] received {total} bytes (append={append}); file now {size} bytes")
+    return {"ok": True, "received": total, "file_size": size}
+
+# TEMPORARY: data-export bridge (guarded by DB_RESTORE_KEY). When this code is
+# deployed on Emergent (which CAN reach the managed Atlas cluster), the preview
+# agent pages through every collection over HTTPS to recover production data.
+def _check_restore_key(key):
+    expected = os.environ.get('DB_RESTORE_KEY')
+    if not expected or key != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+@api_router.get("/admin/db-export/collections")
+async def db_export_collections(x_restore_key: str = Header(None)):
+    _check_restore_key(x_restore_key)
+    names = await db.list_collection_names()
+    out = []
+    for n in names:
+        out.append({"name": n, "count": await db[n].count_documents({})})
+    return {"db_name": os.environ.get('DB_NAME'), "collections": out}
+
+@api_router.get("/admin/db-export")
+async def db_export(collection: str, skip: int = 0, limit: int = 200, x_restore_key: str = Header(None)):
+    _check_restore_key(x_restore_key)
+    from bson import json_util
+    limit = max(1, min(limit, 500))
+    docs = await db[collection].find({}).skip(skip).limit(limit).to_list(length=limit)
+    return RawResponse(content=json_util.dumps(docs), media_type="application/json")
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
