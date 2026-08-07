@@ -8,7 +8,7 @@ import os
 import time
 import uuid
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://stokvel-plus.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://shopify-clone-704.preview.emergentagent.com').rstrip('/')
 
 class TestOnboardingSignup:
     """Test signup API with new onboarding fields"""

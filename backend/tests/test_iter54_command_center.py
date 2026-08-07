@@ -16,7 +16,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://stokvel-plus.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://shopify-clone-704.preview.emergentagent.com").rstrip("/")
 AMBASSADOR_EMAIL = "rmleetang+nctest1780423349@gmail.com"
 AMBASSADOR_PASSWORD = "Test123!"
 OWNER_EMAIL = "rmleetang@gmail.com"

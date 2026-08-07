@@ -12,7 +12,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://stokvel-plus.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://shopify-clone-704.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 

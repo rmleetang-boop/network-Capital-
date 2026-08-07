@@ -14,7 +14,7 @@ import jwt
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://stokvel-plus.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://shopify-clone-704.preview.emergentagent.com").rstrip("/")
 JWT_SECRET = "X2wtOCvJr45min9cJeiUaYVG8GgQPPFpJaq7ikUzMN35lwjKOQkWa2xmMyFfGNqc"
 
 OWNER_EMAIL = "rmleetang@gmail.com"
