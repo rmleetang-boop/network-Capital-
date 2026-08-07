@@ -14706,3 +14706,30 @@ app.include_router(api_router)
 # Served as /api/uploads/<scope>/<filename> so the existing kubernetes
 # ingress rule (/api/* → backend:8001) routes them correctly.
 app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
+
+# ---------------------------------------------------------------------------
+# Production single-container mode (Fly.io): serve the built React frontend
+# from FastAPI when SERVE_FRONTEND=true. Preview/Emergent is unaffected
+# (frontend there is served by the webpack dev server on port 3000).
+# ---------------------------------------------------------------------------
+@app.get("/api/healthz")
+async def healthz():
+    try:
+        await db.command("ping")
+        return {"status": "ok", "db": True}
+    except Exception:
+        return {"status": "degraded", "db": False}
+
+_FE_BUILD = os.environ.get('FRONTEND_BUILD_DIR', str(ROOT_DIR.parent / 'frontend' / 'build'))
+if os.environ.get('SERVE_FRONTEND', '').lower() == 'true' and os.path.isdir(_FE_BUILD):
+    _static_dir = os.path.join(_FE_BUILD, 'static')
+    if os.path.isdir(_static_dir):
+        app.mount("/static", StaticFiles(directory=_static_dir), name="fe-static")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        candidate = os.path.normpath(os.path.join(_FE_BUILD, full_path))
+        if full_path and candidate.startswith(os.path.normpath(_FE_BUILD)) and os.path.isfile(candidate):
+            return FileResponse(candidate)
+        return FileResponse(os.path.join(_FE_BUILD, 'index.html'))

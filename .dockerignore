@@ -1,0 +1,21 @@
+# secrets — NEVER bake into the image
+backend/.env
+frontend/.env
+
+# build artefacts / heavy dirs
+frontend/node_modules
+frontend/build
+backend/__pycache__
+**/__pycache__
+backend/uploads/*
+.git
+.emergent
+memory
+test_reports
+tests
+backend/tests
+deploy
+backend_test.py
+test_result.md
+DEPLOY_FLY.md
+*.md
