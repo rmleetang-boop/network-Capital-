@@ -537,3 +537,17 @@ Both grids now carry the "My Store" tile (iter 56d added it to `ProfilePage`; it
 - **AdminUsersPage UI** — new "Sort" select (`data-testid='admin-users-sort'`) with 4 options; each user row now shows a "Joined …" date (`data-testid='admin-user-joined-<id>'`) in localized short format.
 - Verified live: super-admin POSTed a job with zero payment (200 OK); `?sort=newest` & `?sort=oldest` returned correct chronological pages.
 
+
+## Iter 59 (environment-blocked) — PayFast commerce foundation
+
+### Implemented
+- Added modular `/api/commerce` backend for a canonical **PayFast-only** marketplace payment policy in ZAR.
+- Marketplace fee defaults to **5%**, is admin-configurable, and is snapshotted immutably onto every order; processor fees remain separate.
+- Added PayFast seller merchant profiles with admin approval state, persistent carts, server-side price/stock validation, seller-separated orders, buyer/seller order history, cancellation, and paid-only fulfillment transitions.
+- Added digital/physical/service fulfillment classification plus exact `sale_price` fields to product creation.
+- Added a signed PayFast hosted-checkout + ITN validation path that fails closed until real merchant credentials and Split Payments approval exist. **No payment response is mocked.**
+- Added `backend/tests/test_iter59_commerce_foundation.py` and static helper coverage.
+
+### Blocker
+- Runtime verification is blocked because platform-managed `/app/backend/.env` and `/app/frontend/.env` are missing. `MONGO_URL`, `DB_NAME`, and `REACT_APP_BACKEND_URL` cannot be safely reconstructed or hardcoded. Backend worker currently fails import with `KeyError: 'MONGO_URL'` after restart.
+

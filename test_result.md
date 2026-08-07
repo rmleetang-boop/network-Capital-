@@ -100,4 +100,47 @@
 
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
+
+## user_problem_statement: "Review and complete the full platform: responsive marketplace/product pages, PayFast purchasing, admin email for users/non-users, and consistent points/fees/terms."
+## backend:
+##   - task: "PayFast commerce foundation"
+##     implemented: true
+##     working: "NA"
+##     file: "backend/services/commerce_service.py"
+##     stuck_count: 1
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##       - working: "NA"
+##         agent: "main"
+##         comment: "Added canonical 5% configurable commerce policy, PayFast seller profiles, cart, seller-split orders, fulfillment contracts, and fail-closed PayFast checkout/ITN. Static lint and helper smoke pass. Runtime test blocked because platform-managed backend/.env and frontend/.env are missing; backend cannot load MONGO_URL/DB_NAME."
+## frontend:
+##   - task: "Responsive marketplace checkout and order UI"
+##     implemented: false
+##     working: "NA"
+##     file: "frontend/src/pages"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: false
+##     status_history:
+##       - working: "NA"
+##         agent: "main"
+##         comment: "Not started; backend-first contract implementation is awaiting environment restoration and backend verification."
+## metadata:
+##   created_by: "main_agent"
+##   version: "1.0"
+##   test_sequence: 0
+##   run_ui: false
+## test_plan:
+##   current_focus:
+##     - "Restore platform-managed environment variables"
+##     - "PayFast commerce foundation"
+##   stuck_tasks:
+##     - "Backend runtime verification blocked by missing protected .env files"
+##   test_all: false
+##   test_priority: "high_first"
+## agent_communication:
+##   - agent: "main"
+##     message: "Do not invoke backend tests until MONGO_URL, DB_NAME, and REACT_APP_BACKEND_URL are restored by the platform. Once restored, run backend/tests/test_iter59_commerce_foundation.py first. PayFast is NOT MOCKED and credentials are intentionally absent."
+
 #====================================================================================================
