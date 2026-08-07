@@ -1,5 +1,10 @@
 # Network Capital — CHANGELOG
 
+## iter: DB reconnection attempt + Aridja tile (Aug 7, 2026)
+- **Database**: Owner supplied production Atlas URI (customer-apps.lfmw5q.mongodb.net / stokvel-plus-test_database). Connection from preview FAILS at TCP level — Atlas IP Access List blocks preview egress IP 34.170.12.145 (egress port 27017 confirmed open via portquiz). URI stored COMMENTED in backend/.env as MONGO_URL_PROD. Support agent: preview→managed-prod-DB connectivity requires support@emergent.sh. Alternative offered to user: admin-guarded export endpoint on deployed app → HTTPS import into preview.
+- **Aridja integration (phase 1)**: New highlighted "Aridja AI" tile (Gem icon) in OwnModuleGrid (shows on /profile Quick Access + /u/:me modules), opens https://aridja.online in new tab (external:true + window.open noopener). Deep API integration deferred until owner provides Aridja API endpoints/keys.
+- Per owner instruction: NO testing agents run until owner confirms.
+
 ## Platform restoration (Aug 7, 2026)
 - Platform was fully down: backend + frontend stopped, BOTH `.env` files deleted by last git commit (70fb474).
 - Recovered `backend/.env` (MONGO_URL, DB_NAME, JWT_SECRET_KEY, Stripe, Brevo, Cloudinary, EMERGENT_LLM_KEY) from git history (`git show 70fb474~1:backend/.env`).

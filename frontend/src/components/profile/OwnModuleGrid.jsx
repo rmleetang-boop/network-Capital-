@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Users, MapPin, MessageCircle, Sparkles, Wallet, Package,
   TrendingUp, Activity, Briefcase, Trophy, Bell, HelpCircle,
-  Settings, Star, Shield, Crown,
+  Settings, Star, Shield, Crown, Gem,
 } from 'lucide-react';
 
 /**
@@ -27,6 +27,7 @@ const buildTiles = (profile) => [
   { icon: Package, label: 'My Store', path: '/my-store', highlight: true },
   { icon: Package, label: 'Products', path: '/products' },
   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
+  { icon: Gem, label: 'Aridja AI', path: 'https://aridja.online', external: true, highlight: true },
   { icon: Activity, label: 'Score Tracker', path: '/tracker' },
   { icon: Briefcase, label: 'Jobs', path: '/jobs' },
   { icon: Sparkles, label: 'Promotions', path: '/promotions/me' },
@@ -61,11 +62,15 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
     ? 'relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#04101e] via-[#0a1f3a] to-[#04101e] border border-white/10 p-4 sm:p-5'
     : 'relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#0a1f3a] to-[#04101e] border border-white/10 p-4';
 
-  const handleNavigate = (path) => {
+  const handleNavigate = (tile) => {
+    if (tile.external) {
+      window.open(tile.path, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (typeof onNavigate === 'function') {
-      onNavigate(path);
+      onNavigate(tile.path);
     } else {
-      window.location.href = path;
+      window.location.href = tile.path;
     }
   };
 
@@ -95,7 +100,7 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
           return (
             <button
               key={t.path + t.label}
-              onClick={() => handleNavigate(t.path)}
+              onClick={() => handleNavigate(t)}
               className={`group relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-200 active:scale-95 ${
                 t.highlight
                   ? 'bg-gradient-to-br from-[#E8A817]/20 to-[#E8A817]/5 border-[#E8A817]/40 hover:border-[#E8A817]/70'
