@@ -51,7 +51,7 @@
     "frontend": "Admin tabs toggle works, RegionalHubsPage uses shadcn Select as required, StokvelDetailPage renders. BUT admin moderation flow is BROKEN (missing fetch + undefined handler)."
   },
   "test_credentials": "Admin: X-Admin-Password: NetworkCapital2025! (from /app/memory/test_credentials.md). Test users registered fresh per-run via /api/auth/progressive-signup.",
-  "seed_data_creation": "Created 1 pending product for admin UI verification: id=785fe3a2-8049-454d-8b5a-01d67fe197f5 by creator 'Creator One'. It is still in pending_review state (frontend did not actually call moderate).",
+  "seed_data_creation": "Created 1 pending product for admin UI verification: id=system-repair-18 by creator 'Creator One'. It is still in pending_review state (frontend did not actually call moderate).",
   "retest_needed": true,
   "main_agent_can_self_test": true,
   "context_for_next_testing_agent": "Backend multi-sig is solid. After main agent fixes AdminDashboardPage (add fetchPendingProducts call inside fetchData and define handleModerate), re-run this iteration's playwright admin test AND verify GET /api/admin/products/pending empties out after approve. Test file at /app/backend/tests/test_multisig_withdrawals.py is reusable as regression. Keep noting that registration uses response field 'token' not 'access_token'.",

@@ -2,7 +2,7 @@
 import asyncio, os, time, requests
 from playwright.async_api import async_playwright
 
-BASE = "https://stokvel-plus.preview.emergentagent.com"
+BASE = "https://system-repair-18.preview.emergentagent.com"
 API = f"{BASE}/api"
 
 def make_user(suffix):

@@ -3,7 +3,7 @@ import os
 import time
 import requests
 
-API = (os.environ.get("REACT_APP_BACKEND_URL") or "https://stokvel-plus.preview.emergentagent.com").rstrip("/")
+API = (os.environ.get("REACT_APP_BACKEND_URL") or "https://system-repair-18.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "rmleetang+nctest1780423349@gmail.com"
 ADMIN_PASSWORD = "Test123!"
 
