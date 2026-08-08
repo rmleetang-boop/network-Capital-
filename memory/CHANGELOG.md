@@ -28,7 +28,7 @@
 ## Platform restoration (Aug 7, 2026)
 - Platform was fully down: backend + frontend stopped, BOTH `.env` files deleted by last git commit (70fb474).
 - Recovered `backend/.env` (MONGO_URL, DB_NAME, JWT_SECRET_KEY, Stripe, Brevo, Cloudinary, EMERGENT_LLM_KEY) from git history (`git show 70fb474~1:backend/.env`).
-- `frontend/.env` REACT_APP_BACKEND_URL updated: old `stokvel-plus.preview...` URL was stale — set to current container preview endpoint `https://bdd9c77c-cb49-4401-9346-7afc4bc0ad79.preview.emergentagent.com`.
+- `frontend/.env` REACT_APP_BACKEND_URL updated: old `stokvel-plus.preview...` URL was stale — set to current container preview endpoint `https://mongo-dump-viewer.preview.emergentagent.com`.
 - Local MongoDB is FRESH/EMPTY (user explicitly deferred database restoration: "Forget about the database for now"). Backend re-seeded BD Agent job, system account, M/W/F promotion on startup. Super-admin owner account (rmleetang@gmail.com) does NOT exist yet in this DB — bootstrap will auto-promote once recreated.
 - Backend smoke test 10/10 PASS (auth signup→OTP→profile, /users/me, jobs, places, feed, post creation). Brevo OTP emails delivering live.
 
