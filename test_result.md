@@ -167,7 +167,7 @@ frontend:
     status_history:
         - working: true
           agent: "main"
-          comment: "Old URL stokvel-plus.preview... was stale; set to https://mongo-dump-viewer.preview.emergentagent.com. Landing page verified via screenshot."
+          comment: "Old URL stokvel-plus.preview... was stale; set to https://fly-platform.preview.emergentagent.com. Landing page verified via screenshot."
 
 metadata:
   created_by: "main_agent"

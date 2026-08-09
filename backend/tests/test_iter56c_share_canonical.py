@@ -20,7 +20,7 @@ import re
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://mongo-dump-viewer.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://fly-platform.preview.emergentagent.com").rstrip("/")
 PROD_DOMAIN = "https://networkcapitalapp.co.za"
 PREVIEW_HOST_TOKEN = "stokvel-plus"  # must NOT appear in canonical/og:url/refresh/replace
 

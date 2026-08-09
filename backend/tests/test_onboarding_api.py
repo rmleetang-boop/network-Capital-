@@ -8,7 +8,7 @@ import os
 import time
 import uuid
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://mongo-dump-viewer.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://fly-platform.preview.emergentagent.com').rstrip('/')
 
 class TestOnboardingSignup:
     """Test signup API with new onboarding fields"""

@@ -14,7 +14,7 @@ import jwt
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://mongo-dump-viewer.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://fly-platform.preview.emergentagent.com").rstrip("/")
 JWT_SECRET = "X2wtOCvJr45min9cJeiUaYVG8GgQPPFpJaq7ikUzMN35lwjKOQkWa2xmMyFfGNqc"
 
 OWNER_EMAIL = "rmleetang@gmail.com"

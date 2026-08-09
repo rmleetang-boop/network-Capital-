@@ -2,7 +2,7 @@
 import asyncio, os, time, requests
 from playwright.async_api import async_playwright
 
-BASE = "https://mongo-dump-viewer.preview.emergentagent.com"
+BASE = "https://fly-platform.preview.emergentagent.com"
 API = f"{BASE}/api"
 
 def make_user(suffix):

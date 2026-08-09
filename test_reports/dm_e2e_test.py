@@ -2,7 +2,7 @@
 import asyncio, os, time, requests, json, base64
 from playwright.async_api import async_playwright
 
-BASE = os.environ.get("REACT_APP_BACKEND_URL", "https://mongo-dump-viewer.preview.emergentagent.com").rstrip("/")
+BASE = os.environ.get("REACT_APP_BACKEND_URL", "https://fly-platform.preview.emergentagent.com").rstrip("/")
 API = f"{BASE}/api"
 
 def make_user(suffix):
