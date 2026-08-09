@@ -693,6 +693,15 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
               {post.username}
             </h3>
             <NetworkScore score={post.user_score} size="small" animate={false} />
+            {post.rising_networker && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-sm"
+                data-testid={`rising-networker-badge-${index}`}
+                title={post.visibility_boost >= 3 ? 'Top 1% Networker — boosted visibility' : 'Top 10% Networker — boosted visibility'}
+              >
+                ▲ Rising Networker
+              </span>
+            )}
             {isAuto && (
               <span
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gradient-to-r from-secondary to-yellow-500 text-primary shadow-sm"

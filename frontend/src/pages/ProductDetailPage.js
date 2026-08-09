@@ -35,6 +35,28 @@ const ProductDetailPage = ({ user }) => {
   const [supportNote, setSupportNote] = useState('');
   const [followerData, setFollowerData] = useState({ name: '', email: '', phone: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  const shareProduct = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const r = await axiosInstance.post(`/products/${productId}/share`, {});
+      const url = r.data.url;
+      const text = `${r.data.title} · Network Capital`;
+      if (navigator.share) {
+        try { await navigator.share({ title: text, url }); } catch { /* user cancelled */ }
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast.success('Product link copied to clipboard');
+      }
+      if (r.data.awarded > 0) toast.success(`+${r.data.awarded} points for sharing!`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not share');
+    } finally {
+      setSharing(false);
+    }
+  };
 
   useEffect(() => {
     fetchProduct();
@@ -117,7 +139,12 @@ const ProductDetailPage = ({ user }) => {
             <ArrowLeft className="text-white" size={20} />
           </button>
           <h1 className="text-lg font-bold text-white">Product Details</h1>
-          <button className="p-2 hover:bg-white/10 rounded-full transition-colors">
+          <button
+            onClick={shareProduct}
+            disabled={sharing}
+            data-testid="product-share-button"
+            className="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50"
+          >
             <Share2 className="text-white" size={20} />
           </button>
         </div>

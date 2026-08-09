@@ -7,6 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 import os
+import math
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -386,6 +387,9 @@ class Post(BaseModel):
     shares: int = 0
     is_official: Optional[bool] = False
     created_at: str
+    # Points v2 — feed visibility boost (higher-score authors surface more)
+    visibility_boost: Optional[int] = 1     # 1 = normal · 2 = top 10% author · 3 = top 1%
+    rising_networker: Optional[bool] = False
 
 class CarouselSlide(BaseModel):
     type: str = "image"  # "image" | "video"
@@ -779,29 +783,38 @@ async def update_user_score(user_id: str, points: int, notification_msg: str, ac
 # Per-action daily caps + 24h same-source cooldown + 80% single-action review flag.
 # ============================================================================
 
-MONTHLY_TOP_CONTRIBUTOR_THRESHOLD = 10000
+MONTHLY_TOP_CONTRIBUTOR_THRESHOLD = 15000  # Points v2 — raised from 10,000
 MONTHLY_SCORE_CAP = MONTHLY_TOP_CONTRIBUTOR_THRESHOLD   # legacy alias kept for compat; no longer enforces a hard cap
 LIFETIME_SCORE_CAP = MONTHLY_SCORE_CAP                  # legacy alias kept for /tiers endpoint
 WEEKLY_RESOURCE_DROP_LIMIT = 1
 PREMIUM_TOP_GRACE_DAYS = 90
 
 # Per-action config — points + daily count cap (None = no daily count cap)
+# ── Points v2 — "active platform = more points". Ads pay the most (sponsor/brand
+# funnel), then referrals, then builder actions (products, stokvels, jobs, places),
+# then standard social activity.
 SCORE_TABLE = {
-    # ── T1: AD ENGAGEMENT (highest value) ────────────────────────────────────
-    "ad_watch_engage":   {"points": 500, "daily_cap": 5},     # watched 100% + engaged with product
-    "ad_watch_share":    {"points": 300, "daily_cap": None},  # diminishing per unique ad: 300/150/50/50/50
+    # ── T1: AD ENGAGEMENT (highest value — attracts sponsors & brands) ───────
+    "ad_watch_engage":   {"points": 750, "daily_cap": 8},     # watched 100% + engaged with product
+    "ad_watch_share":    {"points": 400, "daily_cap": None},  # diminishing per unique ad: 400/200/100/100/100
     # ── T2: REFERRALS & INVITATIONS ──────────────────────────────────────────
     "referral_qualified":     {"points": 400, "daily_cap": None},  # referred member crosses 1,000 same month
     "referral_feature_unlock":{"points": 200, "daily_cap": None},  # referred friend activates a feature
     "referral_first_post":    {"points": 150, "daily_cap": None},  # referred friend posts in first 7 days
+    # ── T2.5: BUILDER ACTIONS (Points v2 — make the platform active) ─────────
+    "product_create":    {"points": 100, "daily_cap": 3},     # publish a product/service in the marketplace
+    "product_share":     {"points": 30,  "daily_cap": 10},    # share a product link
+    "stokvel_create":    {"points": 200, "daily_cap": 1},     # activate a Stokvel+ group
+    "job_post_create":   {"points": 100, "daily_cap": 3},     # post a job opportunity
+    "place_create":      {"points": 50,  "daily_cap": 3},     # add a place to My Places
     # ── T3: STANDARD SOCIAL ACTIVITY ─────────────────────────────────────────
-    "post_create":       {"points": 50, "daily_cap": 5},
+    "post_create":       {"points": 75, "daily_cap": 5},
     "post_share":        {"points": 20, "daily_cap": 10},
-    "comment_quality":   {"points": 30, "daily_cap": 10},     # AI-validated relevance ≥0.6
+    "comment_quality":   {"points": 50, "daily_cap": 10},     # AI-validated relevance ≥0.6
     "post_like":         {"points": 5,  "daily_cap": 20},
     "video_watched":     {"points": 10, "daily_cap": 10},     # non-ad video to completion
     # ── Misc / kept for back-compat (not in tier doc but already wired) ──────
-    "daily_checkin":     {"points": 10, "daily_cap": 1},
+    "daily_checkin":     {"points": 25, "daily_cap": 1},      # ×2 (=50) once on a 7+ day streak
     "story_create":      {"points": 5,  "daily_cap": 10},
     "weekly_resource_drop": {"points": 30, "daily_cap": None},
     "monthly_streak":    {"points": 100, "daily_cap": None},
@@ -819,15 +832,15 @@ SCORE_TABLE = {
 }
 
 # Ad share diminishing returns — per unique ad (key = ad_id)
-AD_SHARE_LADDER = [300, 150, 50, 50, 50]   # 1st→5th share; >5 returns 0
+AD_SHARE_LADDER = [400, 200, 100, 100, 100]   # 1st→5th share; >5 returns 0
 
 # 24-hour cooldown applies to: liking the same post, sharing the same post, watching the
 # same ad, etc. NB: ad_watch_share is intentionally NOT in this set — its diminishing
-# ladder (300/150/50/50/50, max 5) is its own anti-abuse mechanism.
+# ladder (400/200/100/100/100, max 5) is its own anti-abuse mechanism.
 COOLDOWN_ACTIONS = {
     "post_like", "post_share", "post_create", "comment_quality",
     "ad_watch_engage", "video_watched",
-    "place_review_create", "job_share",
+    "place_review_create", "job_share", "product_share",
 }
 
 # Auto-flag user for review when >80% of monthly points come from a single action type
@@ -892,8 +905,8 @@ async def _refresh_share_code(user_id: str) -> Optional[str]:
 
 # ── Badges (highest of the month is saved into user.badge_history) ──────────
 BADGE_TIERS = [
-    (10000, "Network Legend"),
-    (9000,  "Diamond Achiever"),
+    (15000, "Network Legend"),
+    (10000, "Diamond Achiever"),
     (6000,  "Gold Influencer"),
     (3000,  "Silver Connector"),
     (1000,  "Bronze Networker"),
@@ -2343,11 +2356,34 @@ async def claim_premium_via_score(current_user: dict = Depends(get_current_user)
 
 @api_router.post("/score/daily-checkin")
 async def daily_checkin(current_user: dict = Depends(get_current_user)):
-    """Daily +10 (max once per calendar day, server-enforced)."""
-    awarded = await award_points(current_user["id"], "daily_checkin", 0, message="Daily check-in")
+    """Daily +25 (max once per calendar day, server-enforced).
+    Points v2 — a 7+ day consecutive streak doubles the reward to +50/day."""
+    today = _date_key()
+    yesterday = _date_key(datetime.now(timezone.utc) - timedelta(days=1))
+    already = await db.score_events.find_one({
+        "user_id": current_user["id"], "action": "daily_checkin", "date_key": today,
+    })
+    if already:
+        return {"awarded": 0, "already_today": True, "streak": int(current_user.get("checkin_streak") or 1)}
+    prev = await db.score_events.find_one({
+        "user_id": current_user["id"], "action": "daily_checkin", "date_key": yesterday,
+    })
+    streak = (int(current_user.get("checkin_streak") or 0) + 1) if prev else 1
+    base = int(SCORE_TABLE["daily_checkin"]["points"])
+    streak_bonus = streak >= 7
+    if streak_bonus:
+        base *= 2
+    msg = f"Daily check-in — {streak}-day streak x2 bonus!" if streak_bonus else (
+        f"Daily check-in — day {streak} of your streak" if streak > 1 else "Daily check-in")
+    awarded = await award_points(current_user["id"], "daily_checkin", base, message=msg)
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"checkin_streak": streak, "last_checkin_date": today}},
+    )
     if awarded == 0:
-        return {"awarded": 0, "already_today": True}
-    return {"awarded": awarded, "message": f"+{awarded} for showing up today"}
+        return {"awarded": 0, "already_today": True, "streak": streak}
+    return {"awarded": awarded, "streak": streak, "streak_bonus": streak_bonus,
+            "message": f"+{awarded} for showing up today"}
 
 
 @api_router.post("/score/weekly-resource")
@@ -3963,22 +3999,69 @@ async def delete_comment(post_id: str, comment_id: str, current_user: dict = Dep
     await db.posts.update_one({"id": post_id}, {"$set": {"comments": new_comments}})
     return {"deleted": True, "score_revoked": revoked}
 
+# ── Points v2 — score-based feed visibility ─────────────────────────────────
+# Posts from high-score authors get a recency "lift": top 10% of scorers rank as
+# if posted 12h more recently (2× visibility), top 1% as if 24h (3×). Boosted
+# posts carry a "Rising Networker" flag so brands can spot active members.
+FEED_BOOST_SECONDS = 12 * 3600            # lift per extra visibility multiplier
+FEED_BOOST_MIN_USERS = 20                 # need enough scored users for fair percentiles
+_FEED_BOOST_CACHE = {"at": None, "p90": 0, "p99": 0, "n": 0}
+
+
+async def _feed_score_thresholds() -> dict:
+    """Top-10% / top-1% network_score cutoffs, cached for 10 minutes."""
+    now = datetime.now(timezone.utc)
+    if _FEED_BOOST_CACHE["at"] and (now - _FEED_BOOST_CACHE["at"]).total_seconds() < 600:
+        return _FEED_BOOST_CACHE
+    rows = await db.users.find(
+        {"network_score": {"$gt": 0}}, {"_id": 0, "network_score": 1},
+    ).sort("network_score", -1).to_list(5000)
+    scores = [int(r.get("network_score") or 0) for r in rows]
+    n = len(scores)
+    p90 = scores[max(0, math.ceil(n * 0.10) - 1)] if n else 0
+    p99 = scores[max(0, math.ceil(n * 0.01) - 1)] if n else 0
+    _FEED_BOOST_CACHE.update({"at": now, "p90": p90, "p99": p99, "n": n})
+    return _FEED_BOOST_CACHE
+
+
 @api_router.get("/posts", response_model=List[Post])
 async def get_posts(skip: int = 0, limit: int = 10):
     """Paginated public feed. Default page size = 10.
 
     Iter 56e — hidden posts (soft-hidden by admin) are excluded.
     Iter 58 — `image_data_url` (base64 fallback) is explicitly excluded from
-    the projection so the wire payload stays compact. Clients should use
-    `image` (Cloudinary URL) instead.
+    the projection so the wire payload stays compact.
+    Points v2 — ranking = recency + author-score visibility boost (see
+    _feed_score_thresholds). Falls back to pure chronological order when the
+    community is too small for fair percentiles.
     """
     skip = max(0, int(skip or 0))
     limit = max(1, min(50, int(limit or 10)))
+    pool_size = min(500, skip + (limit * 3) + 60)
     posts = await db.posts.find(
         {"hidden": {"$ne": True}},
         {"_id": 0, "image_data_url": 0},
-    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
-    return await _enrich_posts_with_live_score(posts)
+    ).sort("created_at", -1).limit(pool_size).to_list(pool_size)
+    posts = await _enrich_posts_with_live_score(posts)
+
+    th = await _feed_score_thresholds()
+    if th["n"] >= FEED_BOOST_MIN_USERS and th["p90"] > 0:
+        def _rank(p: dict) -> float:
+            try:
+                ts = datetime.fromisoformat(str(p.get("created_at", "")).replace("Z", "+00:00")).timestamp()
+            except (ValueError, TypeError):
+                ts = 0.0
+            s = int(p.get("user_score") or 0)
+            boost = 3 if (th["p99"] > 0 and s >= th["p99"]) else (2 if s >= th["p90"] else 1)
+            p["visibility_boost"] = boost
+            p["rising_networker"] = boost >= 2
+            return ts + (boost - 1) * FEED_BOOST_SECONDS
+        posts.sort(key=_rank, reverse=True)
+    else:
+        for p in posts:
+            p["visibility_boost"] = 1
+            p["rising_networker"] = False
+    return posts[skip:skip + limit]
 
 
 async def _enrich_posts_with_live_score(posts: List[dict]) -> List[dict]:
@@ -4324,7 +4407,12 @@ async def create_stokvel(request: CreateStokvelRequest, current_user: dict = Dep
     }
     
     await db.stokvels.insert_one(stokvel_data)
-    await update_user_score(current_user["id"], 50, "Created a Stokvel+ group +50")
+    # Points v2 — Stokvel+ activation is a high-value builder action (+200, 1/day)
+    await award_points(
+        current_user["id"], "stokvel_create", 0,
+        source_id=stokvel_id,
+        message="Created a Stokvel+ group",
+    )
     
     return stokvel_data
 
@@ -5444,6 +5532,14 @@ async def create_product(request: CreateProductRequest, current_user: dict = Dep
 
     await db.products.insert_one(product_data)
 
+    # Points v2 — reward creators for making the marketplace active (not for drafts)
+    if status != "draft":
+        await award_points(
+            current_user["id"], "product_create", 0,
+            source_id=product_id,
+            message=f"Created product: {request.name}",
+        )
+
     # Update user as creator (and seed creator_type if unset)
     user_update: Dict[str, Any] = {"is_creator": True, "user_type": "creator"}
     if not current_user.get("creator_type"):
@@ -6090,6 +6186,36 @@ async def poll_product_file_checkout(session_id: str, request: Request, current_
         )
         return {"status": "paid", "product_id": order["product_id"]}
     return {"status": status_resp.status or order["status"]}
+
+
+@api_router.post("/products/{product_id}/share")
+async def share_product(product_id: str, current_user: dict = Depends(get_current_user)):
+    """Points v2 — log a product share (+30, 10/day, 24h cooldown per product)
+    and return a clean public URL (no preview/emergent hosts)."""
+    product = await db.products.find_one(
+        {"id": product_id},
+        {"_id": 0, "id": 1, "name": 1, "slug": 1, "creator_username": 1, "status": 1},
+    )
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product.get("status") not in ("approved", "pending_review"):
+        raise HTTPException(status_code=400, detail="This product cannot be shared yet")
+    await db.product_shares.insert_one({
+        "id": str(uuid.uuid4()),
+        "product_id": product_id,
+        "user_id": current_user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    awarded = await award_points(
+        current_user["id"], "product_share", 0,
+        source_id=f"product_share:{product_id}",
+        message=f"Shared product: {product.get('name', 'a product')}",
+    )
+    if product.get("creator_username") and product.get("slug"):
+        url = f"{SHARE_BASE_URL}/p/{product['creator_username']}/{product['slug']}"
+    else:
+        url = f"{SHARE_BASE_URL}/products/{product_id}"
+    return {"ok": True, "url": url, "title": product.get("name"), "awarded": awarded}
 
 
 @api_router.post("/products/{product_id}/follow")
@@ -8793,6 +8919,12 @@ async def create_job(req: CreateJobRequest, current_user: dict = Depends(get_cur
     }
     await db.jobs.insert_one(job)
     job.pop("_id", None)
+    # Points v2 — posting a job keeps the platform active (+100, 3/day)
+    await award_points(
+        current_user["id"], "job_post_create", 0,
+        source_id=job["id"],
+        message=f"Posted a job: {job.get('title', '')}",
+    )
     return job
 
 
@@ -9593,6 +9725,12 @@ async def create_place(payload: PlaceCreate, current_user: dict = Depends(get_cu
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.places.insert_one(place)
+    # Points v2 — adding a place enriches the map for everyone (+50, 3/day)
+    await award_points(
+        current_user["id"], "place_create", 0,
+        source_id=place["id"],
+        message=f"Added a place: {place.get('name', '')}",
+    )
     return _place_public(place)
 
 

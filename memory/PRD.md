@@ -1,5 +1,25 @@
 # Network Capital — PRD
 
+## iter 51 (Aug 2026) — Points v2 + Fly deploy + feature roadmap (IN PROGRESS)
+### Deployment (Step 1 — WAITING ON USER)
+- Fly app `network-capital-app` (jnb): root cause of failed v1 release = ZERO secrets → KeyError MONGO_URL crash-loop.
+- Fixed: 10 secrets staged (incl. new Atlas URI `gabriel777casa_db_user@cluster0.5hez1g8.mongodb.net`, DB network_capital), image deployed v2.
+- BLOCKED: Atlas Network Access must allow 0.0.0.0/0 (TLSV1_ALERT_INTERNAL_ERROR from Fly machine). User action pending. flyctl in /root/.fly/bin, token in /tmp/flyenv.sh.
+- Both local .env files were deleted again → restored (backend from git 0ae0311, frontend preview URL eafd35d9-06f8-448e-9a0c-521f792fc730). Local preview DB was WIPED by container reset (prod data lives in Atlas).
+
+### Points v2 (Step 2 — DONE, NOT TESTED per user instruction)
+- SCORE_TABLE: ad_watch_engage 750 (8/d), ad_share ladder 400/200/100/100/100, post 75, comment 50, checkin 25 (×2=50 on 7+ day streak, user.checkin_streak), monthly threshold 15,000, badge tiers rebased (Legend 15k, Diamond 10k).
+- NEW builder actions: product_create 100 (3/d), product_share 30 (10/d, cooldown), stokvel_create 200 (1/d, replaced legacy +50), job_post_create 100 (3/d), place_create 50 (3/d). All wired into their endpoints.
+- NEW `POST /api/products/{id}/share` (mirrors job share, clean URL /p/:username/:slug) + FE Share button wired on ProductDetailPage.
+- Feed visibility boost: GET /posts ranks by recency + author-score lift (top10% = +12h/2×, top1% = +24h/3×, cache 10min, min 20 scored users else chronological). Post model += visibility_boost, rising_networker. FE FeedPage shows "▲ Rising Networker" badge.
+
+### Remaining steps (each needs user confirmation first; NO TESTING until user approves)
+- Step 3: OG link previews (server-side meta injection for /p/, /store/, /u/, /jobs/) — YouTube-style cards. Domain networkcapitalapp.co.za NOT yet pointed at Fly.
+- Step 4: Super-admin email to external addresses (multi-recipient) + editable DB-stored templates (Brevo).
+- Step 5: Wallet withdrawal window — request only in last 5 days of month, payout on last day.
+- Step 6: Notifications for all new events (in-app + Brevo email).
+- Step 7: UI info audit + Aridja deep integration (aridja.fly.dev): expose net-worth-affecting info, pull user-shared Aridja progress, "Net Worth Builder community" where Aridja users share progress. Generate scoped API keys both sides.
+
 ## Original problem statement
 Mobile-first **Community Resource Ecosystem**. Network Score = community engagement signal. Stokvel circles + premium tiers. Compliance: never "investing/returns/profit"; use "support/backing/shared access".
 
