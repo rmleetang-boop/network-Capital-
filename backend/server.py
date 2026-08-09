@@ -13,6 +13,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict, Any, Tuple
 import uuid
+import calendar
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
@@ -9727,6 +9728,7 @@ async def payouts_status():
         "locked": locked,
         "release_at": JUNE_PAYOUT_RELEASE_AT.isoformat(),
         "message": _june_payout_message() if locked else "Withdrawals are currently being processed.",
+        "withdrawal_window": _withdrawal_window(),
     }
 
 
@@ -13095,6 +13097,33 @@ WITHDRAW_MIN_SCORE = 3500
 WITHDRAW_PROOF_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 WITHDRAW_PROOF_ALLOWED_PREFIXES = ("data:application/pdf", "data:image/png", "data:image/jpeg", "data:image/jpg")
 
+# Iter 51 Step 5 — monthly withdrawal window: users may REQUEST only during the
+# last N days of the month; payouts are processed ONLY on the last day.
+WITHDRAW_WINDOW_DAYS = 5
+
+
+def _withdrawal_window(now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    window_start_day = last_day - (WITHDRAW_WINDOW_DAYS - 1)
+    is_open = now.day >= window_start_day
+    payout_date = now.replace(day=last_day).strftime("%Y-%m-%d")
+    window_start = now.replace(day=window_start_day).strftime("%Y-%m-%d")
+    return {
+        "open": is_open,
+        "window_days": WITHDRAW_WINDOW_DAYS,
+        "window_start": window_start,          # first day requests are accepted
+        "payout_date": payout_date,            # last day of month — the ONLY payout day
+        "is_payout_day": now.day == last_day,
+        "days_until_open": 0 if is_open else (window_start_day - now.day),
+        "message": (
+            f"Withdrawal window OPEN — request by {payout_date}. Payout is processed on {payout_date}."
+            if is_open else
+            f"Withdrawal requests open during the last {WITHDRAW_WINDOW_DAYS} days of the month "
+            f"({window_start} to {payout_date}). Payout is processed on {payout_date}."
+        ),
+    }
+
 
 class WithdrawalRequestIn(BaseModel):
     source: str = Field(pattern="^(wallet|promotion)$")
@@ -13121,6 +13150,10 @@ async def create_user_withdrawal(payload: WithdrawalRequestIn, current_user: dic
     # until the release date. We surface a clear, friendly message.
     if _is_june_payout_locked():
         raise HTTPException(status_code=403, detail=_june_payout_message())
+    # Iter 51 Step 5 — requests only during the last 5 days of the month
+    win = _withdrawal_window()
+    if not win["open"]:
+        raise HTTPException(status_code=403, detail=win["message"])
     # Eligibility — network score floor
     net_score = int(current_user.get("network_score") or 0)
     monthly = int(current_user.get("monthly_score") or 0)
@@ -13176,6 +13209,7 @@ async def create_user_withdrawal(payload: WithdrawalRequestIn, current_user: dic
         "paid_at": None,
         "network_score_at_request": net_score,
         "monthly_score_at_request": monthly,
+        "scheduled_payout_date": win["payout_date"],
     }
     await db.withdrawals.insert_one(doc)
 
@@ -13198,7 +13232,8 @@ async def create_user_withdrawal(payload: WithdrawalRequestIn, current_user: dic
         "status": "pending",
         "amount_zar": doc["amount_zar"],
         "source": payload.source,
-        "estimated_processing": "24–48 hours",
+        "estimated_processing": f"Payout on {win['payout_date']} (last day of the month)",
+        "scheduled_payout_date": win["payout_date"],
         "created_at": now,
     }
 
@@ -13226,6 +13261,7 @@ async def my_withdrawals(current_user: dict = Depends(get_current_user)):
             "eligible": max(int(current_user.get("network_score") or 0), int(current_user.get("monthly_score") or 0)) >= WITHDRAW_MIN_SCORE,
         },
         "processing_window_hours": "24-48",
+        "withdrawal_window": _withdrawal_window(),
     }
 
 
@@ -13312,8 +13348,9 @@ async def admin_approve_withdrawal(withdrawal_id: str, payload: WithdrawalAction
     now = datetime.now(timezone.utc).isoformat()
     await db.withdrawals.update_one({"id": withdrawal_id}, {"$set": {"status": "approved", "approved_at": now, "updated_at": now}})
     await _push_withdrawal_note(withdrawal_id, admin, "approve", payload.note or "")
-    await _notify_user_withdrawal(w["user_id"], "Withdrawal approved", f"Your R{w['amount_zar']:.2f} withdrawal request was approved. Funds typically arrive within 24-48 hours.", withdrawal_id)
-    return {"ok": True, "status": "approved"}
+    _win = _withdrawal_window()
+    await _notify_user_withdrawal(w["user_id"], "Withdrawal approved", f"Your R{w['amount_zar']:.2f} withdrawal request was approved. Payout will be processed on {_win['payout_date']} (last day of the month).", withdrawal_id)
+    return {"ok": True, "status": "approved", "scheduled_payout_date": _win["payout_date"]}
 
 
 @api_router.post("/admin/withdrawals/{withdrawal_id}/reject")
@@ -13350,6 +13387,13 @@ async def admin_reject_withdrawal(withdrawal_id: str, payload: WithdrawalActionI
 async def admin_mark_paid(withdrawal_id: str, payload: WithdrawalActionIn, admin: dict = Depends(require_admin_user)):
     if _is_june_payout_locked():
         raise HTTPException(status_code=403, detail=_june_payout_message())
+    # Iter 51 Step 5 — payouts are executed ONLY on the last day of the month
+    _win = _withdrawal_window()
+    if not _win["is_payout_day"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Payouts are processed only on the last day of the month ({_win['payout_date']}).",
+        )
     w = await db.withdrawals.find_one({"id": withdrawal_id})
     if not w:
         raise HTTPException(status_code=404, detail="Withdrawal not found")

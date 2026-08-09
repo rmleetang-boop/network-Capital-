@@ -145,14 +145,44 @@ const WalletPage = ({ user }) => {
           </div>
         </motion.div>
 
+        {/* Withdrawal window banner (Iter 51 — last 5 days of month rule) */}
+        {payoutLock?.withdrawal_window && (
+          <div
+            className={`rounded-2xl p-3.5 border text-sm flex items-start gap-2.5 ${payoutLock.withdrawal_window.open ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}
+            data-testid="withdrawal-window-banner"
+          >
+            <Banknote size={18} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-bold text-xs uppercase tracking-wide mb-0.5">
+                {payoutLock.withdrawal_window.open ? 'Withdrawal window open' : 'Withdrawal window closed'}
+              </p>
+              <p className="text-xs leading-relaxed">{payoutLock.withdrawal_window.message}</p>
+              {!payoutLock.withdrawal_window.open && payoutLock.withdrawal_window.days_until_open > 0 && (
+                <p className="text-[11px] font-semibold mt-1">
+                  Opens in {payoutLock.withdrawal_window.days_until_open} day{payoutLock.withdrawal_window.days_until_open > 1 ? 's' : ''} — payout on {payoutLock.withdrawal_window.payout_date}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Request Withdrawal CTA */}
         <button
-          onClick={() => setShowWithdrawModal(true)}
-          className="w-full bg-white hover:bg-gray-50 border border-secondary/40 text-primary font-bold py-3 rounded-2xl flex items-center justify-center gap-2 shadow-sm transition-all"
+          onClick={() => {
+            if (payoutLock?.withdrawal_window && !payoutLock.withdrawal_window.open) {
+              toast.error(payoutLock.withdrawal_window.message);
+              return;
+            }
+            setShowWithdrawModal(true);
+          }}
+          disabled={payoutLock?.withdrawal_window ? !payoutLock.withdrawal_window.open : false}
+          className="w-full bg-white hover:bg-gray-50 border border-secondary/40 text-primary font-bold py-3 rounded-2xl flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           data-testid="open-withdrawal-modal">
           <Banknote size={18} className="text-secondary" />
           Request withdrawal
-          <span className="text-[10px] font-semibold bg-secondary/15 text-primary px-2 py-0.5 rounded-full">24–48h</span>
+          <span className="text-[10px] font-semibold bg-secondary/15 text-primary px-2 py-0.5 rounded-full">
+            {payoutLock?.withdrawal_window ? `Payout ${payoutLock.withdrawal_window.payout_date}` : 'Last 5 days of month'}
+          </span>
         </button>
 
         {/* Important Notice */}

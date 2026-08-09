@@ -24,6 +24,15 @@
 - Backend: `email_templates` collection (seeded from 3 hardcoded OUTREACH_TEMPLATES on first list). CRUD: GET/POST /admin/email-templates, PUT/DELETE /admin/email-templates/{id}. POST /admin/email/preview + POST /admin/email/send {recipients (string or list, max 100), subject, headline, body_html, cta_label, cta_url, template_id?} — sends to ANY external address (existing users allowed, only opt-out list blocks), placeholders {{name}}/{{email}}, logs kind:'direct' in outreach_invitations, shares 500/day admin limit.
 - Frontend: AdminOutreachPage += "Compose" tab (default, multi-recipient textarea, template chips load-then-edit, preview modal, send) + "Templates" tab (list/create/edit/delete editor).
 
+### Step 1 DEPLOYMENT LIVE ✅ (Aug 9) — Atlas 0.0.0.0/0 allowed by user; machine v3 healthy at network-capital-app.fly.dev (Steps 2-4 shipped in v3; Step 5 NOT yet deployed). Fly token env: /root/.flyenv (tmp gets wiped).
+
+### Step 5 (DONE, NOT TESTED per user instruction) — Withdrawal window
+- `_withdrawal_window()` helper (calendar import): open = last 5 days of month, payout_date = last day, is_payout_day flag.
+- POST /withdrawals → 403 outside window; doc + response carry scheduled_payout_date.
+- /admin/withdrawals/{id}/mark-paid → 403 unless last day of month. Approve message now says payout on last day.
+- /payouts/status + /withdrawals/me expose `withdrawal_window`. WalletPage: banner (open=green/closed=amber + days-until-open) + Request button disabled when closed, pill shows payout date.
+- ⚠️ CONFLICT flagged to user: legacy June/cycle payout lock (_is_june_payout_locked, deadline 26 Aug, release 1 Sep SAST) sits on top and contradicts new window (27-31 Aug, payout 31 Aug). Awaiting user decision to retire legacy lock.
+
 ### Remaining steps (each needs user confirmation first; NO TESTING until user approves)
 - Step 3: OG link previews (server-side meta injection for /p/, /store/, /u/, /jobs/) — YouTube-style cards. Domain networkcapitalapp.co.za NOT yet pointed at Fly.
 - Step 4: Super-admin email to external addresses (multi-recipient) + editable DB-stored templates (Brevo).
