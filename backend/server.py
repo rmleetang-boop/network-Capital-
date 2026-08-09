@@ -1256,10 +1256,12 @@ async def award_points(
         "network_score": new_monthly,
         "rank": calculate_rank(new_monthly),
     }
+    reached_top_contributor = False
     if new_monthly >= MONTHLY_TOP_CONTRIBUTOR_THRESHOLD and not user.get("cap_reached_at"):
-        # First time hitting 10k this month → mark as Top Contributor.
+        # First time hitting the threshold this month → mark as Top Contributor.
         update["cap_reached_at"] = datetime.now(timezone.utc).isoformat()
         update["top_contributor_at"] = update["cap_reached_at"]
+        reached_top_contributor = True
 
     await db.users.update_one({"id": user_id}, {"$set": update})
 
@@ -1287,6 +1289,45 @@ async def award_points(
             "read": False,
             "created_at": datetime.now(timezone.utc).isoformat()
         })
+
+    # ── Iter 51 Step 6 — milestone notifications (badge tier / top contributor /
+    # Rising Networker feed-boost status). All in-app, never raise.
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        milestone_docs = []
+        old_badge = calculate_badge(monthly)
+        new_badge = calculate_badge(new_monthly)
+        if new_badge and new_badge != old_badge:
+            milestone_docs.append({
+                "id": str(uuid.uuid4()), "user_id": user_id, "type": "badge_earned",
+                "title": f"New badge: {new_badge}!",
+                "message": f"You crossed {new_monthly:,} points this month and earned the {new_badge} badge. Keep going!",
+                "read": False, "created_at": now_iso,
+            })
+        if reached_top_contributor:
+            milestone_docs.append({
+                "id": str(uuid.uuid4()), "user_id": user_id, "type": "top_contributor",
+                "title": "Top Contributor unlocked 🏆",
+                "message": f"You reached {MONTHLY_TOP_CONTRIBUTOR_THRESHOLD:,} points this month — you're now a Top Contributor with maximum brand visibility.",
+                "read": False, "created_at": now_iso,
+            })
+        # Rising Networker — crossed into the top 10% of scorers (feed boost active)
+        p90 = _FEED_BOOST_CACHE.get("p90") or 0
+        if p90 > 0 and (_FEED_BOOST_CACHE.get("n") or 0) >= FEED_BOOST_MIN_USERS and monthly < p90 <= new_monthly:
+            dedup = await db.notifications.find_one({
+                "user_id": user_id, "type": "rising_networker", "month_key": _month_key(),
+            }, {"_id": 1})
+            if not dedup:
+                milestone_docs.append({
+                    "id": str(uuid.uuid4()), "user_id": user_id, "type": "rising_networker",
+                    "title": "You're a Rising Networker ▲",
+                    "message": "You're now in the top 10% of scorers — your posts get boosted visibility on the feed, where brands and sponsors can spot you.",
+                    "month_key": _month_key(), "read": False, "created_at": now_iso,
+                })
+        if milestone_docs:
+            await db.notifications.insert_many(milestone_docs)
+    except Exception as _me:
+        logger.warning(f"milestone notify failed for {user_id}: {_me}")
 
     # T2 Referral payout — fires ONCE per referrer/invitee when invitee crosses 1,000
     # in the SAME month. Reward is "referral_qualified" (+400). Replaces the old +200/+500 split.
@@ -13227,6 +13268,15 @@ async def create_user_withdrawal(payload: WithdrawalRequestIn, current_user: dic
             "created_at": now,
         } for uid in admin_ids])
 
+    # Iter 51 Step 6 — confirm receipt to the requester (in-app + email)
+    await _notify_user_withdrawal(
+        current_user["id"],
+        "Withdrawal request received",
+        f"We received your R{payload.amount_zar:.2f} withdrawal request from your {payload.source} balance. "
+        f"It is now under review — payout will be processed on {win['payout_date']} (last day of the month).",
+        wid,
+    )
+
     return {
         "id": wid,
         "status": "pending",
@@ -13334,6 +13384,23 @@ async def _notify_user_withdrawal(user_id: str, title: str, message: str, withdr
         "read": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
+    # Iter 51 Step 6 — mirror every withdrawal lifecycle event to email (never raises)
+    try:
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "full_name": 1, "username": 1})
+        if u and u.get("email"):
+            await _send_branded_email(
+                to=u["email"],
+                subject=f"{title} · Network Capital Wallet",
+                html=_branded_email_html(
+                    headline=title,
+                    body_html=f"<p>Hi {u.get('full_name') or u.get('username') or 'there'},</p><p>{message}</p>",
+                    cta_label="Open my Wallet",
+                    cta_url="https://networkcapitalapp.co.za/wallet",
+                ),
+                kind="withdrawal",
+            )
+    except Exception as e:
+        logger.warning(f"withdrawal email notify failed for {user_id}: {e}")
 
 
 @api_router.post("/admin/withdrawals/{withdrawal_id}/approve")
@@ -15247,6 +15314,45 @@ async def send_direct_email(payload: DirectEmailSendRequest, admin: dict = Depen
         "suppressed": sum(1 for r in results if r.get("status") == "suppressed"),
     }
     return {"summary": summary, "results": results}
+
+
+# ─── Iter 51 Step 6 — broadcast "withdrawal window open" (daily check) ──────
+@app.on_event("startup")
+async def _start_withdrawal_window_notifier():
+    async def _loop():
+        while True:
+            try:
+                win = _withdrawal_window()
+                if win["open"]:
+                    flag_key = f"withdraw_window_open_{win['window_start']}"
+                    already = await db.system_flags.find_one({"key": flag_key}, {"_id": 1})
+                    if not already:
+                        await db.system_flags.insert_one({
+                            "key": flag_key, "created_at": datetime.now(timezone.utc).isoformat(),
+                        })
+                        now_iso = datetime.now(timezone.utc).isoformat()
+                        batch = []
+                        async for u in db.users.find(
+                            {"$or": [{"wallet_balance": {"$gt": 0}}, {"promotion_zar_balance": {"$gt": 0}}]},
+                            {"_id": 0, "id": 1},
+                        ):
+                            batch.append({
+                                "id": str(uuid.uuid4()), "user_id": u["id"], "type": "withdrawal_window",
+                                "title": "Withdrawal window is open 💸",
+                                "message": f"You can request a withdrawal until {win['payout_date']}. "
+                                           f"Payout is processed on {win['payout_date']} (last day of the month).",
+                                "read": False, "created_at": now_iso,
+                            })
+                            if len(batch) >= 500:
+                                await db.notifications.insert_many(batch)
+                                batch = []
+                        if batch:
+                            await db.notifications.insert_many(batch)
+                        logger.info(f"[WITHDRAW-WINDOW] broadcast sent for {win['window_start']}")
+            except Exception as e:
+                logger.warning(f"withdrawal window notifier error: {e}")
+            await asyncio.sleep(6 * 3600)   # re-check every 6 hours
+    asyncio.get_event_loop().create_task(_loop())
 
 
 # Re-register router so all routes added above are picked up (must come AFTER the

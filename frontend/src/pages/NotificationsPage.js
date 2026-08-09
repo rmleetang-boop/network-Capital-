@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, TrendingUp, Star, Users, Check } from 'lucide-react';
+import { Bell, TrendingUp, Star, Users, Check, Award, Trophy, Banknote, Flame } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import FeatureIntroModal from '../components/FeatureIntroModal';
@@ -45,6 +45,15 @@ const NotificationsPage = ({ user }) => {
         return <Star className="text-accent-gold" size={20} />;
       case 'referral':
         return <Users className="text-primary" size={20} />;
+      case 'badge_earned':
+        return <Award className="text-accent-gold" size={20} />;
+      case 'top_contributor':
+        return <Trophy className="text-accent-gold" size={20} />;
+      case 'rising_networker':
+        return <Flame className="text-orange-500" size={20} />;
+      case 'withdrawal':
+      case 'withdrawal_window':
+        return <Banknote className="text-emerald-600" size={20} />;
       default:
         return <Bell className="text-text-muted" size={20} />;
     }
