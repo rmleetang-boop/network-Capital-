@@ -13,6 +13,13 @@
 - NEW `POST /api/products/{id}/share` (mirrors job share, clean URL /p/:username/:slug) + FE Share button wired on ProductDetailPage.
 - Feed visibility boost: GET /posts ranks by recency + author-score lift (top10% = +12h/2×, top1% = +24h/3×, cache 10min, min 20 scored users else chronological). Post model += visibility_boost, rising_networker. FE FeedPage shows "▲ Rising Networker" badge.
 
+### Step 3 (DONE, NOT TESTED per user instruction) — OG previews + Aridja inbound API
+- spa_fallback (SERVE_FRONTEND=true only, i.e. Fly) now injects dynamic OG/Twitter meta: /p/:username/:slug + /products/:id (product name, desc, price, first http image), /store/:username, /u/:username, /jobs/:id; default site tags elsewhere; default image /brand/logo512.png; index.html cached.
+- Aridja inbound partner API (auth X-Partner-Key = ARIDJA_INBOUND_KEY in backend/.env + staged Fly secret):
+  POST /api/partner/aridja/feed-post {type: update|course|motivation, title, content, image_url?, link_url?, tags?} → posts to feed as official @aridja account (id aridja_partner_official, lazily created);
+  GET /api/partner/aridja/feed-posts?limit=&skip=; DELETE /api/partner/aridja/feed-posts/{post_id}.
+- Key: nc_partner_mQ7HdCJpNgApNctDqcoiNXczf6Af3hI1hZtEIhVSnSI (also in backend/.env).
+
 ### Remaining steps (each needs user confirmation first; NO TESTING until user approves)
 - Step 3: OG link previews (server-side meta injection for /p/, /store/, /u/, /jobs/) — YouTube-style cards. Domain networkcapitalapp.co.za NOT yet pointed at Fly.
 - Step 4: Super-admin email to external addresses (multi-recipient) + editable DB-stored templates (Brevo).

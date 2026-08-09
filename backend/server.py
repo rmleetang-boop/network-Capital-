@@ -233,6 +233,142 @@ async def aridja_chat(payload: dict = Body(...), current_user: dict = Depends(ge
         raise HTTPException(status_code=503, detail="Aridja unreachable")
 
 
+# ─── ARIDJA INBOUND PARTNER API (iter 51) ───────────────────────────────────
+# Lets aridja.fly.dev publish updates / courses / motivational content straight
+# onto the Network Capital feed, authenticated with X-Partner-Key (env
+# ARIDJA_INBOUND_KEY). Posts appear under the official @aridja account.
+
+ARIDJA_PARTNER_USER_ID = "aridja_partner_official"
+
+
+def _require_partner_key(request: Request) -> None:
+    expected = (os.environ.get('ARIDJA_INBOUND_KEY') or '').strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Partner API not configured (ARIDJA_INBOUND_KEY missing)")
+    supplied = (request.headers.get('X-Partner-Key') or '').strip()
+    if not supplied:
+        auth = request.headers.get('Authorization') or ''
+        if auth.lower().startswith('bearer '):
+            supplied = auth[7:].strip()
+    if supplied != expected:
+        raise HTTPException(status_code=403, detail="Invalid partner key")
+
+
+async def _ensure_aridja_partner_user() -> dict:
+    """Idempotently create the official @aridja account that owns partner posts."""
+    user = await db.users.find_one({"id": ARIDJA_PARTNER_USER_ID}, {"_id": 0})
+    if user:
+        return user
+    user = {
+        "id": ARIDJA_PARTNER_USER_ID,
+        "email": "partner@aridja.fly.dev",
+        "username": "aridja",
+        "full_name": "Aridja — AI Net Worth Architect",
+        "bio": "Official Aridja partner account. Net worth updates, courses and motivation.",
+        "photo": "",
+        "network_score": 0,
+        "monthly_score": 0,
+        "role": "user",
+        "is_official": True,
+        "is_partner": True,
+        "email_verified": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await db.users.insert_one(dict(user))
+    except DuplicateKeyError:
+        pass
+    user.pop("_id", None)
+    return user
+
+
+class AridjaFeedPostRequest(BaseModel):
+    type: str = "update"                  # update | course | motivation
+    title: str = Field(min_length=2, max_length=200)
+    content: str = Field(min_length=2, max_length=5000)
+    image_url: Optional[str] = None       # https URL only
+    link_url: Optional[str] = None        # optional deep link back to Aridja
+    tags: Optional[List[str]] = None      # extra hashtags (no #)
+
+
+@api_router.post("/partner/aridja/feed-post")
+async def aridja_create_feed_post(payload: AridjaFeedPostRequest, request: Request):
+    """Aridja → Network Capital feed. Auth: X-Partner-Key header."""
+    _require_partner_key(request)
+    partner = await _ensure_aridja_partner_user()
+
+    p_type = (payload.type or "update").strip().lower()
+    if p_type not in ("update", "course", "motivation", "motivational"):
+        p_type = "update"
+    if p_type == "motivational":
+        p_type = "motivation"
+
+    image = (payload.image_url or "").strip()
+    if image and not image.startswith(("http://", "https://")):
+        image = ""
+
+    content = payload.title.strip() + "\n\n" + payload.content.strip()
+    link = (payload.link_url or "").strip()
+    if link.startswith(("http://", "https://")):
+        content += f"\n\n🔗 {link}"
+
+    hashtags = ["aridja", p_type]
+    for t in (payload.tags or [])[:8]:
+        t = re.sub(r"[^a-z0-9_]", "", str(t).strip().lower().lstrip("#"))
+        if t and t not in hashtags:
+            hashtags.append(t)
+
+    post = {
+        "id": str(uuid.uuid4()),
+        "user_id": partner["id"],
+        "username": partner["username"],
+        "user_photo": partner.get("photo") or "",
+        "user_score": int(partner.get("network_score") or 0),
+        "content": content[:6000],
+        "image": image or None,
+        "video": None,
+        "hashtags": hashtags,
+        "mentions": [],
+        "likes": [],
+        "comments": [],
+        "shares": 0,
+        "is_official": True,
+        "partner_source": "aridja",
+        "partner_type": p_type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.posts.insert_one(dict(post))
+    post.pop("_id", None)
+    return {"ok": True, "post_id": post["id"], "feed_url": "https://networkcapitalapp.co.za/", "post": post}
+
+
+@api_router.get("/partner/aridja/feed-posts")
+async def aridja_list_feed_posts(request: Request, limit: int = 20, skip: int = 0):
+    """Aridja: list posts previously published via the partner API."""
+    _require_partner_key(request)
+    limit = max(1, min(100, int(limit or 20)))
+    skip = max(0, int(skip or 0))
+    rows = await db.posts.find(
+        {"partner_source": "aridja"},
+        {"_id": 0, "id": 1, "content": 1, "image": 1, "hashtags": 1,
+         "partner_type": 1, "created_at": 1, "likes": 1, "comments": 1, "shares": 1},
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    for r in rows:
+        r["likes_count"] = len(r.pop("likes", []) or [])
+        r["comments_count"] = len(r.pop("comments", []) or [])
+    return {"posts": rows, "count": len(rows)}
+
+
+@api_router.delete("/partner/aridja/feed-posts/{post_id}")
+async def aridja_delete_feed_post(post_id: str, request: Request):
+    """Aridja: remove one of its own partner posts."""
+    _require_partner_key(request)
+    res = await db.posts.delete_one({"id": post_id, "partner_source": "aridja"})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Partner post not found")
+    return {"ok": True, "deleted": post_id}
+
+
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str
@@ -14865,9 +15001,119 @@ if os.environ.get('SERVE_FRONTEND', '').lower() == 'true' and os.path.isdir(_FE_
     if os.path.isdir(_static_dir):
         app.mount("/static", StaticFiles(directory=_static_dir), name="fe-static")
 
+    # ── Iter 51 — YouTube-style link previews ───────────────────────────────
+    # When WhatsApp / Facebook / Twitter / LinkedIn fetch a shared link, we
+    # serve index.html with dynamic OG + Twitter meta tags injected for the
+    # entity behind the URL (product, storefront, profile, job).
+    _OG_INDEX_CACHE: Dict[str, Any] = {"html": None}
+    _OG_SITE_NAME = "Network Capital"
+    _OG_DEFAULT_TITLE = "Network Capital — Build A Better Future Through Your Network"
+    _OG_DEFAULT_DESC = ("Connect, engage, access opportunities and grow through "
+                        "meaningful participation. Increasing your network, building shared access.")
+
+    def _og_read_index() -> str:
+        if _OG_INDEX_CACHE["html"] is None:
+            with open(os.path.join(_FE_BUILD, 'index.html'), 'r', encoding='utf-8') as f:
+                _OG_INDEX_CACHE["html"] = f.read()
+        return _OG_INDEX_CACHE["html"]
+
+    def _og_trim(text: str, n: int = 180) -> str:
+        text = re.sub(r"\s+", " ", str(text or "")).strip()
+        return (text[: n - 1] + "…") if len(text) > n else text
+
+    def _og_pick_image(candidates) -> Optional[str]:
+        for c in candidates or []:
+            if isinstance(c, str) and c.startswith(("http://", "https://")):
+                return c
+        return None
+
+    async def _og_lookup(full_path: str) -> Optional[Dict[str, str]]:
+        """Resolve a share route into {title, description, image, type}."""
+        parts = [p for p in full_path.split("?")[0].split("/") if p]
+        try:
+            if len(parts) == 3 and parts[0] == "p":  # /p/<username>/<slug> — product
+                prod = await db.products.find_one(
+                    {"creator_username": parts[1].lower(), "slug": parts[2]},
+                    {"_id": 0, "name": 1, "description": 1, "problem_solved": 1,
+                     "images": 1, "creator_name": 1, "currency": 1, "price_min": 1},
+                )
+                if prod:
+                    desc = prod.get("description") or prod.get("problem_solved") or ""
+                    if prod.get("price_min"):
+                        desc = f"{prod.get('currency', '')} {prod['price_min']:g} · {desc}"
+                    return {"title": f"{prod['name']} — by {prod.get('creator_name', parts[1])}",
+                            "description": _og_trim(desc), "image": _og_pick_image(prod.get("images")),
+                            "type": "product"}
+            elif len(parts) == 2 and parts[0] == "products":  # /products/<id>
+                prod = await db.products.find_one(
+                    {"id": parts[1]},
+                    {"_id": 0, "name": 1, "description": 1, "problem_solved": 1, "images": 1, "creator_name": 1},
+                )
+                if prod:
+                    return {"title": f"{prod['name']} — by {prod.get('creator_name', 'a creator')}",
+                            "description": _og_trim(prod.get("description") or prod.get("problem_solved")),
+                            "image": _og_pick_image(prod.get("images")), "type": "product"}
+            elif len(parts) == 2 and parts[0] == "store":  # /store/<username>
+                u = await db.users.find_one(
+                    {"username": parts[1].lower()}, {"_id": 0, "full_name": 1, "username": 1, "bio": 1, "photo": 1, "id": 1},
+                )
+                if u:
+                    count = await db.products.count_documents({"creator_id": u["id"], "status": "approved"})
+                    return {"title": f"{u.get('full_name') or u['username']}'s Store · {_OG_SITE_NAME}",
+                            "description": _og_trim(f"{count} product{'s' if count != 1 else ''} · {u.get('bio') or 'Browse and support this creator.'}"),
+                            "image": _og_pick_image([u.get("photo")]), "type": "profile"}
+            elif len(parts) == 2 and parts[0] == "u":  # /u/<username>
+                u = await db.users.find_one(
+                    {"username": parts[1].lower()},
+                    {"_id": 0, "full_name": 1, "username": 1, "bio": 1, "photo": 1, "network_score": 1},
+                )
+                if u:
+                    return {"title": f"{u.get('full_name') or u['username']} (@{u['username']}) · {_OG_SITE_NAME}",
+                            "description": _og_trim(u.get("bio") or f"Network Score {int(u.get('network_score') or 0):,} — connect on {_OG_SITE_NAME}."),
+                            "image": _og_pick_image([u.get("photo")]), "type": "profile"}
+            elif len(parts) == 2 and parts[0] == "jobs":  # /jobs/<id>
+                job = await db.jobs.find_one(
+                    {"id": parts[1]}, {"_id": 0, "title": 1, "company": 1, "location": 1, "description": 1},
+                )
+                if job:
+                    bits = " · ".join(x for x in [job.get("company"), job.get("location")] if x)
+                    return {"title": f"{job['title']}{(' — ' + bits) if bits else ''} · {_OG_SITE_NAME} Jobs",
+                            "description": _og_trim(job.get("description")), "image": None, "type": "article"}
+        except Exception as e:
+            logger.warning(f"OG lookup failed for /{full_path}: {e}")
+        return None
+
+    def _og_render(html_doc: str, meta: Dict[str, str], page_url: str, base: str) -> str:
+        title = meta.get("title") or _OG_DEFAULT_TITLE
+        desc = meta.get("description") or _OG_DEFAULT_DESC
+        image = meta.get("image") or f"{base}/brand/logo512.png"
+        og_type = meta.get("type") or "website"
+        e = _html.escape
+        block = (
+            f'<meta property="og:site_name" content="{e(_OG_SITE_NAME)}"/>'
+            f'<meta property="og:type" content="{e(og_type)}"/>'
+            f'<meta property="og:title" content="{e(title)}"/>'
+            f'<meta property="og:description" content="{e(desc)}"/>'
+            f'<meta property="og:image" content="{e(image)}"/>'
+            f'<meta property="og:url" content="{e(page_url)}"/>'
+            f'<meta name="twitter:card" content="summary_large_image"/>'
+            f'<meta name="twitter:title" content="{e(title)}"/>'
+            f'<meta name="twitter:description" content="{e(desc)}"/>'
+            f'<meta name="twitter:image" content="{e(image)}"/>'
+            f'<meta name="description" content="{e(desc)}"/>'
+        )
+        html_doc = re.sub(r"<title>.*?</title>", f"<title>{e(title)}</title>", html_doc, count=1, flags=re.S)
+        return html_doc.replace("</head>", block + "</head>", 1)
+
     @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):
+    async def spa_fallback(full_path: str, request: Request):
         candidate = os.path.normpath(os.path.join(_FE_BUILD, full_path))
         if full_path and candidate.startswith(os.path.normpath(_FE_BUILD)) and os.path.isfile(candidate):
             return FileResponse(candidate)
-        return FileResponse(os.path.join(_FE_BUILD, 'index.html'))
+        # Dynamic OG previews for share routes (default site tags everywhere else)
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme or "https")
+        host = request.headers.get("host", "networkcapitalapp.co.za")
+        base = f"{proto}://{host}"
+        meta = await _og_lookup(full_path) or {}
+        html_doc = _og_render(_og_read_index(), meta, f"{base}/{full_path}".rstrip("/") or base, base)
+        return HTMLResponse(content=html_doc)
