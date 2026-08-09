@@ -12,17 +12,25 @@ import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 
 const TABS = [
+  { v: 'compose',      label: 'Compose',     Icon: Mail },
   { v: 'quick',        label: 'Quick send',  Icon: Send },
   { v: 'bulk',         label: 'Bulk send',   Icon: UsersIcon },
+  { v: 'templates',    label: 'Templates',   Icon: Sparkles },
   { v: 'history',      label: 'History',     Icon: HistoryIcon },
   { v: 'suppressions', label: 'Opt-outs',    Icon: ShieldOff },
 ];
 
+const EMPTY_COMPOSE = { recipients: '', subject: '', headline: '', body_html: '', cta_label: '', cta_url: '', template_id: '' };
+const EMPTY_TPL = { name: '', subject: '', headline: '', body_html: '', cta_label: '', cta_url: '' };
+
 const AdminOutreachPage = ({ user }) => {
   const navigate = useNavigate();
   const fileRef = useRef(null);
-  const [tab, setTab] = useState('quick');
+  const [tab, setTab] = useState('compose');
   const [templates, setTemplates] = useState([]);
+  const [dbTemplates, setDbTemplates] = useState([]);
+  const [compose, setCompose] = useState(EMPTY_COMPOSE);
+  const [tplEdit, setTplEdit] = useState(null);   // null | {id?, ...EMPTY_TPL}
   const [history, setHistory] = useState([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0, total: 0 });
   const [suppressions, setSuppressions] = useState([]);
@@ -44,7 +52,95 @@ const AdminOutreachPage = ({ user }) => {
     }
     loadTemplates();
     loadHistory();
+    loadDbTemplates();
   }, []);
+
+  const loadDbTemplates = async () => {
+    try {
+      const r = await axiosInstance.get('/admin/email-templates');
+      setDbTemplates(r.data.templates || []);
+    } catch { /* ignore */ }
+  };
+
+  const applyDbTemplate = (t) => {
+    setCompose({
+      ...compose,
+      template_id: t.id,
+      subject: t.subject || '',
+      headline: t.headline || '',
+      body_html: t.body_html || '',
+      cta_label: t.cta_label || '',
+      cta_url: t.cta_url || '',
+    });
+    toast.success(`Template "${t.name}" loaded — edit freely before sending`);
+  };
+
+  const composePreview = async () => {
+    try {
+      const r = await axiosInstance.post('/admin/email/preview', {
+        recipients: compose.recipients || 'preview@example.com',
+        subject: compose.subject, headline: compose.headline,
+        body_html: compose.body_html, cta_label: compose.cta_label, cta_url: compose.cta_url,
+      });
+      setPreviewHtml(r.data.html);
+      setShowPreview(true);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Could not render preview'); }
+  };
+
+  const composeSend = async () => {
+    const emails = compose.recipients.split(/[,;\s\n]+/).filter((x) => x.includes('@'));
+    if (!emails.length || !compose.subject || !compose.body_html) {
+      toast.error('Recipients, subject and body are required');
+      return;
+    }
+    if (!window.confirm(`Send this email to ${emails.length} recipient${emails.length > 1 ? 's' : ''}?`)) return;
+    setBusy(true);
+    try {
+      const r = await axiosInstance.post('/admin/email/send', {
+        recipients: compose.recipients,
+        subject: compose.subject, headline: compose.headline,
+        body_html: compose.body_html, cta_label: compose.cta_label, cta_url: compose.cta_url,
+      });
+      const s = r.data.summary || {};
+      toast.success(`Sent ${s.sent}/${s.total}${s.failed ? ` — ${s.failed} failed` : ''}${s.suppressed ? ` — ${s.suppressed} opted out` : ''}`);
+      setCompose({ ...EMPTY_COMPOSE });
+      loadHistory();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Send failed');
+    } finally { setBusy(false); }
+  };
+
+  const saveTemplate = async () => {
+    if (!tplEdit) return;
+    const { id, ...body } = tplEdit;
+    if (!body.name || !body.subject || !body.headline || !body.body_html) {
+      toast.error('Name, subject, headline and body are required');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (id) {
+        await axiosInstance.put(`/admin/email-templates/${id}`, body);
+        toast.success('Template updated');
+      } else {
+        await axiosInstance.post('/admin/email-templates', body);
+        toast.success('Template created');
+      }
+      setTplEdit(null);
+      loadDbTemplates();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Could not save template');
+    } finally { setBusy(false); }
+  };
+
+  const deleteTemplate = async (id) => {
+    if (!window.confirm('Delete this template? This cannot be undone.')) return;
+    try {
+      await axiosInstance.delete(`/admin/email-templates/${id}`);
+      toast.success('Template deleted');
+      loadDbTemplates();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Could not delete'); }
+  };
 
   const loadTemplates = async () => {
     try {
@@ -188,7 +284,7 @@ const AdminOutreachPage = ({ user }) => {
           {TABS.map((t) => (
             <button
               key={t.v}
-              onClick={() => { setTab(t.v); if (t.v === 'history') loadHistory(); if (t.v === 'suppressions') loadSuppressions(); }}
+              onClick={() => { setTab(t.v); if (t.v === 'history') loadHistory(); if (t.v === 'suppressions') loadSuppressions(); if (t.v === 'templates' || t.v === 'compose') loadDbTemplates(); }}
               className={`flex-shrink-0 px-3 py-2 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 ${tab === t.v ? 'bg-primary text-white' : 'bg-white border border-gray-200 text-text-secondary'}`}
               data-testid={`outreach-tab-${t.v}`}
             >
@@ -199,6 +295,130 @@ const AdminOutreachPage = ({ user }) => {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 pb-12 space-y-4">
+        {/* Compose — free email to ANY external address(es) */}
+        {tab === 'compose' && (
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3" data-testid="email-compose">
+            <h2 className="font-heading font-bold text-base inline-flex items-center gap-1.5"><Mail size={14} /> Compose email</h2>
+            <p className="text-[11px] text-text-muted">Send to any address — one or many (comma / newline separated). Not limited to platform users. Placeholders: {'{{name}}'} · {'{{email}}'}</p>
+            {dbTemplates.length > 0 && (
+              <Field label="Start from a template (optional)">
+                <div className="flex flex-wrap gap-1.5">
+                  {dbTemplates.map((t) => (
+                    <button key={t.id} onClick={() => applyDbTemplate(t)}
+                      className={`px-2.5 py-1.5 rounded-full text-[11px] font-bold border ${compose.template_id === t.id ? 'bg-primary text-white border-primary' : 'bg-white border-gray-200 text-text-secondary hover:border-primary/40'}`}
+                      data-testid={`compose-template-${t.id}`}>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+            <Field label="Recipients (comma or newline separated)" required>
+              <textarea rows={2} value={compose.recipients} onChange={(e) => setCompose({ ...compose, recipients: e.target.value })}
+                placeholder="person@example.com, partner@company.com" className="w-full p-3 border border-gray-200 rounded-xl text-sm font-mono resize-none" data-testid="compose-recipients" />
+            </Field>
+            <Field label="Subject" required>
+              <input value={compose.subject} onChange={(e) => setCompose({ ...compose, subject: e.target.value })}
+                maxLength={180} placeholder="Subject line" className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="compose-subject" />
+            </Field>
+            <Field label="Headline (big title inside the email)">
+              <input value={compose.headline} onChange={(e) => setCompose({ ...compose, headline: e.target.value })}
+                maxLength={160} placeholder="A message from Network Capital" className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="compose-headline" />
+            </Field>
+            <Field label="Body (plain text or HTML)" required>
+              <textarea rows={8} value={compose.body_html} onChange={(e) => setCompose({ ...compose, body_html: e.target.value })}
+                placeholder={'Hi {{name}},\n\nWrite your message here…'} className="w-full p-3 border border-gray-200 rounded-xl text-sm resize-y" data-testid="compose-body" />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Button label (optional)">
+                <input value={compose.cta_label} onChange={(e) => setCompose({ ...compose, cta_label: e.target.value })}
+                  placeholder="Join Network Capital →" className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="compose-cta-label" />
+              </Field>
+              <Field label="Button link (optional)">
+                <input value={compose.cta_url} onChange={(e) => setCompose({ ...compose, cta_url: e.target.value })}
+                  placeholder="https://networkcapitalapp.co.za" className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="compose-cta-url" />
+              </Field>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <button onClick={composePreview} className="px-3 py-2.5 rounded-full bg-gray-100 text-text-secondary text-xs font-bold inline-flex items-center gap-1.5" data-testid="compose-preview-btn"><Eye size={12} /> Preview</button>
+              <button onClick={composeSend} disabled={busy || !compose.recipients || !compose.subject || !compose.body_html}
+                className="flex-1 px-4 py-3 rounded-full bg-primary text-white font-bold text-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 shadow"
+                data-testid="compose-send-btn">
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Send email
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Templates manager */}
+        {tab === 'templates' && (
+          <div className="space-y-3" data-testid="email-templates-tab">
+            <div className="bg-white rounded-2xl p-4 border border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-heading font-bold text-base inline-flex items-center gap-1.5"><Sparkles size={14} /> Email templates</h2>
+                <button onClick={() => setTplEdit({ ...EMPTY_TPL })} className="px-3 py-1.5 rounded-full bg-primary text-white text-xs font-bold inline-flex items-center gap-1" data-testid="tpl-new-btn"><Plus size={12} /> New template</button>
+              </div>
+              <p className="text-[11px] text-text-muted mb-3">Fully editable — used by the Compose tab. Placeholders {'{{name}}'} and {'{{email}}'} are filled per recipient.</p>
+              {dbTemplates.length === 0 ? (
+                <p className="text-xs text-text-muted py-4 text-center">No templates yet — create one.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {dbTemplates.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-100 bg-gray-50/50" data-testid={`tpl-row-${t.id}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-text-primary truncate">{t.name}{t.is_seed ? <span className="ml-1.5 text-[9px] uppercase bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">starter</span> : null}</p>
+                        <p className="text-[11px] text-text-muted truncate">{t.subject}</p>
+                      </div>
+                      <button onClick={() => setTplEdit({ id: t.id, name: t.name, subject: t.subject, headline: t.headline, body_html: t.body_html, cta_label: t.cta_label || '', cta_url: t.cta_url || '' })}
+                        className="px-2.5 py-1.5 rounded-full bg-white border border-gray-200 text-[11px] font-bold" data-testid={`tpl-edit-${t.id}`}>Edit</button>
+                      <button onClick={() => deleteTemplate(t.id)} className="p-2 rounded-full hover:bg-red-50 text-red-500" aria-label="Delete" data-testid={`tpl-delete-${t.id}`}><X size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {tplEdit && (
+              <div className="bg-white rounded-2xl p-4 border-2 border-primary/30 space-y-3" data-testid="tpl-editor">
+                <h3 className="font-heading font-bold text-sm">{tplEdit.id ? 'Edit template' : 'New template'}</h3>
+                <Field label="Template name" required>
+                  <input value={tplEdit.name} onChange={(e) => setTplEdit({ ...tplEdit, name: e.target.value })} maxLength={80}
+                    className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="tpl-name" />
+                </Field>
+                <Field label="Subject" required>
+                  <input value={tplEdit.subject} onChange={(e) => setTplEdit({ ...tplEdit, subject: e.target.value })} maxLength={180}
+                    className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="tpl-subject" />
+                </Field>
+                <Field label="Headline" required>
+                  <input value={tplEdit.headline} onChange={(e) => setTplEdit({ ...tplEdit, headline: e.target.value })} maxLength={160}
+                    className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="tpl-headline" />
+                </Field>
+                <Field label="Body (plain text or HTML)" required>
+                  <textarea rows={8} value={tplEdit.body_html} onChange={(e) => setTplEdit({ ...tplEdit, body_html: e.target.value })}
+                    className="w-full p-3 border border-gray-200 rounded-xl text-sm resize-y" data-testid="tpl-body" />
+                </Field>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Button label">
+                    <input value={tplEdit.cta_label} onChange={(e) => setTplEdit({ ...tplEdit, cta_label: e.target.value })}
+                      className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="tpl-cta-label" />
+                  </Field>
+                  <Field label="Button link">
+                    <input value={tplEdit.cta_url} onChange={(e) => setTplEdit({ ...tplEdit, cta_url: e.target.value })}
+                      className="w-full p-3 border border-gray-200 rounded-xl text-sm" data-testid="tpl-cta-url" />
+                  </Field>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button onClick={() => setTplEdit(null)} className="px-3 py-2.5 rounded-full bg-gray-100 text-text-secondary text-xs font-bold" data-testid="tpl-cancel">Cancel</button>
+                  <button onClick={saveTemplate} disabled={busy}
+                    className="flex-1 px-4 py-3 rounded-full bg-primary text-white font-bold text-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50" data-testid="tpl-save">
+                    {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save template
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Template picker — shared */}
         {(tab === 'quick' || tab === 'bulk') && (
           <TemplatePicker

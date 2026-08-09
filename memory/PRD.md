@@ -20,6 +20,10 @@
   GET /api/partner/aridja/feed-posts?limit=&skip=; DELETE /api/partner/aridja/feed-posts/{post_id}.
 - Key: nc_partner_mQ7HdCJpNgApNctDqcoiNXczf6Af3hI1hZtEIhVSnSI (also in backend/.env).
 
+### Step 4 (DONE, NOT TESTED per user instruction) — External emailing + editable templates
+- Backend: `email_templates` collection (seeded from 3 hardcoded OUTREACH_TEMPLATES on first list). CRUD: GET/POST /admin/email-templates, PUT/DELETE /admin/email-templates/{id}. POST /admin/email/preview + POST /admin/email/send {recipients (string or list, max 100), subject, headline, body_html, cta_label, cta_url, template_id?} — sends to ANY external address (existing users allowed, only opt-out list blocks), placeholders {{name}}/{{email}}, logs kind:'direct' in outreach_invitations, shares 500/day admin limit.
+- Frontend: AdminOutreachPage += "Compose" tab (default, multi-recipient textarea, template chips load-then-edit, preview modal, send) + "Templates" tab (list/create/edit/delete editor).
+
 ### Remaining steps (each needs user confirmation first; NO TESTING until user approves)
 - Step 3: OG link previews (server-side meta injection for /p/, /store/, /u/, /jobs/) — YouTube-style cards. Domain networkcapitalapp.co.za NOT yet pointed at Fly.
 - Step 4: Super-admin email to external addresses (multi-recipient) + editable DB-stored templates (Brevo).

@@ -14971,6 +14971,240 @@ async def list_outreach_suppressions(limit: int = 200, admin: dict = Depends(req
     return {"items": rows, "count": len(rows)}
 
 
+# ─── Iter 51 Step 4 — Editable email templates + direct external compose ─────
+# Super-admin/admin can email ANY external address (single or multiple) and
+# manage reusable templates stored in `email_templates`. Placeholders {{name}}
+# and {{email}} are substituted per recipient at send time.
+
+EMAIL_DIRECT_MAX_RECIPIENTS = 100
+
+
+class EmailTemplateBody(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    subject: str = Field(min_length=3, max_length=180)
+    headline: str = Field(min_length=2, max_length=160)
+    body_html: str = Field(min_length=5, max_length=20000)   # HTML or plain text with newlines
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+
+
+class DirectEmailSendRequest(BaseModel):
+    recipients: Any                       # list[str] OR comma/space separated string
+    template_id: Optional[str] = None     # use a saved template…
+    subject: Optional[str] = None         # …or override / free-compose
+    headline: Optional[str] = None
+    body_html: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+
+
+def _parse_recipient_emails(raw: Any) -> List[str]:
+    if isinstance(raw, str):
+        parts = re.split(r"[,;\s]+", raw)
+    elif isinstance(raw, list):
+        parts = [str(x) for x in raw]
+    else:
+        parts = []
+    out, seen = [], set()
+    for p in parts:
+        em = p.strip().lower()
+        if em and "@" in em and "." in em.split("@")[-1] and em not in seen:
+            seen.add(em)
+            out.append(em)
+    return out
+
+
+def _template_body_to_html(body: str) -> str:
+    """If the body has no HTML tags, convert newlines to <br/> so plain text renders."""
+    if re.search(r"<[a-zA-Z][^>]*>", body or ""):
+        return body
+    return _html.escape(body or "").replace("\n", "<br/>")
+
+
+def _render_direct_email(*, headline: str, body_html: str, cta_label: Optional[str],
+                         cta_url: Optional[str], name: str, email: str) -> str:
+    display = (name or "").strip() or "there"
+    body = (body_html or "").replace("{{name}}", display).replace("{{email}}", email)
+    head = (headline or "").replace("{{name}}", display).replace("{{email}}", email)
+    return _branded_email_html(
+        headline=head,
+        body_html=_template_body_to_html(body),
+        cta_label=(cta_label or "").strip() or None,
+        cta_url=(cta_url or "").strip() or None,
+    )
+
+
+async def _seed_email_templates_if_empty() -> None:
+    if await db.email_templates.count_documents({}) > 0:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    for key, tpl in OUTREACH_TEMPLATES.items():
+        body = (
+            f"<p>Hi {{{{name}}}},</p>"
+            f"<p>{tpl.get('body_intro', '')}</p>"
+            f"<p><strong>{tpl.get('opp1_title', '')}</strong><br/>{tpl.get('opp1_body', '')}</p>"
+            f"<p><strong>{tpl.get('opp2_title', '')}</strong><br/>{tpl.get('opp2_body', '')}</p>"
+        )
+        await db.email_templates.insert_one({
+            "id": str(uuid.uuid4()),
+            "name": tpl.get("label") or key,
+            "subject": tpl.get("headline") or key,
+            "headline": tpl.get("headline") or "",
+            "body_html": body,
+            "cta_label": tpl.get("cta_label") or "Join Network Capital →",
+            "cta_url": "https://networkcapitalapp.co.za",
+            "is_seed": True,
+            "created_at": now,
+            "updated_at": now,
+        })
+
+
+@api_router.get("/admin/email-templates")
+async def list_email_templates(admin: dict = Depends(require_admin_user)):
+    await _seed_email_templates_if_empty()
+    rows = await db.email_templates.find({}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    return {"templates": rows, "placeholders": ["{{name}}", "{{email}}"]}
+
+
+@api_router.post("/admin/email-templates")
+async def create_email_template(payload: EmailTemplateBody, admin: dict = Depends(require_admin_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(uuid.uuid4()),
+        **payload.dict(),
+        "is_seed": False,
+        "created_by": admin["id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.email_templates.insert_one(dict(doc))
+    doc.pop("_id", None)
+    return {"ok": True, "template": doc}
+
+
+@api_router.put("/admin/email-templates/{template_id}")
+async def update_email_template(template_id: str, payload: EmailTemplateBody,
+                                admin: dict = Depends(require_admin_user)):
+    res = await db.email_templates.update_one(
+        {"id": template_id},
+        {"$set": {**payload.dict(), "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "updated_by": admin["id"]}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    doc = await db.email_templates.find_one({"id": template_id}, {"_id": 0})
+    return {"ok": True, "template": doc}
+
+
+@api_router.delete("/admin/email-templates/{template_id}")
+async def delete_email_template(template_id: str, admin: dict = Depends(require_admin_user)):
+    res = await db.email_templates.delete_one({"id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"ok": True}
+
+
+@api_router.post("/admin/email/preview")
+async def preview_direct_email(payload: DirectEmailSendRequest, admin: dict = Depends(require_admin_user)):
+    """Render the final HTML (template or free-compose) without sending."""
+    tpl: Dict[str, Any] = {}
+    if payload.template_id:
+        tpl = await db.email_templates.find_one({"id": payload.template_id}, {"_id": 0}) or {}
+        if not tpl:
+            raise HTTPException(status_code=404, detail="Template not found")
+    headline = payload.headline or tpl.get("headline") or "A message from Network Capital"
+    body = payload.body_html or tpl.get("body_html") or ""
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="Email body is empty")
+    html = _render_direct_email(
+        headline=headline, body_html=body,
+        cta_label=payload.cta_label if payload.cta_label is not None else tpl.get("cta_label"),
+        cta_url=payload.cta_url if payload.cta_url is not None else tpl.get("cta_url"),
+        name="Preview Name", email="preview@example.com",
+    )
+    return {"html": html, "subject": payload.subject or tpl.get("subject") or ""}
+
+
+@api_router.post("/admin/email/send")
+async def send_direct_email(payload: DirectEmailSendRequest, admin: dict = Depends(require_admin_user)):
+    """Send a composed/templated email to ANY external address(es) — not limited
+    to platform users. Respects the opt-out suppression list and the per-admin
+    daily limit shared with outreach."""
+    emails = _parse_recipient_emails(payload.recipients)
+    if not emails:
+        raise HTTPException(status_code=400, detail="No valid recipient emails provided")
+    if len(emails) > EMAIL_DIRECT_MAX_RECIPIENTS:
+        raise HTTPException(status_code=400, detail=f"Maximum {EMAIL_DIRECT_MAX_RECIPIENTS} recipients per send")
+    ok, reason = await _outreach_can_send(admin["id"])
+    if not ok:
+        raise HTTPException(status_code=429, detail=reason)
+
+    tpl: Dict[str, Any] = {}
+    if payload.template_id:
+        tpl = await db.email_templates.find_one({"id": payload.template_id}, {"_id": 0}) or {}
+        if not tpl:
+            raise HTTPException(status_code=404, detail="Template not found")
+    subject_raw = (payload.subject or tpl.get("subject") or "").strip()
+    headline = payload.headline or tpl.get("headline") or "A message from Network Capital"
+    body = payload.body_html or tpl.get("body_html") or ""
+    if not subject_raw:
+        raise HTTPException(status_code=400, detail="Subject is required")
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="Email body is empty")
+    cta_label = payload.cta_label if payload.cta_label is not None else tpl.get("cta_label")
+    cta_url = payload.cta_url if payload.cta_url is not None else tpl.get("cta_url")
+
+    results = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for em in emails:
+        # Only the explicit opt-out list blocks direct sends (existing users ARE allowed)
+        if await db.outreach_suppressions.find_one({"email": em}, {"_id": 1}):
+            results.append({"email": em, "ok": False, "status": "suppressed"})
+            continue
+        html = _render_direct_email(
+            headline=headline, body_html=body,
+            cta_label=cta_label, cta_url=cta_url, name="", email=em,
+        )
+        subject = subject_raw.replace("{{email}}", em).replace("{{name}}", "there")
+        delivered = False
+        failure = None
+        try:
+            delivered = await _brevo_send(
+                to_email=em, subject=subject, html_content=html,
+                reply_to="creative@networkcapitalapp.co.za",
+                tags=["direct", f"admin:{admin.get('username', 'admin')}"],
+            )
+            if not delivered:
+                failure = "brevo_returned_falsy"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[DIRECT-EMAIL-FAIL] to={em} err={exc}")
+            failure = str(exc)[:240]
+        await db.outreach_invitations.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": em,
+            "name": None,
+            "subject": subject,
+            "template": payload.template_id or "custom_compose",
+            "kind": "direct",
+            "sender_id": admin["id"],
+            "sender_username": admin.get("username") or "admin",
+            "status": "sent" if delivered else "failed",
+            "failure_reason": failure,
+            "sent_at": now_iso,
+            "resent_count": 0,
+            "never_contact": False,
+        })
+        results.append({"email": em, "ok": delivered, "status": "sent" if delivered else "failed"})
+
+    summary = {
+        "total": len(results),
+        "sent": sum(1 for r in results if r.get("ok")),
+        "failed": sum(1 for r in results if r.get("status") == "failed"),
+        "suppressed": sum(1 for r in results if r.get("status") == "suppressed"),
+    }
+    return {"summary": summary, "results": results}
+
+
 # Re-register router so all routes added above are picked up (must come AFTER the
 # pre-existing seed `app.include_router(api_router)` block immediately below this).
 app.include_router(api_router)
