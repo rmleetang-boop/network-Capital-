@@ -1,15 +1,20 @@
-# Fly.io config — Network Capital (single container: FastAPI + built React SPA)
+# fly.toml app configuration file generated for network-capital-app on 2026-08-09T14:52:20Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'network-capital-app'
 primary_region = 'jnb'
 
 [build]
   dockerfile = 'Dockerfile'
+
   [build.args]
     REACT_APP_BACKEND_URL = ''
 
 [env]
-  SERVE_FRONTEND = 'true'
   DB_NAME = 'network_capital'
+  SERVE_FRONTEND = 'true'
 
 [http_service]
   internal_port = 8080
