@@ -161,7 +161,7 @@ async def _aridja_request(method: str, path: str, json_body=None, timeout: float
     import httpx
     base, key = _aridja_conf()
     url = f"{base}{path}"
-    headers = {"X-API-Key": key}
+    headers = {"X-API-Key": key, "Accept": "application/json"}
     for verify in (True, False):
         try:
             async with httpx.AsyncClient(timeout=timeout, verify=verify) as cx:
@@ -184,7 +184,12 @@ async def aridja_status(current_user: dict = Depends(get_current_user)):
                     "detail": "Aridja integration API not deployed at this URL yet"}
         if r.status_code == 401:
             return {"configured": True, "reachable": True, "ai_ready": False, "detail": "Invalid Aridja API key"}
-        data = r.json() if r.status_code == 200 else {}
+        if r.status_code == 403:
+            return {"configured": True, "reachable": True, "ai_ready": False, "detail": "Aridja API key is not authorized"}
+        if r.status_code != 200:
+            return {"configured": True, "reachable": True, "ai_ready": False,
+                    "detail": f"Aridja integration error ({r.status_code})"}
+        data = r.json()
         return {"configured": True, "reachable": True,
                 "ai_ready": bool(data.get("ai_ready", data.get("ai", False))),
                 "detail": "ok", "raw": data}
@@ -1896,11 +1901,17 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
 async def get_user_by_username(username: str):
     """Public lookup by username — returns the same lightweight payload as
     /users/{user_id} but indexed by handle so the new `/u/:username` page can
-    fetch by URL slug. Used by the Instagram-style public profile view."""
-    if not username or len(username) > 50:
+    fetch by URL slug. Used by the Instagram-style public profile view.
+
+    Handles are stored lowercase, while shared links and mobile deep links can
+    preserve casing (or include the display-only ``@`` prefix). Normalize the
+    route parameter before querying so valid profiles are not reported missing.
+    """
+    normalized_username = (username or "").strip().lstrip("@").lower()
+    if not normalized_username or len(normalized_username) > 50:
         raise HTTPException(status_code=404, detail="Invalid username")
     u = await db.users.find_one(
-        {"username": username},
+        {"username": normalized_username},
         {"_id": 0, "password": 0, "banking": 0, "super_admin_pin_hash": 0,
          "email": 0, "phone": 0, "id_number": 0},
     )

@@ -27,7 +27,7 @@ const buildTiles = (profile) => [
   { icon: Package, label: 'My Store', path: '/my-store', highlight: true },
   { icon: Package, label: 'Products', path: '/products' },
   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
-  { icon: Gem, label: 'Aridja AI', path: 'https://aridja.online', external: true, highlight: true },
+  { icon: Gem, image: '/brand/aridja-logo.png', label: 'Aridja', path: 'https://aridja.online', external: true, highlight: true },
   { icon: Activity, label: 'Score Tracker', path: '/tracker' },
   { icon: Briefcase, label: 'Jobs', path: '/jobs' },
   { icon: Sparkles, label: 'Promotions', path: '/promotions/me' },
@@ -64,7 +64,7 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
 
   const handleNavigate = (tile) => {
     if (tile.external) {
-      window.open(tile.path, '_blank', 'noopener,noreferrer');
+      window.location.assign(tile.path);
       return;
     }
     if (typeof onNavigate === 'function') {
@@ -109,13 +109,17 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
               data-testid={`${tileTestPrefix}-${slugify(t.label)}`}
             >
               <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                className={`w-9 h-9 rounded-xl flex items-center justify-center border overflow-hidden ${
                   t.highlight
                     ? 'bg-[#E8A817]/15 border-[#E8A817]/40'
                     : 'bg-white/5 border-white/10 group-hover:border-[#E8A817]/40 group-hover:bg-[#E8A817]/10'
                 } transition-colors`}
               >
-                <TIcon size={18} className={t.highlight ? 'text-[#E8A817]' : 'text-white/85 group-hover:text-[#E8A817]'} />
+                {t.image ? (
+                  <img src={t.image} alt="Aridja" className="w-full h-full object-contain p-1" />
+                ) : (
+                  <TIcon size={18} className={t.highlight ? 'text-[#E8A817]' : 'text-white/85 group-hover:text-[#E8A817]'} />
+                )}
               </div>
               <span className="text-[11px] font-semibold leading-tight text-center text-white/85 group-hover:text-white">
                 {t.label}

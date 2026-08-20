@@ -401,7 +401,7 @@ const FeedPage = ({ user }) => {
         <StoriesRibbon currentUser={user} onOpenViewer={(g) => setStoryGroup(g)} />
       </div>
 
-      <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-4 space-y-4">
         <NativeFeedAd />
         {posts.map((post, index) => (
           <PostCard

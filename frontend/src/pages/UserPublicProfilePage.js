@@ -51,8 +51,17 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setProfile(null);
+      setPosts([]);
+      const requestedUsername = decodeURIComponent(username || '').replace(/^@/, '').toLowerCase();
+      const ownUsername = (currentUser?.username || '').replace(/^@/, '').toLowerCase();
       try {
-        const r = await axiosInstance.get(`/users/by-username/${encodeURIComponent(username)}`);
+        // The signed-in user is authoritative for their own profile. This
+        // fallback keeps mobile deep links working even if the public lookup
+        // is temporarily unavailable or the URL came from an older session.
+        const r = ownUsername && requestedUsername === ownUsername
+          ? { data: currentUser }
+          : await axiosInstance.get(`/users/by-username/${encodeURIComponent(username)}`);
         setProfile(r.data);
         try {
           const ph = await axiosInstance.get(`/users/${r.data.id}/posts`);
@@ -63,7 +72,7 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
       } finally { setLoading(false); }
     };
     if (username) load();
-  }, [username]);
+  }, [username, currentUser]);
 
   const handleConnect = async () => {
     if (!profile || isOwnProfile) return;
@@ -118,7 +127,7 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
     <div className="min-h-screen bg-[#04101e] text-white pb-24" data-testid="user-public-profile">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-[#04101e]/85 backdrop-blur-md border-b border-white/[0.06]">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-3 flex items-center gap-3">
           <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-full hover:bg-white/5" data-testid="back-btn">
             <ArrowLeft size={20} />
           </button>
@@ -156,7 +165,7 @@ const UserPublicProfilePage = ({ user: currentUser }) => {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10">
         {/* Hero band */}
         <div className="flex items-center gap-5 sm:gap-8 py-5">
           <div className={`relative shrink-0 ${hasPosts ? 'p-[3px] rounded-full bg-gradient-to-tr from-[#E8A817] via-fuchsia-500 to-[#1e4fa5]' : ''}`} data-testid="avatar">

@@ -231,7 +231,7 @@ const ProfilePage = ({ user, setUser }) => {
       )}
       <div className="bg-gradient-to-br from-primary to-secondary h-32"></div>
 
-      <div className="max-w-2xl mx-auto px-4 -mt-16">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 -mt-16">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

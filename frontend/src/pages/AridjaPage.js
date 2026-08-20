@@ -36,6 +36,15 @@ const AridjaPage = ({ user }) => {
   }, [messages]);
 
   const online = status?.reachable && status?.detail === 'ok';
+  const statusLabel = !status
+    ? 'Connecting…'
+    : !status.reachable
+    ? 'Unavailable'
+    : status.detail === 'ok'
+    ? (status.ai_ready ? 'Online' : 'Connected')
+    : status.configured === false
+    ? 'Not configured'
+    : 'Unavailable';
 
   const send = async (text) => {
     const message = (text || input).trim();
@@ -79,7 +88,7 @@ const AridjaPage = ({ user }) => {
             data-testid="aridja-status-chip"
           >
             {online ? <Wifi size={12} /> : <WifiOff size={12} />}
-            {online ? (status?.ai_ready ? 'Online' : 'Connected') : 'Connecting…'}
+            {statusLabel}
           </span>
         </div>
       </div>
@@ -155,8 +164,6 @@ const AridjaPage = ({ user }) => {
         {/* Open full Aridja */}
         <a
           href={ARIDJA_SITE}
-          target="_blank"
-          rel="noopener noreferrer"
           className="inline-flex items-center justify-center gap-2 text-xs text-white/60 hover:text-[#E8A817] transition-colors"
           data-testid="aridja-external-link"
         >
