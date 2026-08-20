@@ -11,13 +11,14 @@ const Layout = ({ children, user, onLogout }) => {
     { icon: Compass, label: 'Explore', path: '/explore' },
     { icon: MapPin, label: 'Hubs', path: '/hubs' },
     { icon: Briefcase, label: 'Stokvel+', path: '/stokvels' },
-    // Profile tab → Instagram-style public view at /u/:username (falls back to /profile if no username yet)
-    { icon: User, label: 'Profile', path: user?.username ? `/u/${user.username}` : '/profile' },
+    // The authenticated Profile tab must use the own-profile route directly.
+    // Public profiles remain available through /u/:username elsewhere in the app.
+    { icon: User, label: 'Profile', path: '/profile' },
   ];
 
   const isActive = (path) => {
-    if (path.startsWith('/u/')) {
-      return location.pathname.startsWith('/u/') || location.pathname === '/profile';
+    if (path === '/profile') {
+      return location.pathname === '/profile' || location.pathname.startsWith('/profile/');
     }
     return location.pathname === path;
   };
