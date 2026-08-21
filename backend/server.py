@@ -520,6 +520,7 @@ class Post(BaseModel):
     username: str
     user_photo: str
     user_score: int
+    member_role: Optional[str] = "member"
     content: str
     image: Optional[str] = None
     video: Optional[str] = None
@@ -4299,7 +4300,7 @@ async def _enrich_posts_with_live_score(posts: List[dict]) -> List[dict]:
         return posts
     rows = await db.users.find(
         {"id": {"$in": author_ids}},
-        {"_id": 0, "id": 1, "network_score": 1, "username": 1, "photo": 1},
+        {"_id": 0, "id": 1, "network_score": 1, "username": 1, "photo": 1, "user_kind": 1, "is_ambassador": 1},
     ).to_list(length=None)
     by_id = {r["id"]: r for r in rows}
     for p in posts:
@@ -4312,6 +4313,7 @@ async def _enrich_posts_with_live_score(posts: List[dict]) -> List[dict]:
             # Only propagate URL photos. Skip base64 data URLs and empty strings.
             if photo.startswith(("http://", "https://")):
                 p["user_photo"] = photo
+            p["member_role"] = "ambassador" if live.get("is_ambassador") else (live.get("user_kind") or "member")
     return posts
 
 @api_router.post("/posts/{post_id}/like")

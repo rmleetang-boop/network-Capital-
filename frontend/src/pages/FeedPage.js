@@ -46,15 +46,18 @@ const FeedPage = ({ user }) => {
   const [batchSubmitting, setBatchSubmitting] = useState(false);
   const [batchProgress, setBatchProgress] = useState(0);
   const [batchResult, setBatchResult] = useState(null);
+  const [batchRole, setBatchRole] = useState('all');
+  const [batchMinScore, setBatchMinScore] = useState(0);
   const sentinelRef = useRef(null);
   const firstLoadRef = useRef(false);
   const navigate = useNavigate();
 
-  const visibleNetworkUsers = Array.from(new Map(posts.filter((post) => post.user_id && post.user_id !== user.id).map((post) => [post.user_id, { id: post.user_id, username: post.username || 'member' }])).values());
+  const visibleNetworkUsers = Array.from(new Map(posts.filter((post) => post.user_id && post.user_id !== user.id).map((post) => [post.user_id, { id: post.user_id, username: post.username || 'member', member_role: post.member_role || 'member', user_score: Number(post.user_score || 0) }])).values());
+  const filteredNetworkUsers = visibleNetworkUsers.filter((member) => (batchRole === 'all' || member.member_role === batchRole) && member.user_score >= Number(batchMinScore || 0));
 
   const openBatchDialog = () => {
-    if (!visibleNetworkUsers.length) {
-      toast.info('No other visible members to connect with yet.');
+    if (!filteredNetworkUsers.length) {
+      toast.info('No visible members match the selected filters.');
       return;
     }
     setBatchResult(null);
@@ -63,14 +66,14 @@ const FeedPage = ({ user }) => {
   };
 
   const runBatchConnect = async () => {
-    if (!visibleNetworkUsers.length) return;
+    if (!filteredNetworkUsers.length) return;
     setBatchSubmitting(true);
     setBatchResult(null);
     let sent = 0;
     let existing = 0;
     let failed = 0;
-    for (let index = 0; index < visibleNetworkUsers.length; index += 1) {
-      const target = visibleNetworkUsers[index];
+    for (let index = 0; index < filteredNetworkUsers.length; index += 1) {
+      const target = filteredNetworkUsers[index];
       try {
         const response = await axiosInstance.post('/connections/request', {
           target_user_id: target.id,
@@ -82,9 +85,11 @@ const FeedPage = ({ user }) => {
       } catch (error) {
         failed += 1;
       }
-      setBatchProgress(Math.round(((index + 1) / visibleNetworkUsers.length) * 100));
+      setBatchProgress(Math.round(((index + 1) / filteredNetworkUsers.length) * 100));
     }
-    setBatchResult({ sent, existing, failed, total: visibleNetworkUsers.length });
+    const averageScore = filteredNetworkUsers.reduce((sum, member) => sum + member.user_score, 0) / filteredNetworkUsers.length;
+    const estimatedAcceptanceRate = Math.min(72, Math.max(24, 30 + Math.round(Math.min(20, averageScore / 100)) + (batchRole === 'ambassador' ? 6 : 0)));
+    setBatchResult({ sent, existing, failed, total: filteredNetworkUsers.length, visible: visibleNetworkUsers.length, estimatedAcceptanceRate, projectedAccepted: Math.round(sent * estimatedAcceptanceRate / 100), coverage: Math.round((sent / filteredNetworkUsers.length) * 100) });
     setBatchSubmitting(false);
   };
 
@@ -471,7 +476,7 @@ const FeedPage = ({ user }) => {
           </div>
         </div>
 
-        <div className="border-t border-white/10 px-4 py-2"><button type="button" onClick={openBatchDialog} disabled={!visibleNetworkUsers.length} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-[11px] font-bold text-white/65 transition hover:border-[#e8ad2f]/40 hover:bg-white/[0.1] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"><UserPlus size={14} /> Connect with visible members <span className="rounded-full bg-[#e8ad2f]/15 px-1.5 py-0.5 text-[10px] text-[#f1c768]">{visibleNetworkUsers.length}</span></button></div>
+        <div className="border-t border-white/10 px-4 py-2"><button type="button" onClick={openBatchDialog} disabled={!visibleNetworkUsers.length} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-[11px] font-bold text-white/65 transition hover:border-[#e8ad2f]/40 hover:bg-white/[0.1] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"><UserPlus size={14} /> Connect with visible members <span className="rounded-full bg-[#e8ad2f]/15 px-1.5 py-0.5 text-[10px] text-[#f1c768]">{filteredNetworkUsers.length}/{visibleNetworkUsers.length}</span></button></div>
 
         {/* Stories ribbon sits inside the dark header */}
         <StoriesRibbon currentUser={user} onOpenViewer={(g) => setStoryGroup(g)} />
@@ -700,7 +705,7 @@ const FeedPage = ({ user }) => {
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-4 backdrop-blur-sm sm:items-center" onClick={() => !batchSubmitting && setBatchDialogOpen(false)}>
           <div className="w-full max-w-md rounded-3xl border border-white/15 bg-[#121722] p-5 text-white shadow-2xl" onClick={(event) => event.stopPropagation()} data-testid="batch-network-dialog">
             <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#e8ad2f]">Batch networking</p><h2 className="mt-1 text-xl font-bold">Connect with visible members</h2></div><button type="button" onClick={() => setBatchDialogOpen(false)} disabled={batchSubmitting} className="rounded-full p-2 text-white/45 hover:bg-white/10 hover:text-white disabled:opacity-30" aria-label="Close batch networking dialog"><X size={18} /></button></div>
-            {!batchResult ? <><p className="mt-4 text-sm leading-6 text-white/60">Send a social connection request to the {visibleNetworkUsers.length} unique members currently represented in this feed view. Existing connections will be kept safe and reported as already connected.</p><div className="mt-4 flex flex-wrap gap-2">{visibleNetworkUsers.slice(0, 5).map((member) => <span key={member.id} className="rounded-full border border-white/10 bg-white/[.05] px-2.5 py-1 text-xs text-white/60">@{member.username}</span>)}{visibleNetworkUsers.length > 5 && <span className="rounded-full border border-white/10 bg-white/[.05] px-2.5 py-1 text-xs text-white/40">+{visibleNetworkUsers.length - 5} more</span>}</div>{batchSubmitting && <div className="mt-5"><div className="flex items-center justify-between text-xs text-white/45"><span>Sending requests…</span><span>{batchProgress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[#2d82ff] to-[#e8ad2f] transition-all" style={{ width: `${batchProgress}%` }} /></div></div>}<div className="mt-5 flex gap-2"><button type="button" onClick={() => setBatchDialogOpen(false)} disabled={batchSubmitting} className="flex-1 rounded-2xl border border-white/15 px-4 py-3 text-sm font-semibold text-white/65 hover:text-white disabled:opacity-30">Cancel</button><button type="button" onClick={runBatchConnect} disabled={batchSubmitting} className="flex-1 rounded-2xl bg-[#e8ad2f] px-4 py-3 text-sm font-bold text-[#10131a] transition hover:bg-[#f2c45a] disabled:cursor-wait disabled:opacity-60">{batchSubmitting ? 'Sending…' : 'Connect with all'}</button></div></> : <><div className="mt-5 rounded-2xl border border-[#2d82ff]/20 bg-[#2d82ff]/[.08] p-4"><p className="text-sm font-bold text-[#cce4ff]">Batch complete</p><p className="mt-2 text-sm leading-6 text-white/60">{batchResult.sent} new request{batchResult.sent === 1 ? '' : 's'} sent, {batchResult.existing} already pending or connected, and {batchResult.failed} could not be processed.</p></div><button type="button" onClick={() => setBatchDialogOpen(false)} className="mt-5 w-full rounded-2xl bg-[#2d82ff] px-4 py-3 text-sm font-bold text-white hover:bg-[#438fff]">Done</button></>}
+            {!batchResult ? <><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-xs text-white/55">Member role<select value={batchRole} onChange={(event) => setBatchRole(event.target.value)} className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0d111b] px-3 py-2.5 text-sm text-white outline-none focus:border-[#e8ad2f]/60"><option value="all">All roles</option><option value="member">Member</option><option value="professional">Professional</option><option value="ambassador">Ambassador</option><option value="social">Social</option></select></label><label className="text-xs text-white/55">Minimum network score<input type="number" min="0" step="50" value={batchMinScore} onChange={(event) => setBatchMinScore(event.target.value)} className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0d111b] px-3 py-2.5 text-sm text-white outline-none focus:border-[#e8ad2f]/60" /></label></div><p className="mt-4 text-sm leading-6 text-white/60">Send a social connection request to {filteredNetworkUsers.length} of {visibleNetworkUsers.length} unique visible members. Existing connections will be kept safe and reported as already connected.</p><div className="mt-4 flex flex-wrap gap-2">{filteredNetworkUsers.slice(0, 5).map((member) => <span key={member.id} className="rounded-full border border-white/10 bg-white/[.05] px-2.5 py-1 text-xs text-white/60">@{member.username} · {member.user_score}</span>)}{filteredNetworkUsers.length > 5 && <span className="rounded-full border border-white/10 bg-white/[.05] px-2.5 py-1 text-xs text-white/40">+{filteredNetworkUsers.length - 5} more</span>}</div>{batchSubmitting && <div className="mt-5"><div className="flex items-center justify-between text-xs text-white/45"><span>Sending requests…</span><span>{batchProgress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[#2d82ff] to-[#e8ad2f] transition-all" style={{ width: `${batchProgress}%` }} /></div></div>}<div className="mt-5 flex gap-2"><button type="button" onClick={() => setBatchDialogOpen(false)} disabled={batchSubmitting} className="flex-1 rounded-2xl border border-white/15 px-4 py-3 text-sm font-semibold text-white/65 hover:text-white disabled:opacity-30">Cancel</button><button type="button" onClick={runBatchConnect} disabled={batchSubmitting} className="flex-1 rounded-2xl bg-[#e8ad2f] px-4 py-3 text-sm font-bold text-[#10131a] transition hover:bg-[#f2c45a] disabled:cursor-wait disabled:opacity-60">{batchSubmitting ? 'Sending…' : 'Connect with all'}</button></div></> : <><div className="mt-5 rounded-2xl border border-[#2d82ff]/20 bg-[#2d82ff]/[.08] p-4"><p className="text-sm font-bold text-[#cce4ff]">Network growth summary</p><p className="mt-1 text-xs text-white/45">{batchResult.total} filtered members analyzed from {batchResult.visible} visible members.</p><div className="mt-4 grid grid-cols-2 gap-2"><div className="rounded-xl bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-white/40">New requests</p><p className="mt-1 text-xl font-black text-[#cce4ff]">{batchResult.sent}</p></div><div className="rounded-xl bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-white/40">Request coverage</p><p className="mt-1 text-xl font-black text-[#f1c768]">{batchResult.coverage}%</p></div><div className="rounded-xl bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-white/40">Projected accepted</p><p className="mt-1 text-xl font-black text-[#cce4ff]">{batchResult.projectedAccepted}</p></div><div className="rounded-xl bg-black/15 p-3"><p className="text-[10px] uppercase tracking-wider text-white/40">Est. acceptance</p><p className="mt-1 text-xl font-black text-[#f1c768]">{batchResult.estimatedAcceptanceRate}%</p></div></div><p className="mt-4 text-xs leading-5 text-white/45">Estimate uses the filtered members’ observed score mix and role selection; it is directional, not a guarantee. {batchResult.existing} were already pending or connected, and {batchResult.failed} could not be processed.</p></div><button type="button" onClick={() => setBatchDialogOpen(false)} className="mt-5 w-full rounded-2xl bg-[#2d82ff] px-4 py-3 text-sm font-bold text-white hover:bg-[#438fff]">Done</button></>}
           </div>
         </div>
       )}
