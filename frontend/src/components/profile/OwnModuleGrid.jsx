@@ -59,8 +59,8 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
   const headerRight = isQuickAccess ? 'Tap to open' : `${tiles.length} tools`;
 
   const wrapperClass = isQuickAccess
-    ? 'relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#04101e] via-[#0a1f3a] to-[#04101e] border border-white/10 p-4 sm:p-5'
-    : 'relative rounded-3xl overflow-hidden mb-5 bg-gradient-to-br from-[#0a1f3a] to-[#04101e] border border-white/10 p-4';
+    ? 'relative mb-1 overflow-hidden rounded-2xl border border-white/10 bg-transparent p-0'
+    : 'relative mb-5 overflow-hidden rounded-2xl border border-white/10 bg-transparent p-0';
 
   const handleNavigate = (tile) => {
     if (tile.external) {
@@ -76,10 +76,10 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
 
   return (
     <div className={wrapperClass} data-testid={wrapperTestId}>
-      {/* Gold halo (both variants) */}
+      {/* Shared gold atmosphere, kept inside the parent surface instead of creating a second panel. */}
       <div
-        className="absolute -top-16 -right-16 w-56 h-56 rounded-full pointer-events-none opacity-40 blur-3xl"
-        style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.25) 0%, transparent 65%)' }}
+        className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full opacity-25 blur-3xl"
+        style={{ background: 'radial-gradient(50% 50% at 50% 50%, rgba(232,168,23,0.28) 0%, transparent 65%)' }}
       />
       {/* Blue halo — quick-access only */}
       {isQuickAccess && (
@@ -89,7 +89,7 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
         />
       )}
 
-      <div className="relative flex items-center justify-between mb-3">
+      <div className="relative mb-3 flex items-center justify-between px-1">
         <p className="text-[10px] uppercase tracking-[0.25em] font-bold text-[#E8A817]">Your modules</p>
         <span className="text-[10px] uppercase tracking-wider text-white/40">{headerRight}</span>
       </div>
@@ -101,10 +101,10 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
             <button
               key={t.path + t.label}
               onClick={() => handleNavigate(t)}
-              className={`group relative flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border transition-all duration-200 active:scale-95 ${
+              className={`group relative flex min-h-[104px] flex-col items-center justify-center gap-2 rounded-2xl border p-3 transition-all duration-200 active:scale-95 ${
                 t.highlight
-                  ? 'bg-gradient-to-br from-[#E8A817]/20 to-[#E8A817]/5 border-[#E8A817]/40 hover:border-[#E8A817]/70'
-                  : 'bg-white/[0.06] border-white/10 hover:bg-white/[0.10] hover:border-[#E8A817]/30'
+                  ? 'bg-[#e8ad2f]/[0.08] border-[#e8ad2f]/35 hover:border-[#e8ad2f]/70 hover:bg-[#e8ad2f]/[0.13]'
+                  : 'bg-white/[0.025] border-white/10 hover:bg-white/[0.07] hover:border-[#e8ad2f]/35'
               }`}
               data-testid={`${tileTestPrefix}-${slugify(t.label)}`}
             >

@@ -426,7 +426,7 @@ const FeedPage = ({ user }) => {
   }
 
   return (
-    <div className="min-h-screen bg-background-DEFAULT">
+    <div className="min-h-screen bg-[#080b12] text-white">
       <FeatureIntroModal
         featureKey="feed"
         icon={<Sparkles size={20} />}
@@ -439,7 +439,7 @@ const FeedPage = ({ user }) => {
         ]}
       />
       {/* Top bar */}
-      <div className="sticky top-0 z-10 bg-gradient-to-r from-[#0a1628] via-primary to-[#0a1628] border-b border-white/10">
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-gradient-to-r from-[#08111f] via-[#122d55] to-[#251a17]">
         <div className="px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <img
@@ -460,7 +460,7 @@ const FeedPage = ({ user }) => {
           <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => navigate('/explore')}
-              className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
               data-testid="feed-explore-shortcut"
               aria-label="Explore"
             >
@@ -468,7 +468,7 @@ const FeedPage = ({ user }) => {
             </button>
             <button
               onClick={() => setShowCreatePost(true)}
-              className="bg-secondary hover:brightness-110 text-primary px-4 py-2 rounded-full font-bold text-sm shadow-md active:scale-95 transition-all"
+              className="rounded-full bg-[#e8ad2f] px-4 py-2 text-sm font-bold text-[#10131a] shadow-md transition-all hover:brightness-110 active:scale-95"
               data-testid="create-post-button"
             >
               Post
@@ -541,7 +541,7 @@ const FeedPage = ({ user }) => {
                 </button>
               )
             ) : (
-              <p className="text-[11px] text-text-muted" data-testid="feed-end">You&apos;re all caught up.</p>
+              <p className="text-[11px] text-white/40" data-testid="feed-end">You&apos;re all caught up.</p>
             )}
           </div>
         )}
@@ -776,22 +776,22 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
       transition={{ delay: Math.min(index, 6) * 0.04 }}
       className={`rounded-2xl overflow-hidden transition-shadow ${
         isAuto
-          ? 'bg-gradient-to-br from-secondary/10 via-white to-secondary/5 border-2 border-transparent shadow-md'
-          : 'bg-white border border-gray-100 shadow-sm hover:shadow-md'
+          ? 'bg-gradient-to-br from-[#1d2130] via-[#121722] to-[#1c1712] border border-[#e8ad2f]/35 shadow-[0_18px_50px_rgba(0,0,0,.24)]'
+          : 'bg-[#111827] border border-white/10 shadow-[0_14px_40px_rgba(0,0,0,.2)] hover:border-[#e8ad2f]/25 hover:shadow-[0_18px_50px_rgba(0,0,0,.28)]'
       }`}
-      style={isAuto ? { backgroundClip: 'padding-box', borderImage: 'linear-gradient(135deg, #f5d76e, #c79a2a) 1' } : undefined}
+      style={undefined}
       data-testid={`post-card-${index}`}
     >
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-4 pb-3">
         <div className="relative">
           <Avatar
-            className="w-12 h-12 cursor-pointer ring-2 ring-white shadow-md border-2 border-secondary/30 hover:scale-105 transition-transform"
+            className="h-12 w-12 cursor-pointer border-2 border-[#e8ad2f]/30 shadow-md ring-2 ring-[#111827] transition-transform hover:scale-105"
             onClick={() => onUserPreview(post.user_id, post.username, post)}
             data-testid={`post-author-avatar-${index}`}
           >
             <AvatarImage src={post.user_photo} alt={post.username} className="object-cover" />
-            <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-white font-bold">
+            <AvatarFallback className="bg-gradient-to-br from-[#2d82ff] to-[#e8ad2f] font-bold text-white">
               {post.username[0].toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -803,7 +803,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-text-primary text-sm truncate cursor-pointer hover:text-primary transition-colors" onClick={() => onUserClick(post.user_id, post.username)}>
+            <h3 className="cursor-pointer truncate text-sm font-semibold text-white transition-colors hover:text-[#e8ad2f]" onClick={() => onUserClick(post.user_id, post.username)}>
               {post.username}
             </h3>
             <NetworkScore score={post.user_score} size="small" animate={false} />
@@ -825,7 +825,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
               </span>
             )}
           </div>
-          <p className="text-[11px] text-text-muted">
+          <p className="text-[11px] text-white/40">
             {new Date(post.created_at).toLocaleDateString()}
             {post.edited_at && <span className="ml-1.5 italic">· edited</span>}
           </p>
@@ -836,7 +836,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
           <div className="relative flex-shrink-0">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className="p-1.5 rounded-full hover:bg-gray-100 text-text-secondary"
+              className="rounded-full p-1.5 text-white/50 hover:bg-white/10 hover:text-white"
               aria-label="Post actions"
               data-testid={`post-menu-button-${index}`}
             >
@@ -845,19 +845,19 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 mt-1 w-52 bg-white rounded-xl shadow-lg border border-gray-100 z-20 overflow-hidden" data-testid={`post-menu-${index}`}>
+                <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-xl border border-white/10 bg-[#121722] shadow-2xl" data-testid={`post-menu-${index}`}>
                   {isOwner && (
                     <>
                       <button
                         onClick={() => { setEditing(true); setEditValue(post.content || ''); setMenuOpen(false); }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-text-primary"
+                        className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-white/75 hover:bg-white/[.08] hover:text-white"
                         data-testid={`post-edit-button-${index}`}
                       >
                         <Edit2 size={14} /> Edit post
                       </button>
                       <button
                         onClick={() => { setMenuOpen(false); onDeletePost && onDeletePost(post.id); }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-red-50 flex items-center gap-2 text-red-600 border-t border-gray-100"
+                        className="flex w-full items-center gap-2 border-t border-white/10 px-4 py-2.5 text-left text-sm text-[#ff9b9b] hover:bg-[#ff7b7b]/[.08]"
                         data-testid={`post-delete-button-${index}`}
                       >
                         <Trash2 size={14} /> Delete post
@@ -867,11 +867,11 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
                   {/* Iter 56e — Admin moderation actions */}
                   {isAdmin && (
                     <>
-                      {isOwner && <div className="border-t border-gray-100" />}
-                      <div className="px-4 py-1.5 bg-amber-50 text-[10px] uppercase tracking-wider font-bold text-amber-700">Admin actions</div>
+                      {isOwner && <div className="border-t border-white/10" />}
+                      <div className="bg-[#e8ad2f]/[.08] px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#f1c768]">Admin actions</div>
                       <button
                         onClick={() => { setMenuOpen(false); onAdminHide && onAdminHide(post.id, !post.hidden); }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-amber-50 flex items-center gap-2 text-amber-700"
+                        className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-[#f1c768] hover:bg-[#e8ad2f]/[.08]"
                         data-testid={`post-admin-hide-${index}`}
                       >
                         {post.hidden ? <><Eye size={14} /> Restore post</> : <><EyeOff size={14} /> Hide from feed</>}
