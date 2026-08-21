@@ -5,6 +5,7 @@ import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileT
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis } from 'recharts';
 import NetworkScore from '../components/NetworkScore';
 import RankBadge from '../components/RankBadge';
 import FeatureIntroModal from '../components/FeatureIntroModal';
@@ -25,6 +26,9 @@ const ProfilePage = ({ user, setUser }) => {
   const [profileUser, setProfileUser] = useState(user);
   const [loading, setLoading] = useState(false);
   const [scoreSummary, setScoreSummary] = useState(null);
+  const [scoreActivity, setScoreActivity] = useState([]);
+  const [scorePeriodDays, setScorePeriodDays] = useState(14);
+  const [scoreLoading, setScoreLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({
     full_name: user.full_name || '',
@@ -67,10 +71,35 @@ const ProfilePage = ({ user, setUser }) => {
 
   useEffect(() => {
     axiosInstance.get('/hubs/cities').then((r) => setCities(r.data.cities || [])).catch(() => {});
-    if (isOwnProfile) {
-      axiosInstance.get('/score/summary').then((r) => setScoreSummary(r.data)).catch(() => {});
-    }
-  }, [isOwnProfile]);
+  }, []);
+
+  useEffect(() => {
+    if (!isOwnProfile) return undefined;
+    let mounted = true;
+    const loadScoreData = async () => {
+      setScoreLoading(true);
+      try {
+        const [summaryResponse, activityResponse] = await Promise.all([
+          axiosInstance.get('/score/summary'),
+          axiosInstance.get(`/score/activity?period=daily&days=${scorePeriodDays}`),
+        ]);
+        if (mounted) {
+          setScoreSummary(summaryResponse.data);
+          setScoreActivity(activityResponse.data.buckets || []);
+        }
+      } catch (error) {
+        // Keep the previously loaded dashboard visible if a refresh is unavailable.
+      } finally {
+        if (mounted) setScoreLoading(false);
+      }
+    };
+    loadScoreData();
+    const refreshTimer = window.setInterval(loadScoreData, 60000);
+    return () => {
+      mounted = false;
+      window.clearInterval(refreshTimer);
+    };
+  }, [isOwnProfile, scorePeriodDays]);
 
   useEffect(() => {
     const id = profileUser?.id;
@@ -372,6 +401,23 @@ const ProfilePage = ({ user, setUser }) => {
             <div className="relative mt-6 flex items-end justify-between"><div><p className="text-5xl font-black tracking-[-.05em] text-[#cce4ff]">{(profileUser.network_score || 0).toLocaleString()}</p><p className="mt-1 text-xs text-white/45">lifetime network points</p></div><div className="text-right"><p className="text-sm font-bold text-white/80">Next milestone</p><p className="mt-1 text-xs text-white/45">{getNextRankScore(profileUser.network_score || 0).toLocaleString()} pts</p></div></div>
             <div className="relative mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[#2d82ff] via-[#79b2ff] to-[#e8ad2f]" style={{ width: `${Math.min(100, calculateProgress(profileUser.network_score || 0))}%` }} /></div>
             <div className="relative mt-3 flex items-center justify-between text-[11px] text-white/40"><span>Keep building meaningful connections</span><span className="text-[#e8ad2f]">{Math.round(calculateProgress(profileUser.network_score || 0))}%</span></div>
+            <div className="relative mt-5 rounded-2xl border border-white/10 bg-black/15 p-3 sm:mt-6 sm:p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-white/40">Live activity trend</p><p className="mt-1 text-xs text-white/55">Score points earned per day</p></div>
+                <div className="flex items-center gap-1 rounded-full bg-white/[.05] p-1" aria-label="Chart time range">
+                  {[7, 14, 30].map((days) => <button key={days} type="button" onClick={() => setScorePeriodDays(days)} className={`rounded-full px-2.5 py-1.5 text-[10px] font-bold transition ${scorePeriodDays === days ? 'bg-[#2d82ff] text-white' : 'text-white/45 hover:text-white'}`}>{days}D</button>)}
+                </div>
+              </div>
+              <div className="mt-3 h-32 w-full sm:h-36">
+                {scoreLoading && scoreActivity.length === 0 ? <div className="flex h-full items-center justify-center text-xs text-white/40">Refreshing score activity…</div> : scoreActivity.length > 0 ? <ResponsiveContainer width="100%" height="100%"><AreaChart data={scoreActivity} margin={{ top: 8, right: 4, left: -26, bottom: 0 }}>
+                  <defs><linearGradient id="scoreActivityFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6fa8ff" stopOpacity={0.42} /><stop offset="100%" stopColor="#6fa8ff" stopOpacity={0.02} /></linearGradient></defs>
+                  <XAxis dataKey="key" tickFormatter={(value) => String(value).slice(-5)} tick={{ fill: 'rgba(255,255,255,.35)', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={22} />
+                  <YAxis hide domain={[0, 'auto']} />
+                  <Tooltip contentStyle={{ background: '#111827', border: '1px solid rgba(126,174,255,.24)', borderRadius: 12, color: '#fff', fontSize: 11 }} labelStyle={{ color: 'rgba(255,255,255,.55)' }} formatter={(value, name) => [value, name === 'points' ? 'Points' : 'Events']} labelFormatter={(label) => `Day ${label}`} />
+                  <Area type="monotone" dataKey="points" stroke="#79b2ff" strokeWidth={2} fill="url(#scoreActivityFill)" dot={false} activeDot={{ r: 4, fill: '#e8ad2f', stroke: '#111827', strokeWidth: 2 }} />
+                </AreaChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-white/10 text-xs text-white/35">No score activity in this range yet.</div>}
+              </div>
+            </div>
             <div className="relative mt-5 grid min-w-0 grid-cols-1 gap-3 sm:mt-6 sm:grid-cols-2">
               <div className="min-w-0 rounded-2xl border border-[#2d82ff]/20 bg-[#2d82ff]/[0.08] p-3.5 sm:p-4">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1"><span className="inline-flex min-w-0 items-center gap-2 text-[11px] font-bold uppercase tracking-[.12em] text-[#8db7ff] sm:text-xs sm:tracking-wider"><Activity size={14} className="shrink-0" /> Activity</span><span className="text-[10px] text-white/35">This week</span></div>
