@@ -907,7 +907,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
             onChange={(e) => setEditValue(e.target.value)}
             rows={3}
             maxLength={5000}
-            className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none"
+            className="w-full resize-none rounded-xl border border-white/15 bg-white/[.06] p-3 text-sm text-white outline-none focus:border-[#2d82ff] focus:ring-2 focus:ring-[#2d82ff]/20"
             data-testid={`post-edit-input-${index}`}
             autoFocus
           />
@@ -915,7 +915,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
             <button
               onClick={() => { setEditing(false); setEditValue(post.content || ''); }}
               disabled={savingEdit}
-              className="px-3 py-1.5 rounded-full text-xs font-semibold text-text-secondary hover:bg-gray-50 border border-gray-200 disabled:opacity-50"
+              className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/60 hover:bg-white/[.08] hover:text-white disabled:opacity-50"
               data-testid={`post-edit-cancel-${index}`}
             >
               Cancel
@@ -941,7 +941,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
       ) : (
         post.content && (
           <div className="px-4 pb-3">
-            <HashtagText text={post.content} className="text-text-primary text-sm whitespace-pre-wrap" />
+            <HashtagText text={post.content} className="text-white/90 text-sm leading-6 whitespace-pre-wrap" />
           </div>
         )
       )}
@@ -967,7 +967,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
       )}
 
       {/* Action bar */}
-      <div className="flex items-center gap-6 text-text-secondary px-4 py-3">
+      <div className="flex items-center gap-6 border-t border-white/10 px-4 py-3 text-white/60">
         <button
           onClick={() => onLike(post.id)}
           className={`flex items-center gap-1.5 transition-colors ${isLiked ? 'text-red-500' : 'hover:text-red-500'}`}
@@ -981,7 +981,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
 
         <button
           onClick={() => setShowComments(!showComments)}
-          className="flex items-center gap-1.5 hover:text-primary transition-colors"
+          className="flex items-center gap-1.5 transition-colors hover:text-[#6fa8ff]"
           data-testid={`comment-button-${index}`}
         >
           <MessageCircle size={22} />
@@ -990,7 +990,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
 
         <button
           onClick={() => onShare(post.id)}
-          className="flex items-center gap-1.5 hover:text-secondary transition-colors"
+          className="flex items-center gap-1.5 transition-colors hover:text-[#f1c768]"
           data-testid={`share-button-${index}`}
         >
           <Share2 size={22} />
@@ -1000,7 +1000,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
 
       {/* Comments */}
       {showComments && (
-        <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+        <div className="space-y-3 border-t border-white/10 px-4 pb-4 pt-3">
           {post.comments.map((comment) => {
             const canDeleteComment = comment.user_id === currentUserId || isOwner;
             return (
@@ -1009,13 +1009,13 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
                   <AvatarImage src={comment.user_photo} />
                   <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
                 </Avatar>
-                <div className="flex-1 bg-gray-50 rounded-xl p-3 relative">
+                <div className="relative flex-1 rounded-xl bg-white/[.06] p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-text-primary">{comment.username}</p>
+                    <p className="text-sm font-semibold text-white">{comment.username}</p>
                     {canDeleteComment && (
                       <button
                         onClick={() => onDeleteComment && onDeleteComment(post.id, comment.id)}
-                        className="text-text-muted hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 -m-1"
+                        className="-m-1 p-1 text-white/40 opacity-0 transition-opacity hover:text-[#ff9b9b] group-hover:opacity-100"
                         aria-label="Delete comment"
                         data-testid={`comment-delete-${comment.id}`}
                       >
@@ -1023,7 +1023,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
                       </button>
                     )}
                   </div>
-                  <HashtagText text={comment.content} className="text-sm text-text-secondary" />
+                  <HashtagText text={comment.content} className="text-sm leading-6 text-white/75" />
                 </div>
               </div>
             );
@@ -1035,7 +1035,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
               placeholder="Write a comment..."
-              className="flex-1 px-4 py-2 border border-gray-200 rounded-full focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-sm"
+              className="flex-1 rounded-full border border-white/15 bg-white/[.05] px-4 py-2 text-sm text-white outline-none focus:border-[#2d82ff] focus:ring-2 focus:ring-[#2d82ff]/20"
               onKeyPress={(e) => e.key === 'Enter' && handleCommentSubmit()}
               data-testid={`comment-input-${index}`}
             />

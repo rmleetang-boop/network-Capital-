@@ -69,9 +69,12 @@
   opacity: 0;
   transform: skewX(-18deg);
 }
-.executive-tile > * {
+.executive-tile > *:not(.absolute) {
   position: relative;
   z-index: 1;
+}
+.executive-tile > .absolute {
+  z-index: 0;
 }
 .executive-tile:hover,
 .executive-tile:focus-within {

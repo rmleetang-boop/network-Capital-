@@ -16,7 +16,7 @@ const HashtagText = ({ text = '', className = '' }) => {
             <button
               key={i}
               onClick={() => navigate(`/hashtag/${tag}`)}
-              className="text-primary font-medium hover:underline"
+              className="font-medium text-[#6fa8ff] hover:underline"
               data-testid={`hashtag-${tag}`}
             >
               {tok}
@@ -25,7 +25,7 @@ const HashtagText = ({ text = '', className = '' }) => {
         }
         if (tok && tok[0] === '@' && tok.length > 1) {
           return (
-            <span key={i} className="text-secondary font-medium">
+            <span key={i} className="font-medium text-[#f1c768]">
               {tok}
             </span>
           );
