@@ -39,9 +39,36 @@ const FeedPage = ({ user }) => {
   const [sharingPost, setSharingPost] = useState(null);
   const [posting, setPosting] = useState(false);
   const [storyGroup, setStoryGroup] = useState(null);
+  const [previewUser, setPreviewUser] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [feedScoreSummary, setFeedScoreSummary] = useState(null);
   const sentinelRef = useRef(null);
   const firstLoadRef = useRef(false);
   const navigate = useNavigate();
+
+  const openUserPreview = async (userId, username, post) => {
+    setPreviewUser({
+      id: userId,
+      username: username || post?.username || 'Member',
+      full_name: post?.full_name || username || 'Member',
+      bio: post?.bio || '',
+      rank: post?.rank || 'Member',
+      photo: post?.user_photo || '',
+    });
+    setPreviewLoading(true);
+    try {
+      const response = await axiosInstance.get(`/users/${userId}`);
+      setPreviewUser((current) => ({ ...current, ...response.data }));
+    } catch (error) {
+      // Keep the lightweight post data visible when the profile lookup is unavailable.
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    axiosInstance.get('/score/summary').then((response) => setFeedScoreSummary(response.data)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     // Guard against React 18 StrictMode double-invoke firing two skip=0 calls back-to-back.
@@ -366,8 +393,8 @@ const FeedPage = ({ user }) => {
       />
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-gradient-to-r from-[#0a1628] via-primary to-[#0a1628] border-b border-white/10">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
             <img
               src="/brand/logo-mark.png"
               alt="Network Capital"
@@ -378,7 +405,12 @@ const FeedPage = ({ user }) => {
               <p className="text-base font-bold text-secondary leading-none">{user.network_score}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="grid min-w-0 flex-1 grid-cols-3 gap-1.5 px-1 sm:max-w-sm sm:gap-2" aria-label="Live network metrics">
+            <div className="min-w-0 rounded-lg bg-white/[0.07] px-1.5 py-1.5 text-center"><p className="truncate text-[8px] font-bold uppercase tracking-wider text-white/40">Week</p><p className="truncate text-[11px] font-extrabold text-[#cce4ff]">{(feedScoreSummary?.weekly_score || 0).toLocaleString()}</p></div>
+            <div className="min-w-0 rounded-lg bg-white/[0.07] px-1.5 py-1.5 text-center"><p className="truncate text-[8px] font-bold uppercase tracking-wider text-white/40">Engage</p><p className="truncate text-[11px] font-extrabold text-[#f1c768]">{((user.likes_received_count || 0) + (user.comments_given_count || 0)).toLocaleString()}</p></div>
+            <div className="min-w-0 rounded-lg bg-white/[0.07] px-1.5 py-1.5 text-center"><p className="truncate text-[8px] font-bold uppercase tracking-wider text-white/40">Active</p><p className="truncate text-[11px] font-extrabold text-[#cce4ff]">{feedScoreSummary?.session_minutes_today || 0}m</p></div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => navigate('/explore')}
               className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
@@ -411,6 +443,7 @@ const FeedPage = ({ user }) => {
             onLike={handleLike}
             onComment={handleComment}
             onShare={handleShare}
+            onUserPreview={openUserPreview}
             onUserClick={async (userId, username) => {
               if (username) {
                 navigate(`/u/${username}`);
@@ -618,11 +651,31 @@ const FeedPage = ({ user }) => {
           onPrevGroup={() => setStoryGroup(null)}
         />
       )}
+
+      {previewUser && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/25 p-4 sm:items-start sm:pt-24" onClick={() => setPreviewUser(null)}>
+          <div className="w-full max-w-sm rounded-3xl border border-white/15 bg-[#121722] p-5 text-white shadow-2xl" onClick={(event) => event.stopPropagation()} data-testid="feed-user-preview-card">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar className="h-14 w-14 shrink-0 border-2 border-[#e8ad2f]/70 shadow-lg">
+                  <AvatarImage src={previewUser.photo} alt={previewUser.username} className="object-cover" />
+                  <AvatarFallback className="bg-gradient-to-br from-[#2d82ff] to-[#e8ad2f] font-bold text-white">{(previewUser.username || '?')[0].toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0"><p className="truncate text-lg font-bold">{previewUser.full_name || previewUser.username}</p><p className="truncate text-xs text-white/45">@{previewUser.username}</p></div>
+              </div>
+              <button type="button" onClick={() => setPreviewUser(null)} className="rounded-full p-2 text-white/45 transition hover:bg-white/10 hover:text-white" aria-label="Close user preview"><X size={17} /></button>
+            </div>
+            <p className="mt-4 line-clamp-3 text-sm leading-6 text-white/65">{previewUser.bio || 'This member has not added a bio yet.'}</p>
+            <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#e8ad2f]/20 bg-[#e8ad2f]/[0.08] px-3 py-2.5"><span className="text-[10px] font-bold uppercase tracking-[.18em] text-[#e8ad2f]">Network rank</span><span className="text-sm font-bold text-[#f4cf76]">{previewLoading ? 'Loading…' : (previewUser.rank || 'Member')}</span></div>
+            <button type="button" onClick={() => { setPreviewUser(null); navigate(`/u/${previewUser.username}`); }} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2d82ff] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#438fff] active:scale-[.98]">View full profile <Eye size={16} /></button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, onDeletePost, onEditPost, onDeleteComment, index, isAdmin, onAdminDelete, onAdminHide }) => {
+const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick, onUserPreview, onDeletePost, onEditPost, onDeleteComment, index, isAdmin, onAdminDelete, onAdminHide }) => {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [showHeart, setShowHeart] = useState(false);
@@ -673,7 +726,7 @@ const PostCard = ({ post, currentUserId, onLike, onComment, onShare, onUserClick
         <div className="relative">
           <Avatar
             className="w-12 h-12 cursor-pointer ring-2 ring-white shadow-md border-2 border-secondary/30 hover:scale-105 transition-transform"
-            onClick={() => onUserClick(post.user_id, post.username)}
+            onClick={() => onUserPreview(post.user_id, post.username, post)}
             data-testid={`post-author-avatar-${index}`}
           >
             <AvatarImage src={post.user_photo} alt={post.username} className="object-cover" />

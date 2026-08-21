@@ -29,6 +29,7 @@ const ProfilePage = ({ user, setUser }) => {
   const [scoreActivity, setScoreActivity] = useState([]);
   const [scorePeriodDays, setScorePeriodDays] = useState(14);
   const [scoreLoading, setScoreLoading] = useState(false);
+  const [profileTheme, setProfileTheme] = useState(() => localStorage.getItem('profile-theme') || 'obsidian');
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({
     full_name: user.full_name || '',
@@ -51,6 +52,11 @@ const ProfilePage = ({ user, setUser }) => {
   const [showArticleModal, setShowArticleModal] = useState(false);
   const [articleDraft, setArticleDraft] = useState({ title: '', content: '' });
   const [uploading, setUploading] = useState(false);
+  const isTitaniumTheme = profileTheme === 'titanium';
+
+  useEffect(() => {
+    localStorage.setItem('profile-theme', profileTheme);
+  }, [profileTheme]);
 
   useEffect(() => {
     if (!isOwnProfile && userId) {
@@ -281,7 +287,7 @@ const ProfilePage = ({ user, setUser }) => {
   });
 
   return (
-    <div className="min-h-screen bg-[#080b12] text-white pb-8">
+    <div className={`profile-theme-shell min-h-screen pb-8 text-white ${isTitaniumTheme ? 'profile-theme-titanium bg-[#17150f]' : 'profile-theme-obsidian bg-[#080b12]'}`}>
       {isOwnProfile && (
         <FeatureIntroModal
           featureKey="profile"
@@ -296,7 +302,7 @@ const ProfilePage = ({ user, setUser }) => {
         />
       )}
 
-      <div className="relative overflow-hidden border-b border-white/10 bg-[#0b1220]">
+      <div className={`profile-theme-header relative overflow-hidden border-b border-white/10 ${isTitaniumTheme ? 'bg-[#211d13]' : 'bg-[#0b1220]'}`}>
         <div className="absolute inset-0 opacity-90" style={{ background: 'radial-gradient(circle at 16% 10%, rgba(42, 111, 255, .42), transparent 32%), radial-gradient(circle at 94% 4%, rgba(236, 171, 39, .26), transparent 30%), linear-gradient(120deg, #08111f 0%, #111827 45%, #251a17 100%)' }} />
         <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#f2b840]/10 blur-3xl" />
         <div className="relative mx-auto max-w-6xl px-4 pb-28 pt-7 sm:px-6 lg:px-8">
@@ -304,6 +310,9 @@ const ProfilePage = ({ user, setUser }) => {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#e8b13d]">Network Capital</p>
               <p className="mt-1 text-xs text-white/45">Executive profile</p>
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/15 p-1" aria-label="Profile appearance">
+              {[['obsidian', 'Obsidian'], ['titanium', 'Titanium']].map(([theme, label]) => <button key={theme} type="button" onClick={() => setProfileTheme(theme)} className={`rounded-full px-2.5 py-1.5 text-[10px] font-bold transition ${profileTheme === theme ? 'bg-[#e8ad2f] text-[#10131a]' : 'text-white/45 hover:text-white'}`}>{label}</button>)}
             </div>
             {isOwnProfile && !editing && (
               <button onClick={() => setEditing(true)} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.08] px-4 py-2 text-xs font-bold text-white transition hover:border-[#e8b13d]/60 hover:bg-white/[0.14] active:scale-[.97]" data-testid="edit-profile-button">
@@ -366,6 +375,11 @@ const ProfilePage = ({ user, setUser }) => {
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-white/35">Network score</p><p className="mt-2 text-3xl font-extrabold tracking-tight text-[#c7e4ff]">{(profileUser.network_score || 0).toLocaleString()}</p><p className="mt-1 text-[11px] text-white/40">Momentum points</p></div>
               <div className="rounded-2xl border border-[#e8ad2f]/20 bg-[#e8ad2f]/[0.07] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-[#e8ad2f]/65">Wallet</p><p className="mt-2 text-3xl font-extrabold tracking-tight text-[#e8ad2f]">${Number(profileUser.wallet_balance || 0).toFixed(2)}</p><p className="mt-1 text-[11px] text-white/40">Available balance</p></div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 lg:col-span-1">
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-3"><p className="text-[9px] font-bold uppercase tracking-wider text-white/35">Weekly</p><p className="mt-1 text-sm font-extrabold text-[#cce4ff]">{(scoreSummary?.weekly_score || 0).toLocaleString()}</p><p className="text-[9px] text-white/35">pts earned</p></div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-3"><p className="text-[9px] font-bold uppercase tracking-wider text-white/35">Engagement</p><p className="mt-1 text-sm font-extrabold text-[#f1c768]">{((profileUser.likes_received_count || 0) + (profileUser.comments_given_count || 0)).toLocaleString()}</p><p className="text-[9px] text-white/35">signals</p></div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-3"><p className="text-[9px] font-bold uppercase tracking-wider text-white/35">Today</p><p className="mt-1 text-sm font-extrabold text-[#cce4ff]">{scoreSummary?.session_minutes_today || 0}</p><p className="text-[9px] text-white/35">active min</p></div>
             </div>
           </div>
 
