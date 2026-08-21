@@ -453,7 +453,10 @@ class User(BaseModel):
     creator_classification: Optional[str] = None    # entrepreneur, freelancer, coach, …
 
 class UpdateProfileRequest(BaseModel):
+    full_name: Optional[str] = None
     username: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     bio: Optional[str] = None
     photo: Optional[str] = None
     city: Optional[str] = None
@@ -1777,6 +1780,12 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @api_router.put("/users/me")
 async def update_profile(request: UpdateProfileRequest, current_user: dict = Depends(get_current_user)):
     update_data = {}
+    if request.full_name is not None:
+        update_data["full_name"] = request.full_name.strip()[:120]
+    if request.email is not None:
+        update_data["email"] = request.email.strip().lower()[:180]
+    if request.phone is not None:
+        update_data["phone"] = request.phone.strip()[:40]
     if request.username:
         existing = await db.users.find_one({"username": request.username, "id": {"$ne": current_user["id"]}}, {"_id": 0})
         if existing:

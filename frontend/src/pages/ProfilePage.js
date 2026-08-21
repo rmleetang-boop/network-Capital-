@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Package, MessageCircle, Sparkles, Briefcase, Trophy } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Package, MessageCircle, Sparkles, Briefcase, Trophy, Mail, Phone, Link2, Copy, ArrowUpRight, BarChart3, CheckCircle2, PencilLine } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -26,7 +26,10 @@ const ProfilePage = ({ user, setUser }) => {
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({
+    full_name: user.full_name || '',
     username: user.username,
+    email: user.email || '',
+    phone: user.phone || '',
     bio: user.bio,
     photo: user.photo,
     city: user.city || '',
@@ -153,7 +156,10 @@ const ProfilePage = ({ user, setUser }) => {
   const handleSave = async () => {
     try {
       const payload = {
+        full_name: editData.full_name,
         username: editData.username,
+        email: editData.email,
+        phone: editData.phone,
         bio: editData.bio,
         photo: editData.photo,
         city: editData.city,
@@ -208,525 +214,187 @@ const ProfilePage = ({ user, setUser }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      <div className="flex min-h-screen items-center justify-center bg-[#080b12]">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#2d82ff] border-t-transparent" />
       </div>
     );
   }
 
+  const referralLink = profileUser.share_code
+    ? `${window.location.origin}/join/${profileUser.share_code}`
+    : `${window.location.origin}/referral`;
+
+  const copyReferralLink = async () => {
+    try {
+      await navigator.clipboard.writeText(referralLink);
+      toast.success('Referral link copied');
+    } catch (error) {
+      toast.error('Could not copy link');
+    }
+  };
+
+  const resetEditData = () => setEditData({
+    full_name: user.full_name || '',
+    username: user.username,
+    email: user.email || '',
+    phone: user.phone || '',
+    bio: user.bio,
+    photo: user.photo,
+    city: user.city || '',
+    profession: user.profession || '',
+    birth_month: user.birth_month || '',
+    user_kind: user.user_kind || 'social',
+    skills: Array.isArray(user.skills) ? user.skills.join(', ') : '',
+  });
+
   return (
-    <div className="min-h-screen bg-background-DEFAULT pb-6">
+    <div className="min-h-screen bg-[#080b12] text-white pb-8">
       {isOwnProfile && (
         <FeatureIntroModal
           featureKey="profile"
           icon={<Users size={20} />}
           title="Your Profile"
-          subtitle="Your home base for media, banking, Quick Access, and your Network Score."
+          subtitle="Your home base for identity, network momentum, and professional presence."
           bullets={[
-            { icon: <Edit2 size={14} />, label: 'Edit anytime', body: 'Tap Edit to update photo, bio, city, profession, and birth month.' },
-            { icon: <Sparkles size={14} />, label: 'Quick Access menu', body: 'Wallet, Score Tracker, Stokvels, Messages, Products and Notifications all start here.' },
-            { icon: <Trophy size={14} />, label: 'Score & rank', body: 'See your live Network Score, current rank, and progress to the next tier.' },
+            { icon: <Edit2 size={14} />, label: 'Edit anytime', body: 'Update your identity, contact details, bio, location, and professional focus.' },
+            { icon: <Sparkles size={14} />, label: 'Premium quick access', body: 'Jump into the tools that matter without scanning a wall of buttons.' },
+            { icon: <Trophy size={14} />, label: 'Score & rank', body: 'Track your network momentum and progress toward the next milestone.' },
           ]}
         />
       )}
-      <div className="bg-gradient-to-br from-primary to-secondary h-32"></div>
 
-      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 -mt-16">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6"
-        >
-          <div className="flex items-start gap-4 mb-6">
-            <div className="relative">
-              {editing ? (
-                <label className="cursor-pointer group">
-                  <Avatar className="w-24 h-24">
-                    <AvatarImage src={editData.photo} />
-                    <AvatarFallback>{editData.username[0].toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Edit2 className="text-white" size={20} />
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                    data-testid="profile-photo-input"
-                  />
-                </label>
-              ) : (
-                <Avatar className="w-24 h-24">
-                  <AvatarImage src={profileUser.photo} />
-                  <AvatarFallback>{profileUser.username[0].toUpperCase()}</AvatarFallback>
-                </Avatar>
-              )}
+      <div className="relative overflow-hidden border-b border-white/10 bg-[#0b1220]">
+        <div className="absolute inset-0 opacity-90" style={{ background: 'radial-gradient(circle at 16% 10%, rgba(42, 111, 255, .42), transparent 32%), radial-gradient(circle at 94% 4%, rgba(236, 171, 39, .26), transparent 30%), linear-gradient(120deg, #08111f 0%, #111827 45%, #251a17 100%)' }} />
+        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#f2b840]/10 blur-3xl" />
+        <div className="relative mx-auto max-w-6xl px-4 pb-28 pt-7 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#e8b13d]">Network Capital</p>
+              <p className="mt-1 text-xs text-white/45">Executive profile</p>
             </div>
-
-            <div className="flex-1">
-              {editing ? (
-                <input
-                  type="text"
-                  value={editData.username}
-                  onChange={(e) => setEditData({ ...editData, username: e.target.value })}
-                  className="text-2xl font-heading font-bold mb-2 w-full border border-gray-300 rounded-lg px-3 py-1 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
-                  data-testid="username-edit-input"
-                />
-              ) : (
-                <h1 className="text-2xl font-heading font-bold text-text-primary mb-2">
-                  {profileUser.username}
-                </h1>
-              )}
-              <RankBadge rank={profileUser.rank} />
-            </div>
-
-            {isOwnProfile && (
-              <div className="flex gap-2 items-center">
-                {/* Iter 56e — visible "My Store" entry from the profile header */}
-                {!editing && (
-                  <button
-                    onClick={() => navigate('/my-store')}
-                    className="inline-flex items-center gap-1.5 bg-gradient-to-r from-secondary to-yellow-500 hover:from-yellow-500 hover:to-secondary text-primary px-3 py-2 rounded-full text-xs font-bold shadow-md hover:shadow-lg active:scale-95 transition-all"
-                    data-testid="profile-my-store-button"
-                    aria-label="Open my store"
-                  >
-                    <Package size={14} /> My Store
-                  </button>
-                )}
-                {editing ? (
-                  <>
-                    <button
-                      onClick={handleSave}
-                      className="bg-secondary hover:bg-secondary-hover text-white p-2 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95"
-                      data-testid="save-profile-button"
-                    >
-                      <Save size={20} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditing(false);
-                        setEditData({
-                          username: user.username,
-                          bio: user.bio,
-                          photo: user.photo,
-                          city: user.city || '',
-                          profession: user.profession || '',
-                        });
-                      }}
-                      className="bg-gray-200 hover:bg-gray-300 text-text-primary p-2 rounded-full transition-all"
-                      data-testid="cancel-edit-button"
-                    >
-                      <X size={20} />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setEditing(true)}
-                    className="bg-primary hover:bg-primary-hover text-white p-2 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95"
-                    data-testid="edit-profile-button"
-                  >
-                    <Edit2 size={20} />
-                  </button>
-                )}
-              </div>
-            )}
-            {!isOwnProfile && profileUser.id && (
-              <button
-                onClick={() => navigate(`/messages/${profileUser.id}`)}
-                className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-full text-sm font-semibold shadow-md hover:shadow-lg active:scale-95 transition-all"
-                data-testid="profile-message-button"
-              >
-                <MessageCircle size={16} /> Message
+            {isOwnProfile && !editing && (
+              <button onClick={() => setEditing(true)} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.08] px-4 py-2 text-xs font-bold text-white transition hover:border-[#e8b13d]/60 hover:bg-white/[0.14] active:scale-[.97]" data-testid="edit-profile-button">
+                <PencilLine size={14} /> Edit profile
               </button>
             )}
-          </div>
-
-          {editing ? (
-            <div className="space-y-3 mb-4">
-              <textarea
-                value={editData.bio}
-                onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
-                placeholder="Write something about yourself..."
-                rows={3}
-                className="w-full p-3 border border-gray-300 rounded-xl focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none resize-none"
-                data-testid="bio-edit-input"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <select
-                  value={editData.city}
-                  onChange={(e) => setEditData({ ...editData, city: e.target.value })}
-                  className="p-3 border border-gray-300 rounded-xl outline-none"
-                  data-testid="city-edit-input"
-                >
-                  <option value="">Select city…</option>
-                  {cities.map((c) => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={editData.profession}
-                  onChange={(e) => setEditData({ ...editData, profession: e.target.value })}
-                  placeholder="Profession (e.g., Designer)"
-                  className="p-3 border border-gray-300 rounded-xl outline-none"
-                  data-testid="profession-edit-input"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Birth Month — used for personalised referrals &amp; birthday recognition</label>
-                <select
-                  value={editData.birth_month}
-                  onChange={(e) => setEditData({ ...editData, birth_month: e.target.value })}
-                  className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  data-testid="birth-month-edit-input"
-                >
-                  <option value="">Select your birth month…</option>
-                  {MONTHS.map((m) => (
-                    <option key={m.v} value={m.v}>{m.l}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Profile type</label>
-                <div className="grid grid-cols-2 gap-2" data-testid="user-kind-edit">
-                  {[{ v: 'social', label: 'Social' }, { v: 'professional', label: 'Professional' }].map((k) => (
-                    <button
-                      key={k.v}
-                      type="button"
-                      onClick={() => setEditData({ ...editData, user_kind: k.v })}
-                      className={`p-2.5 rounded-xl border text-sm font-semibold transition-all ${
-                        editData.user_kind === k.v
-                          ? 'bg-primary text-white border-primary'
-                          : 'bg-background-subtle border-gray-200 text-text-primary hover:bg-gray-50'
-                      }`}
-                      data-testid={`user-kind-edit-${k.v}`}
-                    >
-                      {k.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {editData.user_kind === 'professional' && (
-                <div>
-                  <label className="block text-xs font-semibold text-text-secondary mb-1.5">Skills (comma-separated)</label>
-                  <input
-                    type="text"
-                    value={editData.skills}
-                    onChange={(e) => setEditData({ ...editData, skills: e.target.value })}
-                    placeholder="React, Sales, Onboarding, …"
-                    className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    data-testid="skills-edit-input"
-                  />
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="mb-6">
-              <p className="text-text-secondary mb-2">{profileUser.bio || 'No bio yet'}</p>
-              <div className="flex flex-wrap gap-2 text-sm">
-                {profileUser.city && (
-                  <span className="inline-flex items-center gap-1 bg-primary/10 text-primary px-3 py-1 rounded-full">
-                    <MapPin size={12} />
-                    {cities.find((c) => c.value === profileUser.city)?.label || profileUser.city}
-                  </span>
-                )}
-                {profileUser.profession && (
-                  <span className="inline-flex items-center gap-1 bg-secondary/10 text-secondary px-3 py-1 rounded-full">
-                    <Network size={12} />
-                    {profileUser.profession}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 mb-6">
-            {/* Always-visible Profile-type toggle (Social ↔ Professional) */}
-            <div className="mb-4" data-testid="user-kind-toggle">
-              <p className="text-[11px] uppercase tracking-wider font-semibold text-text-muted mb-1.5">Profile type</p>
-              <div className="inline-flex p-1 bg-white rounded-full border border-gray-200">
-                {[{ v: 'social', label: 'Social' }, { v: 'professional', label: 'Professional' }].map((k) => (
-                  <button
-                    key={k.v}
-                    type="button"
-                    disabled={profileUser.user_kind === k.v}
-                    onClick={async () => {
-                      try {
-                        const res = await axiosInstance.put('/users/me', { user_kind: k.v });
-                        setUser(res.data);
-                        setProfileUser(res.data);
-                        setEditData((prev) => ({ ...prev, user_kind: k.v }));
-                        toast.success(`Switched to ${k.label}`);
-                      } catch (err) {
-                        toast.error(err.response?.data?.detail || 'Could not switch profile type');
-                      }
-                    }}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all ${
-                      profileUser.user_kind === k.v
-                        ? 'bg-primary text-white shadow-sm'
-                        : 'text-text-secondary hover:text-primary'
-                    }`}
-                    data-testid={`user-kind-toggle-${k.v}`}
-                  >
-                    {k.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {profileUser.user_kind === 'professional' && (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-3 bg-primary text-white text-[10px] font-bold uppercase tracking-wider rounded-full" data-testid="professional-badge">
-                <Briefcase size={11} /> Professional
-              </div>
-            )}
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-text-secondary">Network Score</span>
-              <span className="text-xs text-text-muted">
-                {profileUser.network_score?.toLocaleString?.() || profileUser.network_score} pts
-                {(profileUser.network_score || 0) >= 10000 && (
-                  <span className="ml-1.5 inline-flex items-center text-[10px] font-bold text-secondary bg-secondary/10 border border-secondary/30 px-1.5 py-0.5 rounded-full">★ Top Contributor</span>
-                )}
-              </span>
-            </div>
-            <NetworkScore score={profileUser.network_score} size="large" />
-            <Progress value={Math.min(100, ((profileUser.network_score || 0) / 10000) * 100)} className="mt-3 h-2" />
-            <p className="text-[11px] text-text-muted mt-1">Score grows uncapped. Hit <strong>10,000 this month</strong> to unlock the Top Contributor badge.</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-background-subtle rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-primary">{profileUser.network_score}</p>
-              <p className="text-sm text-text-secondary">Network Score</p>
-            </div>
-            <div className="bg-background-subtle rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-secondary">${profileUser.wallet_balance?.toFixed(2) || '0.00'}</p>
-              <p className="text-sm text-text-secondary">Wallet Balance</p>
-            </div>
-          </div>
-
-          {/* Professional showcase — visible only when user_kind = 'professional' */}
-          {profileUser.user_kind === 'professional' && (
-            <div className="bg-white rounded-2xl border border-primary/20 p-5 mb-6" data-testid="professional-showcase">
-              <h3 className="font-heading font-bold text-primary mb-3 flex items-center gap-2">
-                <Briefcase size={16} /> Professional showcase
-              </h3>
-              {Array.isArray(profileUser.skills) && profileUser.skills.length > 0 ? (
-                <div className="mb-4">
-                  <p className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-2">Skills</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {profileUser.skills.map((s, i) => (
-                      <span key={i} className="px-2.5 py-1 bg-primary/8 text-primary text-xs font-semibold rounded-full border border-primary/15">{s}</span>
-                    ))}
-                  </div>
-                </div>
-              ) : isOwnProfile ? (
-                <p className="text-xs text-text-muted italic mb-3">No skills yet — tap Edit to add some.</p>
-              ) : null}
-              {Array.isArray(profileUser.experience) && profileUser.experience.length > 0 && (
-                <div>
-                  <p className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-2">Experience</p>
-                  <div className="space-y-2">
-                    {profileUser.experience.map((x, i) => (
-                      <div key={i} className="text-sm">
-                        <p className="font-semibold text-text-primary">{x.role || x.title}</p>
-                        <p className="text-xs text-text-secondary">{x.company} {x.period ? `· ${x.period}` : ''}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {isOwnProfile && (
-                <button onClick={() => navigate('/jobs')}
-                  className="mt-4 w-full bg-primary text-white py-2 rounded-full text-xs font-semibold hover:bg-primary-hover">
-                  Browse jobs →
-                </button>
-              )}
-            </div>
-          )}
-
-          {isOwnProfile && profileUser.share_code && (
-            <div className="bg-secondary/8 rounded-xl p-4 border border-secondary/30 mb-6" data-testid="profile-share-code-card">
-              <p className="text-xs text-text-muted mb-1.5">Your code — for referrals &amp; Stokvel+ invites</p>
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-sm font-mono font-bold text-secondary break-all">{profileUser.share_code}</p>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(profileUser.share_code);
-                      toast.success('Code copied!');
-                    }}
-                    className="text-primary hover:text-primary-hover text-xs font-medium"
-                    data-testid="profile-share-code-copy"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    onClick={() => navigate('/referral')}
-                    className="text-xs font-semibold text-primary border border-primary/40 px-3 py-1 rounded-full hover:bg-primary/5"
-                    data-testid="profile-share-code-share"
-                  >
-                    Share
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ============== MEDIA GALLERY ============== */}
-          <div className="border-t border-gray-100 pt-5 mb-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-heading font-bold text-text-primary">Profile Media</h3>
-              {isOwnProfile && mediaTab === 'articles' && (
-                <button
-                  onClick={() => setShowArticleModal(true)}
-                  className="text-secondary hover:text-secondary-hover font-medium text-sm flex items-center gap-1"
-                  data-testid="new-article-btn"
-                >
-                  <Plus size={16} /> New
-                </button>
-              )}
-            </div>
-            <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-full text-sm">
-              {[
-                { k: 'photos', label: 'Photos', icon: Camera, count: photos.length },
-                { k: 'videos', label: 'Videos', icon: Video, count: videos.length },
-                { k: 'articles', label: 'Articles', icon: FileText, count: articles.length },
-              ].map((t) => {
-                const Icon = t.icon;
-                const active = mediaTab === t.k;
-                return (
-                  <button
-                    key={t.k}
-                    onClick={() => setMediaTab(t.k)}
-                    className={`flex-1 py-1.5 rounded-full font-medium flex items-center justify-center gap-1 transition-all ${
-                      active ? 'bg-primary text-white shadow-sm' : 'text-text-secondary'
-                    }`}
-                    data-testid={`media-tab-${t.k}`}
-                  >
-                    <Icon size={13} /> {t.label} ({t.count})
-                  </button>
-                );
-              })}
-            </div>
-
-            {mediaTab === 'photos' && (
-              <div className="grid grid-cols-3 gap-2">
-                {isOwnProfile && (
-                  <label className="aspect-square bg-gray-100 hover:bg-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer text-text-muted transition-all" data-testid="add-photo-tile">
-                    <Plus size={24} />
-                    <span className="text-xs mt-1">{uploading ? 'Uploading…' : 'Add'}</span>
-                    <input type="file" accept="image/*" onChange={handleAddPhoto} className="hidden" disabled={uploading} />
-                  </label>
-                )}
-                {photos.map((p) => (
-                  <div key={p.id} className="relative aspect-square rounded-xl overflow-hidden group">
-                    <img src={p.data_url} alt={p.caption} className="w-full h-full object-cover" />
-                    {isOwnProfile && (
-                      <button
-                        onClick={() => handleDeletePhoto(p.id)}
-                        className="absolute top-1 right-1 bg-red-500/80 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        data-testid={`delete-photo-${p.id}`}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {photos.length === 0 && !isOwnProfile && (
-                  <p className="col-span-3 text-center text-text-muted text-sm py-6">No photos yet</p>
-                )}
-              </div>
-            )}
-
-            {mediaTab === 'videos' && (
-              <div className="space-y-3">
-                {isOwnProfile && (
-                  <label className="block w-full bg-gray-100 hover:bg-gray-200 border-2 border-dashed border-gray-300 rounded-xl py-6 text-center cursor-pointer text-text-muted" data-testid="add-video-tile">
-                    <Video className="mx-auto mb-1" size={24} />
-                    <p className="text-sm font-medium">{uploading ? 'Uploading…' : 'Upload video (max 3MB)'}</p>
-                    <input type="file" accept="video/*" onChange={handleAddVideo} className="hidden" disabled={uploading} />
-                  </label>
-                )}
-                {videos.map((v) => (
-                  <div key={v.id} className="relative bg-black rounded-xl overflow-hidden">
-                    <video src={v.data_url} controls className="w-full max-h-72" />
-                    {isOwnProfile && (
-                      <button
-                        onClick={() => handleDeleteVideo(v.id)}
-                        className="absolute top-2 right-2 bg-red-500/80 text-white p-1.5 rounded-full"
-                        data-testid={`delete-video-${v.id}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {videos.length === 0 && !isOwnProfile && (
-                  <p className="text-center text-text-muted text-sm py-6">No videos yet</p>
-                )}
-              </div>
-            )}
-
-            {mediaTab === 'articles' && (
-              <div className="space-y-3">
-                {articles.map((a) => (
-                  <div key={a.id} className="bg-background-subtle rounded-xl p-4 relative group">
-                    <h4 className="font-bold text-text-primary mb-1">{a.title}</h4>
-                    <p className="text-text-secondary text-sm whitespace-pre-wrap line-clamp-3">{a.content}</p>
-                    <p className="text-xs text-text-muted mt-2">{new Date(a.created_at).toLocaleDateString()}</p>
-                    {isOwnProfile && (
-                      <button
-                        onClick={() => handleDeleteArticle(a.id)}
-                        className="absolute top-2 right-2 bg-red-100 text-red-600 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        data-testid={`delete-article-${a.id}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {articles.length === 0 && (
-                  <p className="text-center text-text-muted text-sm py-6">
-                    {isOwnProfile ? 'Write your first article — share notes, thoughts, ideas' : 'No articles yet'}
-                  </p>
-                )}
+            {isOwnProfile && editing && (
+              <div className="flex items-center gap-2">
+                <button onClick={resetEditData} className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white/65 hover:text-white" data-testid="cancel-edit-button"><X size={15} /></button>
+                <button onClick={handleSave} className="inline-flex items-center gap-2 rounded-full bg-[#e8ad2f] px-4 py-2 text-xs font-bold text-[#10131a] shadow-[0_8px_28px_rgba(232,173,47,.25)]" data-testid="save-profile-button"><Save size={14} /> Save changes</button>
               </div>
             )}
           </div>
-
-          {isOwnProfile && (
-            <>
-              {/* Quick Access grid — shared OwnModuleGrid component */}
-              <OwnModuleGrid profile={profileUser} variant="quick-access" />
-
-              <button
-                onClick={() => window.location.href = '/referral'}
-                className="w-full flex items-center justify-center gap-2 bg-secondary hover:bg-secondary-hover text-white font-medium py-3 rounded-full transition-all shadow-md hover:shadow-lg active:scale-95 mb-3"
-                data-testid="referral-button"
-              >
-                <Users size={20} />
-                Invite Friends (+200 pts)
-              </button>
-              <button
-                onClick={() => navigate('/help')}
-                className="w-full flex items-center justify-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary font-medium py-3 rounded-full transition-all border border-primary/20 mb-3"
-                data-testid="help-center-button"
-              >
-                <HelpCircle size={20} />
-                Help Center & FAQ
-              </button>
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 font-medium py-3 rounded-full transition-all border border-red-200"
-                data-testid="logout-button"
-              >
-                <LogOut size={20} />
-                Logout
-              </button>
-            </>
-          )}
-        </motion.div>
+        </div>
       </div>
+
+      <main className="relative mx-auto -mt-20 max-w-6xl px-4 sm:px-6 lg:px-8">
+        <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .28 }} className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#121722]/95 p-5 shadow-[0_24px_80px_rgba(0,0,0,.35)] backdrop-blur-xl sm:p-7">
+          <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-[#2f70ff]/10 blur-3xl" />
+          <div className="relative grid gap-7 lg:grid-cols-[1fr_330px] lg:items-center">
+            <div className="flex min-w-0 items-start gap-4 sm:gap-5">
+              <div className="relative shrink-0">
+                {editing ? (
+                  <label className="group block cursor-pointer">
+                    <Avatar className="h-24 w-24 border-2 border-[#e8ad2f]/70 shadow-[0_0_0_6px_rgba(232,173,47,.08)] sm:h-28 sm:w-28">
+                      <AvatarImage src={editData.photo} />
+                      <AvatarFallback className="bg-[#1d3157] text-3xl font-bold text-[#cce0ff]">{(editData.username || '?')[0].toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60 opacity-0 transition group-hover:opacity-100"><Camera size={22} /></div>
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" data-testid="profile-photo-input" />
+                  </label>
+                ) : (
+                  <Avatar className="h-24 w-24 border-2 border-[#e8ad2f]/70 shadow-[0_0_0_6px_rgba(232,173,47,.08)] sm:h-28 sm:w-28">
+                    <AvatarImage src={profileUser.photo} />
+                    <AvatarFallback className="bg-[#1d3157] text-3xl font-bold text-[#cce0ff]">{(profileUser.username || '?')[0].toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                )}
+                <span className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-4 border-[#121722] bg-[#2d82ff] text-white"><CheckCircle2 size={14} /></span>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                {editing ? (
+                  <div className="space-y-2">
+                    <input value={editData.full_name} onChange={(e) => setEditData({ ...editData, full_name: e.target.value })} placeholder="Full name" className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2 text-xl font-bold text-white outline-none focus:border-[#e8ad2f]" data-testid="full-name-edit-input" />
+                    <input value={editData.username} onChange={(e) => setEditData({ ...editData, username: e.target.value })} placeholder="Username" className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2 text-sm text-white/75 outline-none focus:border-[#e8ad2f]" data-testid="username-edit-input" />
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="truncate text-2xl font-bold tracking-[-.03em] text-white sm:text-3xl">{profileUser.full_name || profileUser.username}</h1>
+                    <p className="mt-1 text-sm text-white/50">@{profileUser.username}</p>
+                  </>
+                )}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <RankBadge rank={profileUser.rank} />
+                  <span className="rounded-full border border-[#e8ad2f]/25 bg-[#e8ad2f]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#f1c768]">{profileUser.user_kind === 'professional' ? 'Professional' : 'Member'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-white/35">Network score</p><p className="mt-2 text-3xl font-extrabold tracking-tight text-[#c7e4ff]">{(profileUser.network_score || 0).toLocaleString()}</p><p className="mt-1 text-[11px] text-white/40">Momentum points</p></div>
+              <div className="rounded-2xl border border-[#e8ad2f]/20 bg-[#e8ad2f]/[0.07] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-[#e8ad2f]/65">Wallet</p><p className="mt-2 text-3xl font-extrabold tracking-tight text-[#e8ad2f]">${Number(profileUser.wallet_balance || 0).toFixed(2)}</p><p className="mt-1 text-[11px] text-white/40">Available balance</p></div>
+            </div>
+          </div>
+
+          <div className="relative mt-7 border-t border-white/10 pt-6">
+            {editing ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <textarea value={editData.bio} onChange={(e) => setEditData({ ...editData, bio: e.target.value })} placeholder="Write a concise executive bio" rows={3} className="sm:col-span-2 w-full resize-none rounded-2xl border border-white/15 bg-white/[0.05] p-3 text-sm text-white outline-none focus:border-[#e8ad2f]" data-testid="bio-edit-input" />
+                <input value={editData.profession} onChange={(e) => setEditData({ ...editData, profession: e.target.value })} placeholder="Role / profession" className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none focus:border-[#e8ad2f]" data-testid="profession-edit-input" />
+                <select value={editData.city} onChange={(e) => setEditData({ ...editData, city: e.target.value })} className="rounded-xl border border-white/15 bg-[#171d2a] px-3 py-3 text-sm text-white outline-none focus:border-[#e8ad2f]" data-testid="city-edit-input"><option value="">Select city</option>{cities.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select>
+                <input type="email" value={editData.email} onChange={(e) => setEditData({ ...editData, email: e.target.value })} placeholder="Email address" className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none focus:border-[#e8ad2f]" data-testid="email-edit-input" />
+                <input value={editData.phone} onChange={(e) => setEditData({ ...editData, phone: e.target.value })} placeholder="Phone number" className="rounded-xl border border-white/15 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none focus:border-[#e8ad2f]" data-testid="phone-edit-input" />
+                <div className="sm:col-span-2"><p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-white/40">Profile mode</p><div className="grid grid-cols-2 gap-2">{[{ v: 'social', label: 'Social' }, { v: 'professional', label: 'Professional' }].map((k) => <button key={k.v} type="button" onClick={() => setEditData({ ...editData, user_kind: k.v })} className={`rounded-xl border px-3 py-2.5 text-sm font-bold transition ${editData.user_kind === k.v ? 'border-[#e8ad2f] bg-[#e8ad2f] text-[#10131a]' : 'border-white/10 bg-white/[0.04] text-white/60 hover:text-white'}`}>{k.label}</button>)}</div></div>
+                {editData.user_kind === 'professional' && <input value={editData.skills} onChange={(e) => setEditData({ ...editData, skills: e.target.value })} placeholder="Skills, separated by commas" className="sm:col-span-2 rounded-xl border border-white/15 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none focus:border-[#e8ad2f]" data-testid="skills-edit-input" />}
+              </div>
+            ) : (
+              <>
+                <p className="max-w-2xl text-base leading-7 text-white/72">{profileUser.bio || 'Add a concise bio to make your profile more memorable.'}</p>
+                <div className="mt-4 flex flex-wrap gap-2.5 text-xs text-white/55">
+                  {profileUser.profession && <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2"><Briefcase size={13} className="text-[#e8ad2f]" />{profileUser.profession}</span>}
+                  {profileUser.city && <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2"><MapPin size={13} className="text-[#77aaff]" />{cities.find((c) => c.value === profileUser.city)?.label || profileUser.city}</span>}
+                  {profileUser.email && <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2"><Mail size={13} className="text-[#77aaff]" />{profileUser.email}</span>}
+                  {profileUser.phone && <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2"><Phone size={13} className="text-[#77aaff]" />{profileUser.phone}</span>}
+                </div>
+              </>
+            )}
+          </div>
+        </motion.section>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
+          <section className="relative overflow-hidden rounded-[26px] border border-white/10 bg-[#111827] p-5 sm:p-6">
+            <div className="absolute -right-14 -top-14 h-36 w-36 rounded-full bg-[#2d82ff]/15 blur-2xl" />
+            <div className="relative flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#7eaeff]">Network momentum</p><h2 className="mt-2 text-xl font-bold">Your score dashboard</h2></div><BarChart3 className="text-[#7eaeff]" size={21} /></div>
+            <div className="relative mt-6 flex items-end justify-between"><div><p className="text-5xl font-black tracking-[-.05em] text-[#cce4ff]">{(profileUser.network_score || 0).toLocaleString()}</p><p className="mt-1 text-xs text-white/45">points earned this cycle</p></div><div className="text-right"><p className="text-sm font-bold text-white/80">Next milestone</p><p className="mt-1 text-xs text-white/45">{getNextRankScore(profileUser.network_score || 0).toLocaleString()} pts</p></div></div>
+            <div className="relative mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[#2d82ff] via-[#79b2ff] to-[#e8ad2f]" style={{ width: `${Math.min(100, calculateProgress(profileUser.network_score || 0))}%` }} /></div>
+            <div className="relative mt-3 flex items-center justify-between text-[11px] text-white/40"><span>Keep building meaningful connections</span><span className="text-[#e8ad2f]">{Math.round(calculateProgress(profileUser.network_score || 0))}%</span></div>
+          </section>
+
+          <section className="rounded-[26px] border border-[#e8ad2f]/25 bg-gradient-to-br from-[#1e1b16] to-[#121722] p-5 sm:p-6">
+            <div className="flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#e8ad2f]">Referral access</p><h2 className="mt-2 text-xl font-bold">Grow your circle</h2></div><Link2 className="text-[#e8ad2f]" size={20} /></div>
+            <p className="mt-3 text-sm leading-6 text-white/55">Share your personal link and earn points when your network joins.</p>
+            <div className="mt-4 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-3"><span className="min-w-0 flex-1 truncate font-mono text-xs text-[#f1c768]">{referralLink.replace(window.location.origin, '')}</span><button onClick={copyReferralLink} className="rounded-lg p-2 text-white/60 transition hover:bg-white/10 hover:text-white" aria-label="Copy referral link"><Copy size={15} /></button></div>
+            <div className="mt-4 flex gap-2"><button onClick={copyReferralLink} className="flex-1 rounded-xl bg-[#e8ad2f] px-3 py-2.5 text-xs font-bold text-[#10131a] transition hover:bg-[#f2c45a] active:scale-[.97]">Copy link</button><button onClick={() => navigate('/referral')} className="inline-flex items-center justify-center rounded-xl border border-white/15 px-3 py-2.5 text-white/70 transition hover:border-white/30 hover:text-white" aria-label="Open referrals"><ArrowUpRight size={16} /></button></div>
+          </section>
+        </div>
+
+        <section className="mt-4 rounded-[26px] border border-white/10 bg-[#101621] p-4 sm:p-5">
+          <div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#e8ad2f]">Workspace</p><h2 className="mt-1 text-xl font-bold">Your toolkit</h2></div><span className="text-xs text-white/35">Curated access</span></div>
+          {isOwnProfile && <OwnModuleGrid profile={profileUser} variant="quick-access" />}
+        </section>
+
+        {profileUser.user_kind === 'professional' && (
+          <section className="mt-4 rounded-[26px] border border-white/10 bg-[#101621] p-5 sm:p-6"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#2d82ff]/15 text-[#8db7ff]"><Briefcase size={20} /></div><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#7eaeff]">Professional showcase</p><h2 className="mt-1 text-xl font-bold">Your edge, clearly presented</h2></div></div><div className="mt-5 flex flex-wrap gap-2">{(profileUser.skills || []).length ? profileUser.skills.map((skill) => <span key={skill} className="rounded-full border border-white/10 bg-white/[.04] px-3 py-2 text-xs text-white/65">{skill}</span>) : <p className="text-sm italic text-white/40">No skills yet — tap Edit profile to add some.</p>}</div><button onClick={() => navigate('/jobs')} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#2d82ff] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#438fff] active:scale-[.97]">Browse opportunities <ArrowUpRight size={16} /></button></section>
+        )}
+
+        <section className="mt-4 rounded-[26px] border border-white/10 bg-[#101621] p-5 sm:p-6"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-white/35">Profile media</p><h2 className="mt-1 text-xl font-bold">Proof of work</h2></div><div className="flex gap-1 rounded-full bg-white/[.05] p-1">{[['photos', Camera, photos.length], ['videos', Video, videos.length], ['articles', FileText, articles.length]].map(([tab, Icon, count]) => <button key={tab} onClick={() => setMediaTab(tab)} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold transition ${mediaTab === tab ? 'bg-[#2d82ff] text-white' : 'text-white/45 hover:text-white'}`}><Icon size={13} />{tab[0].toUpperCase() + tab.slice(1)} <span className="opacity-60">{count}</span></button>)}</div></div>
+          {mediaTab === 'photos' && <div className="mt-5 grid grid-cols-3 gap-3">{isOwnProfile && <label className="flex aspect-square cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[.03] text-white/45 transition hover:border-[#2d82ff] hover:text-white" data-testid="add-photo-tile"><Plus size={25} /><span className="mt-2 text-xs">Add photo</span><input type="file" accept="image/*" onChange={handleAddPhoto} className="hidden" disabled={uploading} /></label>}{photos.map((p) => <div key={p.id} className="group relative aspect-square overflow-hidden rounded-2xl"><img src={p.data_url} alt={p.caption || 'Profile media'} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" />{isOwnProfile && <button onClick={() => handleDeletePhoto(p.id)} className="absolute right-2 top-2 rounded-full bg-black/70 p-2 text-white opacity-0 transition group-hover:opacity-100" data-testid={`delete-photo-${p.id}`}><Trash2 size={13} /></button>}</div>)}</div>}
+          {mediaTab === 'videos' && <div className="mt-5 space-y-3">{isOwnProfile && <label className="block w-full cursor-pointer rounded-2xl border border-dashed border-white/15 bg-white/[.03] py-6 text-center text-white/45" data-testid="add-video-tile"><Video className="mx-auto mb-2" size={24} /><span className="text-xs">{uploading ? 'Uploading…' : 'Upload video'}</span><input type="file" accept="video/*" onChange={handleAddVideo} className="hidden" disabled={uploading} /></label>}{videos.map((v) => <div key={v.id} className="relative overflow-hidden rounded-2xl bg-black"><video src={v.data_url} controls className="max-h-80 w-full" />{isOwnProfile && <button onClick={() => handleDeleteVideo(v.id)} className="absolute right-2 top-2 rounded-full bg-black/70 p-2 text-white" data-testid={`delete-video-${v.id}`}><Trash2 size={13} /></button>}</div>)}</div>}
+          {mediaTab === 'articles' && <div className="mt-5 space-y-3">{isOwnProfile && <button onClick={() => setShowArticleModal(true)} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/15 bg-white/[.03] py-6 text-sm text-white/55 transition hover:border-[#2d82ff] hover:text-white"><Plus size={18} /> Publish an article</button>}{articles.map((a) => <div key={a.id} className="relative rounded-2xl border border-white/10 bg-white/[.03] p-4"><h4 className="font-bold text-white">{a.title}</h4><p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-white/55">{a.content}</p>{isOwnProfile && <button onClick={() => handleDeleteArticle(a.id)} className="absolute right-3 top-3 rounded-full bg-white/10 p-2 text-white/60 hover:text-white" data-testid={`delete-article-${a.id}`}><Trash2 size={13} /></button>}</div>)}</div>}
+        </section>
+
+        {isOwnProfile && <div className="mt-5 grid gap-3 sm:grid-cols-2"><button onClick={() => navigate('/help')} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[.04] py-3.5 text-sm font-semibold text-white/70 transition hover:bg-white/[.08] hover:text-white" data-testid="help-center-button"><HelpCircle size={17} /> Help Center & FAQ</button><button onClick={handleLogout} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#ff7b7b]/20 bg-[#ff7b7b]/[.06] py-3.5 text-sm font-semibold text-[#ff9b9b] transition hover:bg-[#ff7b7b]/[.12]" data-testid="logout-button"><LogOut size={17} /> Log out</button></div>}
+      </main>
 
       {showArticleModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowArticleModal(false)}>
