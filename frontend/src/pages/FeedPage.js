@@ -667,7 +667,10 @@ const FeedPage = ({ user }) => {
             </div>
             <p className="mt-4 line-clamp-3 text-sm leading-6 text-white/65">{previewUser.bio || 'This member has not added a bio yet.'}</p>
             <div className="mt-4 flex items-center justify-between rounded-2xl border border-[#e8ad2f]/20 bg-[#e8ad2f]/[0.08] px-3 py-2.5"><span className="text-[10px] font-bold uppercase tracking-[.18em] text-[#e8ad2f]">Network rank</span><span className="text-sm font-bold text-[#f4cf76]">{previewLoading ? 'Loading…' : (previewUser.rank || 'Member')}</span></div>
-            <button type="button" onClick={() => { setPreviewUser(null); navigate(`/u/${previewUser.username}`); }} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#2d82ff] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#438fff] active:scale-[.98]">View full profile <Eye size={16} /></button>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => { setPreviewUser(null); navigate(`/messages?to=${previewUser.id}`); }} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-3 py-3 text-sm font-bold text-white/75 transition hover:border-white/30 hover:bg-white/[.06] hover:text-white active:scale-[.98]" data-testid="preview-message-button"><MessageCircle size={15} /> Message</button>
+              <button type="button" onClick={() => { setPreviewUser(null); navigate(`/u/${previewUser.username}`); }} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[#2d82ff] px-3 py-3 text-sm font-bold text-white transition hover:bg-[#438fff] active:scale-[.98]" data-testid="preview-profile-button">Profile <Eye size={15} /></button>
+            </div>
           </div>
         </div>
       )}
