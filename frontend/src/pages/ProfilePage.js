@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Package, MessageCircle, Sparkles, Briefcase, Trophy, Mail, Phone, Link2, Copy, ArrowUpRight, BarChart3, CheckCircle2, PencilLine } from 'lucide-react';
+import { Edit2, Save, X, LogOut, Users, HelpCircle, MapPin, Camera, Video, FileText, Trash2, Plus, Network, Package, MessageCircle, Sparkles, Briefcase, Trophy, Mail, Phone, Link2, Copy, ArrowUpRight, BarChart3, CheckCircle2, PencilLine, Activity } from 'lucide-react';
 import { axiosInstance } from '../App';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -24,6 +24,7 @@ const ProfilePage = ({ user, setUser }) => {
   const isOwnProfile = !userId || userId === user.id;
   const [profileUser, setProfileUser] = useState(user);
   const [loading, setLoading] = useState(false);
+  const [scoreSummary, setScoreSummary] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState({
     full_name: user.full_name || '',
@@ -66,7 +67,10 @@ const ProfilePage = ({ user, setUser }) => {
 
   useEffect(() => {
     axiosInstance.get('/hubs/cities').then((r) => setCities(r.data.cities || [])).catch(() => {});
-  }, []);
+    if (isOwnProfile) {
+      axiosInstance.get('/score/summary').then((r) => setScoreSummary(r.data)).catch(() => {});
+    }
+  }, [isOwnProfile]);
 
   useEffect(() => {
     const id = profileUser?.id;
@@ -365,9 +369,23 @@ const ProfilePage = ({ user, setUser }) => {
           <section className="relative overflow-hidden rounded-[26px] border border-white/10 bg-[#111827] p-5 sm:p-6">
             <div className="absolute -right-14 -top-14 h-36 w-36 rounded-full bg-[#2d82ff]/15 blur-2xl" />
             <div className="relative flex items-start justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#7eaeff]">Network momentum</p><h2 className="mt-2 text-xl font-bold">Your score dashboard</h2></div><BarChart3 className="text-[#7eaeff]" size={21} /></div>
-            <div className="relative mt-6 flex items-end justify-between"><div><p className="text-5xl font-black tracking-[-.05em] text-[#cce4ff]">{(profileUser.network_score || 0).toLocaleString()}</p><p className="mt-1 text-xs text-white/45">points earned this cycle</p></div><div className="text-right"><p className="text-sm font-bold text-white/80">Next milestone</p><p className="mt-1 text-xs text-white/45">{getNextRankScore(profileUser.network_score || 0).toLocaleString()} pts</p></div></div>
+            <div className="relative mt-6 flex items-end justify-between"><div><p className="text-5xl font-black tracking-[-.05em] text-[#cce4ff]">{(profileUser.network_score || 0).toLocaleString()}</p><p className="mt-1 text-xs text-white/45">lifetime network points</p></div><div className="text-right"><p className="text-sm font-bold text-white/80">Next milestone</p><p className="mt-1 text-xs text-white/45">{getNextRankScore(profileUser.network_score || 0).toLocaleString()} pts</p></div></div>
             <div className="relative mt-5 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[#2d82ff] via-[#79b2ff] to-[#e8ad2f]" style={{ width: `${Math.min(100, calculateProgress(profileUser.network_score || 0))}%` }} /></div>
             <div className="relative mt-3 flex items-center justify-between text-[11px] text-white/40"><span>Keep building meaningful connections</span><span className="text-[#e8ad2f]">{Math.round(calculateProgress(profileUser.network_score || 0))}%</span></div>
+            <div className="relative mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-[#2d82ff]/20 bg-[#2d82ff]/[0.08] p-4">
+                <div className="flex items-center justify-between"><span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#8db7ff]"><Activity size={14} /> Activity</span><span className="text-[10px] text-white/35">This week</span></div>
+                <p className="mt-3 text-2xl font-black text-[#cce4ff]">{(scoreSummary?.weekly_score || 0).toLocaleString()} <span className="text-xs font-semibold text-white/40">pts</span></p>
+                <div className="mt-3 flex items-center justify-between text-[11px] text-white/45"><span>Today</span><span className="font-bold text-white/70">{(scoreSummary?.daily_score || 0).toLocaleString()} pts</span></div>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-white/45"><span>Time active</span><span className="font-bold text-white/70">{scoreSummary?.session_minutes_today || 0} min</span></div>
+              </div>
+              <div className="rounded-2xl border border-[#e8ad2f]/20 bg-[#e8ad2f]/[0.07] p-4">
+                <div className="flex items-center justify-between"><span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#f1c768]"><MessageCircle size={14} /> Engagement</span><span className="text-[10px] text-white/35">All time</span></div>
+                <p className="mt-3 text-2xl font-black text-[#f4cf76]">{((profileUser.likes_received_count || 0) + (profileUser.comments_given_count || 0)).toLocaleString()} <span className="text-xs font-semibold text-white/40">signals</span></p>
+                <div className="mt-3 flex items-center justify-between text-[11px] text-white/45"><span>Likes received</span><span className="font-bold text-white/70">{(profileUser.likes_received_count || 0).toLocaleString()}</span></div>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-white/45"><span>Comments given</span><span className="font-bold text-white/70">{(profileUser.comments_given_count || 0).toLocaleString()}</span></div>
+              </div>
+            </div>
           </section>
 
           <section className="rounded-[26px] border border-[#e8ad2f]/25 bg-gradient-to-br from-[#1e1b16] to-[#121722] p-5 sm:p-6">
