@@ -20,6 +20,7 @@ const HelpCenterPage = lazy(() => import('./pages/HelpCenterPage'));
 const LegalDocumentsPage = lazy(() => import('./pages/LegalDocumentsPage'));
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
 const FeedPage = lazy(() => import('./pages/FeedPage'));
+const ReelsPage = lazy(() => import('./pages/ReelsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const LeaderboardsPage = lazy(() => import('./pages/LeaderboardsPage'));
@@ -317,6 +318,7 @@ function App() {
                 <Route path="/tracker" element={<ActivityTrackerPage user={user} />} />
                 <Route path="/activities" element={<ActivitiesPage user={user} />} />
                 <Route path="/explore" element={<ExplorePage user={user} />} />
+                <Route path="/reels" element={<ReelsPage user={user} />} />
                 <Route path="/hashtag/:tag" element={<HashtagPage user={user} />} />
                 <Route path="/premium/success" element={<PremiumSuccessPage />} />
                 <Route path="/messages" element={<MessagesPage user={user} />} />
