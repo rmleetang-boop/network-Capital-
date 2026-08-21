@@ -401,6 +401,7 @@ class User(BaseModel):
     username: str
     bio: str
     photo: str
+    banner: Optional[str] = None
     network_score: int
     rank: str
     created_at: str
@@ -459,6 +460,7 @@ class UpdateProfileRequest(BaseModel):
     phone: Optional[str] = None
     bio: Optional[str] = None
     photo: Optional[str] = None
+    banner: Optional[str] = None
     city: Optional[str] = None
     country: Optional[str] = None
     profession: Optional[str] = None
@@ -1813,6 +1815,24 @@ async def update_profile(request: UpdateProfileRequest, current_user: dict = Dep
             except Exception as _e:
                 logger.warning(f"[PROFILE-PHOTO-COERCE] failed: {_e}")
         update_data["photo"] = photo_val
+    if request.banner is not None:
+        banner_val = request.banner or ""
+        if banner_val.startswith("data:"):
+            try:
+                import base64 as _b64, re as _re
+                m = _re.match(r"data:([^;]+);base64,(.+)", banner_val, _re.DOTALL)
+                if m:
+                    mime, payload = m.group(1), m.group(2)
+                    raw = _b64.b64decode(payload)
+                    ext = (mime.split("/")[-1] or "jpg").lower()
+                    res = await cloudinary_service.upload_bytes(
+                        raw, folder="profile/banner", filename=f"banner.{ext}", resource_type="image",
+                    )
+                    if res and res.get("url"):
+                        banner_val = res["url"]
+            except Exception as _e:
+                logger.warning(f"[PROFILE-BANNER-COERCE] failed: {_e}")
+        update_data["banner"] = banner_val
     if request.city is not None:
         update_data["city"] = request.city
     if request.country is not None:

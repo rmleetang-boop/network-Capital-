@@ -38,6 +38,7 @@ const ProfilePage = ({ user, setUser }) => {
     phone: user.phone || '',
     bio: user.bio,
     photo: user.photo,
+    banner: user.banner || '',
     city: user.city || '',
     profession: user.profession || '',
     birth_month: user.birth_month || '',
@@ -52,6 +53,10 @@ const ProfilePage = ({ user, setUser }) => {
   const [showArticleModal, setShowArticleModal] = useState(false);
   const [articleDraft, setArticleDraft] = useState({ title: '', content: '' });
   const [uploading, setUploading] = useState(false);
+  const [bannerSource, setBannerSource] = useState(null);
+  const [bannerZoom, setBannerZoom] = useState(1);
+  const [bannerOffsetX, setBannerOffsetX] = useState(0);
+  const [bannerOffsetY, setBannerOffsetY] = useState(0);
   const isTitaniumTheme = profileTheme === 'titanium';
 
   useEffect(() => {
@@ -201,6 +206,7 @@ const ProfilePage = ({ user, setUser }) => {
         phone: editData.phone,
         bio: editData.bio,
         photo: editData.photo,
+        banner: editData.banner,
         city: editData.city,
         profession: editData.profession,
       };
@@ -221,6 +227,48 @@ const ProfilePage = ({ user, setUser }) => {
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update profile');
     }
+  };
+
+  const handleBannerPick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Choose an image file for your banner'); return; }
+    if (file.size > 12 * 1024 * 1024) { toast.error('Banner image must be under 12 MB'); return; }
+    try {
+      const source = await readDataUrl(file);
+      setBannerSource(source);
+      setBannerZoom(1);
+      setBannerOffsetX(0);
+      setBannerOffsetY(0);
+    } catch (error) {
+      toast.error('Could not load that image');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const applyBannerCrop = () => {
+    if (!bannerSource) return;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1600;
+      canvas.height = 520;
+      const ctx = canvas.getContext('2d');
+      const scale = Math.max(canvas.width / img.width, canvas.height / img.height) * bannerZoom;
+      const drawWidth = img.width * scale;
+      const drawHeight = img.height * scale;
+      const freeX = canvas.width - drawWidth;
+      const freeY = canvas.height - drawHeight;
+      const x = freeX / 2 + (freeX / 2) * (bannerOffsetX / 100);
+      const y = freeY / 2 + (freeY / 2) * (bannerOffsetY / 100);
+      ctx.drawImage(img, x, y, drawWidth, drawHeight);
+      setEditData((current) => ({ ...current, banner: canvas.toDataURL('image/jpeg', 0.86) }));
+      setBannerSource(null);
+      toast.success('Banner crop ready');
+    };
+    img.onerror = () => toast.error('Could not crop that image');
+    img.src = bannerSource;
   };
 
   const handleImageUpload = (e) => {
@@ -279,6 +327,7 @@ const ProfilePage = ({ user, setUser }) => {
     phone: user.phone || '',
     bio: user.bio,
     photo: user.photo,
+    banner: user.banner || '',
     city: user.city || '',
     profession: user.profession || '',
     birth_month: user.birth_month || '',
@@ -303,9 +352,11 @@ const ProfilePage = ({ user, setUser }) => {
       )}
 
       <div className={`profile-theme-header relative overflow-hidden border-b border-white/10 ${isTitaniumTheme ? 'bg-[#211d13]' : 'bg-[#0b1220]'}`}>
+        {editData.banner && <img src={editData.banner} alt="Profile banner" className="absolute inset-0 h-full w-full object-cover opacity-55" />}
         <div className="absolute inset-0 opacity-90" style={{ background: 'radial-gradient(circle at 16% 10%, rgba(42, 111, 255, .42), transparent 32%), radial-gradient(circle at 94% 4%, rgba(236, 171, 39, .26), transparent 30%), linear-gradient(120deg, #08111f 0%, #111827 45%, #251a17 100%)' }} />
         <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#f2b840]/10 blur-3xl" />
         <div className="relative mx-auto max-w-6xl px-4 pb-28 pt-7 sm:px-6 lg:px-8">
+          {isOwnProfile && editing && <label className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/15 bg-black/25 px-3 py-2 text-[11px] font-bold text-white/80 backdrop-blur transition hover:border-[#e8ad2f]/70 hover:text-white" data-testid="profile-banner-input"><Camera size={14} /> {editData.banner ? 'Change banner' : 'Add profile banner'}<input type="file" accept="image/*" onChange={handleBannerPick} className="hidden" /></label>}
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-[#e8b13d]">Network Capital</p>
@@ -471,6 +522,17 @@ const ProfilePage = ({ user, setUser }) => {
 
         {isOwnProfile && <div className="mt-5 grid gap-3 sm:grid-cols-2"><button onClick={() => navigate('/help')} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[.04] py-3.5 text-sm font-semibold text-white/70 transition hover:bg-white/[.08] hover:text-white" data-testid="help-center-button"><HelpCircle size={17} /> Help Center & FAQ</button><button onClick={handleLogout} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#ff7b7b]/20 bg-[#ff7b7b]/[.06] py-3.5 text-sm font-semibold text-[#ff9b9b] transition hover:bg-[#ff7b7b]/[.12]" data-testid="logout-button"><LogOut size={17} /> Log out</button></div>}
       </main>
+
+      {bannerSource && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={() => setBannerSource(null)}>
+          <div className="w-full max-w-xl rounded-3xl border border-white/15 bg-[#121722] p-5 text-white shadow-2xl" onClick={(event) => event.stopPropagation()} data-testid="profile-banner-crop-modal">
+            <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.25em] text-[#e8ad2f]">Banner studio</p><h2 className="mt-1 text-xl font-bold">Frame your profile banner</h2><p className="mt-1 text-xs text-white/45">Crop for a wide executive header.</p></div><button type="button" onClick={() => setBannerSource(null)} className="rounded-full p-2 text-white/45 hover:bg-white/10 hover:text-white" aria-label="Close banner crop"><X size={18} /></button></div>
+            <div className="relative mt-5 aspect-[16/5] overflow-hidden rounded-2xl border border-white/15 bg-black"><img src={bannerSource} alt="Banner crop preview" className="absolute inset-0 h-full w-full object-cover transition-transform" style={{ transform: `scale(${bannerZoom}) translate(${bannerOffsetX / 5}%, ${bannerOffsetY / 5}%)` }} /><div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/20" /></div>
+            <div className="mt-5 space-y-4"><label className="block text-xs text-white/60">Zoom <span className="float-right font-bold text-white">{bannerZoom.toFixed(1)}×</span><input type="range" min="1" max="2.5" step="0.1" value={bannerZoom} onChange={(event) => setBannerZoom(Number(event.target.value))} className="mt-2 w-full accent-[#e8ad2f]" /></label><label className="block text-xs text-white/60">Horizontal position <span className="float-right font-bold text-white">{bannerOffsetX}</span><input type="range" min="-100" max="100" step="1" value={bannerOffsetX} onChange={(event) => setBannerOffsetX(Number(event.target.value))} className="mt-2 w-full accent-[#e8ad2f]" /></label><label className="block text-xs text-white/60">Vertical position <span className="float-right font-bold text-white">{bannerOffsetY}</span><input type="range" min="-100" max="100" step="1" value={bannerOffsetY} onChange={(event) => setBannerOffsetY(Number(event.target.value))} className="mt-2 w-full accent-[#e8ad2f]" /></label></div>
+            <div className="mt-5 flex gap-2"><button type="button" onClick={() => setBannerSource(null)} className="flex-1 rounded-2xl border border-white/15 px-4 py-3 text-sm font-semibold text-white/65 hover:text-white">Cancel</button><button type="button" onClick={applyBannerCrop} className="flex-1 rounded-2xl bg-[#e8ad2f] px-4 py-3 text-sm font-bold text-[#10131a] transition hover:bg-[#f2c45a] active:scale-[.98]">Apply crop</button></div>
+          </div>
+        </div>
+      )}
 
       {showArticleModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowArticleModal(false)}>
