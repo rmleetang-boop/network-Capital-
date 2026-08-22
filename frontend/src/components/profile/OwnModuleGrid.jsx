@@ -27,7 +27,7 @@ const buildTiles = (profile) => [
   { icon: Package, label: 'My Store', path: '/my-store', highlight: true },
   { icon: Package, label: 'Products', path: '/products' },
   { icon: TrendingUp, label: 'Net Worth', path: '/net-worth' },
-  { icon: Gem, image: '/brand/aridja-logo.png', label: 'Aridja', path: 'https://aridja.online', external: true, highlight: true },
+  { icon: Gem, image: '/network-capital-symbol.png', label: 'Network Capital', path: '/', highlight: true },
   { icon: Activity, label: 'Score Tracker', path: '/tracker' },
   { icon: Briefcase, label: 'Jobs', path: '/jobs' },
   { icon: Sparkles, label: 'Promotions', path: '/promotions/me' },
@@ -116,7 +116,7 @@ const OwnModuleGrid = ({ profile, onNavigate, variant = 'own-module' }) => {
                 } transition-colors`}
               >
                 {t.image ? (
-                  <img src={t.image} alt="Aridja" className="w-full h-full object-contain p-1" />
+                  <img src={t.image} alt="Network Capital symbol" className="h-full w-full object-contain p-1.5" />
                 ) : (
                   <TIcon size={18} className={t.highlight ? 'text-[#E8A817]' : 'text-white/85 group-hover:text-[#E8A817]'} />
                 )}
