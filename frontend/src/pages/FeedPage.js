@@ -52,6 +52,21 @@ const FeedPage = ({ user }) => {
   const firstLoadRef = useRef(false);
   const navigate = useNavigate();
 
+  // Ascend handoff: open the composer with a quote/article payload supplied by the magazine.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('ascend_share') !== '1') return;
+    const sharedContent = params.get('content');
+    if (!sharedContent) return;
+    const sourceTitle = params.get('source_title') || 'Ascend — The Magazine of Ascent';
+    const sourceUrl = params.get('source_url');
+    const sourceBrand = params.get('source_brand') || 'Ascend — The Magazine of Ascent';
+    const attribution = sourceUrl ? `\\n\\n${sourceBrand} · ${sourceTitle}\\n${sourceUrl}` : `\\n\\n${sourceBrand} · ${sourceTitle}`;
+    setComposer((current) => ({ ...current, content: `${sharedContent}${attribution}` }));
+    setShowCreatePost(true);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, []);
+
   const visibleNetworkUsers = Array.from(new Map(posts.filter((post) => post.user_id && post.user_id !== user.id).map((post) => [post.user_id, { id: post.user_id, username: post.username || 'member', member_role: post.member_role || 'member', user_score: Number(post.user_score || 0) }])).values());
   const filteredNetworkUsers = visibleNetworkUsers.filter((member) => (batchRole === 'all' || member.member_role === batchRole) && member.user_score >= Number(batchMinScore || 0));
 

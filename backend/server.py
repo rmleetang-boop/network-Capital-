@@ -375,6 +375,97 @@ async def aridja_delete_feed_post(post_id: str, request: Request):
     return {"ok": True, "deleted": post_id}
 
 
+# ─── ASCEND — THE MAGAZINE OF ASCENT PARTNER API ────────────────────────────
+ASCEND_PARTNER_USER_ID = "ascend_magazine_official"
+
+
+async def _ensure_ascend_partner_user() -> dict:
+    """Idempotently create the official Ascend Magazine profile."""
+    user = await db.users.find_one({"id": ASCEND_PARTNER_USER_ID}, {"_id": 0})
+    if user:
+        return user
+    user = {
+        "id": ASCEND_PARTNER_USER_ID,
+        "email": "partner@ascend-magazine.local",
+        "username": "ascend-magazine",
+        "full_name": "Ascend — The Magazine of Ascent",
+        "bio": "The official Ascend spiritual magazine: faith, transformation, and the life of divine possibility.",
+        "photo": "",
+        "network_score": 0,
+        "monthly_score": 0,
+        "role": "user",
+        "is_official": True,
+        "is_partner": True,
+        "email_verified": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await db.users.insert_one(dict(user))
+    except DuplicateKeyError:
+        pass
+    return user
+
+
+class AscendFeedPostRequest(BaseModel):
+    type: str = "article"
+    title: str = Field(min_length=2, max_length=200)
+    content: str = Field(min_length=2, max_length=5000)
+    image_url: Optional[str] = None
+    link_url: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+@api_router.post("/partner/ascend/feed-post")
+async def ascend_create_feed_post(payload: AscendFeedPostRequest, request: Request):
+    """Ascend → Network Capital feed. Auth: X-Partner-Key / ASCEND_INBOUND_KEY."""
+    expected = (os.environ.get("ASCEND_INBOUND_KEY") or "").strip()
+    supplied = (request.headers.get("X-Partner-Key") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="Ascend partner API not configured")
+    if supplied != expected:
+        raise HTTPException(status_code=403, detail="Invalid partner key")
+    partner = await _ensure_ascend_partner_user()
+    link = (payload.link_url or "").strip()
+    image = (payload.image_url or "").strip()
+    if image and not image.startswith(("http://", "https://")):
+        image = ""
+    content = payload.title.strip() + "\\n\\n" + payload.content.strip()
+    if link.startswith(("http://", "https://")):
+        content += f"\\n\\n{link}"
+    hashtags = ["ascend", "magazine"]
+    for tag in (payload.tags or [])[:8]:
+        clean = re.sub(r"[^a-z0-9_]", "", str(tag).strip().lower().lstrip("#"))
+        if clean and clean not in hashtags:
+            hashtags.append(clean)
+    source_key = link or f"{payload.title.strip()}:{payload.content.strip()[:120]}"
+    existing = await db.posts.find_one({"partner_source": "ascend", "partner_source_key": source_key}, {"_id": 0})
+    if existing:
+        return {"ok": True, "post_id": existing["id"], "feed_url": "https://network-capital-app.fly.dev/", "post": existing, "duplicate": True}
+    post = {
+        "id": str(uuid.uuid4()),
+        "user_id": partner["id"],
+        "username": partner["username"],
+        "user_photo": partner.get("photo") or "",
+        "user_score": int(partner.get("network_score") or 0),
+        "content": content[:6000],
+        "image": image or None,
+        "video": None,
+        "hashtags": hashtags,
+        "mentions": [],
+        "likes": [],
+        "comments": [],
+        "shares": 0,
+        "is_official": True,
+        "is_partner": True,
+        "partner_source": "ascend",
+        "partner_source_key": source_key,
+        "partner_type": payload.type or "article",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.posts.insert_one(dict(post))
+    return {"ok": True, "post_id": post["id"], "feed_url": "https://network-capital-app.fly.dev/", "post": post}
+
+
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str
@@ -556,6 +647,12 @@ class CreatePostRequest(BaseModel):
     slides: Optional[List[CarouselSlide]] = None  # 2-10 slides → renders as carousel
     media_type: Optional[str] = None  # auto-derived if missing: "single" | "carousel" | "reel"
     duration_seconds: Optional[int] = None  # for reels — vertical video ≤30s
+
+class AscendPublishRequest(BaseModel):
+    content: str
+    source_url: Optional[str] = None
+    source_title: Optional[str] = None
+    image: Optional[str] = None
 
 class CommentRequest(BaseModel):
     content: str
@@ -3969,6 +4066,60 @@ async def upload_file_asset(
         "mime": mime,
         "storage": "disk",
     }
+
+
+@api_router.post("/integrations/ascend/publish", response_model=Post)
+async def publish_ascend_post(request: AscendPublishRequest, x_ascend_publish_key: str = Header(None)):
+    """Publish a magazine post as the configured Ascend Magazine profile.
+
+    This is intentionally server-to-server: the publish key and profile ID are
+    deployment secrets, never browser-visible. The source URL makes retries
+    idempotent so automatic publishing cannot create duplicate posts.
+    """
+    expected_key = os.environ.get("ASCEND_PUBLISH_KEY", "")
+    magazine_user_id = os.environ.get("ASCEND_MAGAZINE_USER_ID", "")
+    if not expected_key or x_ascend_publish_key != expected_key:
+        raise HTTPException(status_code=403, detail="Ascend publishing is not authorized")
+    if not magazine_user_id:
+        raise HTTPException(status_code=503, detail="Ascend Magazine profile is not configured")
+    if not request.content.strip():
+        raise HTTPException(status_code=400, detail="Post content is required")
+
+    magazine = await db.users.find_one({"id": magazine_user_id}, {"_id": 0})
+    if not magazine:
+        raise HTTPException(status_code=503, detail="Ascend Magazine profile was not found")
+    source_url = (request.source_url or "").strip()
+    if source_url:
+        existing = await db.posts.find_one({"user_id": magazine_user_id, "ascend_source_url": source_url}, {"_id": 0})
+        if existing:
+            return existing
+
+    content = request.content.strip()
+    if request.source_title and request.source_url:
+        content = f"{content}\\n\\n{request.source_title.strip()}\\n{request.source_url.strip()}"
+    post_data = {
+        "id": str(uuid.uuid4()),
+        "user_id": magazine_user_id,
+        "username": magazine.get("username") or "ascend-magazine",
+        "user_photo": magazine.get("photo") or "",
+        "user_score": magazine.get("network_score") or 0,
+        "content": content,
+        "image": request.image or "",
+        "video": "",
+        "slides": None,
+        "media_type": "single",
+        "duration_seconds": None,
+        "hashtags": ["ascend", "magazine"],
+        "mentions": [],
+        "likes": [],
+        "comments": [],
+        "shares": 0,
+        "is_official": False,
+        "ascend_source_url": source_url,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.posts.insert_one(post_data)
+    return post_data
 
 
 @api_router.post("/posts", response_model=Post)
