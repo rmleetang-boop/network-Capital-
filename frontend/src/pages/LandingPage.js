@@ -106,21 +106,27 @@ const LandingPage = ({ onContinue }) => {
             className="lg:col-span-7"
           >
             <div className="text-[11px] font-bold tracking-[0.25em] text-[#E8A817] mb-5" data-testid="hero-kicker">
-              DIGITAL INFRASTRUCTURE
+              A SOCIAL NETWORK FOR BUILDING WHAT’S NEXT
             </div>
 
             <h1 className="font-heading font-bold leading-[0.95] tracking-tight text-[44px] sm:text-6xl lg:text-7xl mb-6">
-              Build A Better<br />Future<br />
+              Connect with purpose.<br />Build a better future<br />
               <span className="bg-gradient-to-r from-[#F0B800] via-[#E8A817] to-[#F0B800] bg-clip-text text-transparent">
-                Through Your Network
+                through your network.
               </span>
             </h1>
 
-            <p className="text-base sm:text-lg text-white/70 max-w-xl mb-9 leading-relaxed" data-testid="hero-subheading">
-              Network Capital is the digital infrastructure that helps you
-              connect, engage, access opportunities, and grow through meaningful
-              participation.
+            <p className="text-base sm:text-lg text-white/70 max-w-xl mb-5 leading-relaxed" data-testid="hero-subheading">
+              Network Capital is a social platform and digital infrastructure layer for people building a better future. Connect with the right people, share what you are building, grow your credibility, and turn meaningful participation into real opportunities.
             </p>
+
+            <div className="flex flex-wrap gap-2 mb-8" data-testid="hero-platform-signals">
+              {['Feed', 'Reels', 'Communities', 'Opportunities'].map((label) => (
+                <span key={label} className="rounded-full border border-white/15 bg-white/[0.05] px-3 py-1.5 text-xs font-semibold text-white/75">
+                  {label}
+                </span>
+              ))}
+            </div>
 
             <div className="flex flex-wrap gap-3 mb-6">
               <button
@@ -141,7 +147,7 @@ const LandingPage = ({ onContinue }) => {
 
             <div className="inline-flex items-center gap-2 text-[12px] text-white/55" data-testid="hero-compliance">
               <ShieldCheck size={13} className="text-[#E8A817]" />
-              POPIA-aligned · Not a financial service · No promised returns
+              A social platform for connection, participation, credibility, and opportunity
             </div>
 
             {founder && founder.active && (
@@ -196,12 +202,11 @@ const LandingPage = ({ onContinue }) => {
           <div className="text-center mb-12 lg:mb-16">
             <div className="text-[11px] font-bold tracking-[0.3em] text-[#E8A817] mb-3">FEATURES</div>
             <h2 className="font-heading font-bold text-3xl sm:text-4xl lg:text-5xl mb-4 leading-tight">
-              Everything you need to <span className="text-[#E8A817]">build influence</span><br className="hidden sm:block" />
-              across <span className="italic font-light">54</span> African countries.
+              Your network is more than a feed.<br className="hidden sm:block" />
+              It is infrastructure for a <span className="text-[#E8A817]">better future</span>.
             </h2>
             <p className="text-sm sm:text-base text-white/65 max-w-2xl mx-auto">
-              Network Capital pairs world-class community tools with locally-relevant rewards.
-              Every feature is built for engagement, recognition, and shared progression.
+              Discover people, ideas, communities, and opportunities in one connected platform. Every feature is designed to help you move from attention to participation, and from participation to progress.
             </p>
           </div>
 
@@ -230,7 +235,7 @@ const LandingPage = ({ onContinue }) => {
           <div className="text-center mb-14">
             <div className="text-[11px] font-bold tracking-[0.3em] text-[#E8A817] mb-3">HOW IT WORKS</div>
             <h2 className="font-heading font-bold text-3xl sm:text-4xl lg:text-5xl text-[#04101e]">
-              Simple Actions. Real Progress.
+              One platform. Many ways to move forward.
             </h2>
           </div>
 
@@ -273,14 +278,12 @@ const LandingPage = ({ onContinue }) => {
               </div>
               {/* Copy */}
               <div className="lg:col-span-7">
-                <div className="text-[11px] font-bold tracking-[0.25em] text-[#E8A817] mb-3">MAKE AN IMPACT</div>
+                <div className="text-[11px] font-bold tracking-[0.25em] text-[#E8A817] mb-3">GROW THE NETWORK</div>
                 <h3 className="font-heading font-bold text-3xl sm:text-4xl lg:text-[40px] leading-tight text-white mb-4">
                   Become A Network Capital Ambassador
                 </h3>
                 <p className="text-white/70 text-base sm:text-lg leading-relaxed max-w-xl mb-7">
-                  Help grow the community, invite new members, build your influence,
-                  and unlock exclusive rewards through the Network Capital Ambassador
-                  Program.
+                  Help grow a high-signal community, introduce people to the right rooms, and become a trusted connector across the Network Capital ecosystem.
                 </p>
                 <button
                   onClick={() => navigate('/ambassadors/apply')}
@@ -339,37 +342,32 @@ const LandingPage = ({ onContinue }) => {
    Step data — Step 1 = "Create A Profile" per requirement.
    ─────────────────────────────────────────────────────────── */
 const STEPS = [
-  {
-    label: 'CREATE A PROFILE',
-    body: 'Set up your account and join the community.',
+  { label: 'CREATE YOUR IDENTITY',
+    body: 'Build a profile that shows who you are and what you are building.',
     icon: UserPlus,
     bg: 'bg-[#04101e]',
     iconColor: 'text-white',
   },
-  {
-    label: 'CONNECT',
-    body: 'Build meaningful relationships.',
+  { label: 'DISCOVER PEOPLE',
+    body: 'Find people, ideas, and communities aligned with your direction.',
     icon: Users,
     bg: 'bg-[#1E4FA5]',
     iconColor: 'text-white',
   },
-  {
-    label: 'ENGAGE',
-    body: 'Participate in activities and communities.',
+  { label: 'PARTICIPATE',
+    body: 'Share, respond, collaborate, and contribute to the network.',
     icon: MessageSquare,
     bg: 'bg-[#2563EB]',
     iconColor: 'text-white',
   },
-  {
-    label: 'EARN SCORE',
-    body: 'Your engagement is recognized and rewarded.',
+  { label: 'BUILD CREDIBILITY',
+    body: 'Your meaningful participation becomes visible through Network Score.',
     icon: Trophy,
     bg: 'bg-[#E8A817]',
     iconColor: 'text-[#04101e]',
   },
-  {
-    label: 'UNLOCK OPPORTUNITIES',
-    body: 'Access opportunities that help you grow.',
+  { label: 'ACCESS OPPORTUNITY',
+    body: 'Turn trusted relationships into jobs, projects, referrals, and growth.',
     icon: TrendingUp,
     bg: 'bg-[#04101e]',
     iconColor: 'text-white',
@@ -400,19 +398,19 @@ const TRUST = [
    gold accents. Each tile has icon halo + chevron + hover-lift.
    ─────────────────────────────────────────────────────────── */
 const FEATURES = [
-  { icon: Users,         title: 'My Network',      body: 'Three-lane connection graph: social, financial, professional.',           tag: 'CORE' },
-  { icon: Store,         title: 'My Store',        body: 'Spin up a free storefront. Sell products, services, or digital downloads.', tag: 'NEW' },
-  { icon: Package,       title: 'Creator System',  body: 'Publish products in under 2 minutes — independent or with platform support.', tag: 'NEW' },
-  { icon: PiggyBank,     title: 'Stokvels',        body: 'Group savings circles with shared backing pools and milestone payouts.',  tag: 'COMMUNITY' },
-  { icon: Activity,      title: 'Activities',      body: 'Discover events, meetups and community moments near you.',                tag: 'COMMUNITY' },
-  { icon: MapPin,        title: 'My Places',       body: 'Trustpilot-style reviews for local businesses across 54 countries.',      tag: 'COMMUNITY' },
-  { icon: Wallet,        title: 'Stokvel+ Wallet', body: 'Multi-currency wallet, group savings & shared backing pools.',           tag: 'PREMIUM' },
-  { icon: BarChart3,     title: 'Net Worth',       body: 'Track your network capital across every relationship lane.',             tag: 'INSIGHTS' },
-  { icon: Trophy,        title: 'Score Tracker',   body: 'Earn Network Score from real engagement — uncapped & ranked.',          tag: 'GAMIFIED' },
-  { icon: Briefcase,     title: 'Jobs',            body: 'Post & apply for roles — admins moderate every application.',           tag: 'OPPORTUNITY' },
-  { icon: MessageSquare, title: 'Direct Messages', body: 'Encrypted in-app messaging with media and stokvel handoffs.',           tag: 'COMMS' },
-  { icon: Crown,         title: 'Ambassador',      body: 'R8,500 ZAR allocation + tiered withdrawals on referral milestones.',    tag: 'TOP TIER' },
-  { icon: Megaphone,     title: 'Promotions',      body: 'Time-windowed SAST campaigns. Earn at R10/100 pts conversion.',         tag: 'REWARDS' },
+  { icon: Users,         title: 'Your Network',      body: 'Build a living graph of the people, communities, and relationships that move you forward.',           tag: 'CONNECT' },
+  { icon: Store,         title: 'Your Presence',        body: 'Showcase your work, skills, products, and ideas in one credible profile.', tag: 'IDENTITY' },
+  { icon: Package,       title: 'Create & Share',  body: 'Publish posts, stories, photos, videos, and Reels that start useful conversations.', tag: 'SOCIAL' },
+  { icon: PiggyBank,     title: 'Communities',        body: 'Join focused Hubs and Stokvels built around shared goals, local action, and progress.',  tag: 'COMMUNITY' },
+  { icon: Activity,      title: 'Discover',      body: 'Find conversations, events, people, and opportunities relevant to your world.',                tag: 'DISCOVERY' },
+  { icon: MapPin,        title: 'Local Network',       body: 'Connect with people, places, and activity in the communities around you.',      tag: 'LOCAL' },
+  { icon: Wallet,        title: 'Progress Tools', body: 'Use practical tools that help turn participation into momentum.',           tag: 'PROGRESS' },
+  { icon: BarChart3,     title: 'Network Insights',       body: 'See how your activity, relationships, and credibility are growing over time.',             tag: 'INSIGHTS' },
+  { icon: Trophy,        title: 'Network Score',   body: 'Make meaningful contribution visible and understand what to do next.',          tag: 'CREDIBILITY' },
+  { icon: Briefcase,     title: 'Opportunities',            body: 'Find jobs, projects, collaborations, and pathways opened by your network.',           tag: 'OPPORTUNITY' },
+  { icon: MessageSquare, title: 'Conversations', body: 'Move from public signal to private conversation without leaving the platform.',           tag: 'RELATIONSHIPS' },
+  { icon: Crown,         title: 'Ambassador',      body: 'Become a trusted connector and help the network grow with intention.',    tag: 'LEADERSHIP' },
+  { icon: Megaphone,     title: 'Amplify',      body: 'Give your ideas, services, and community initiatives more reach.',         tag: 'REACH' },
 ];
 
 const FeatureTile = ({ icon: Icon, title, body, tag, delay = 0 }) => (
