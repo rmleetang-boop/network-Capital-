@@ -317,12 +317,16 @@ const LandingPage = ({ onContinue }) => {
         </div>
       </section>
 
-      <div className="border-t border-white/10 bg-[#04101e] px-6 py-8" data-testid="powered-by-aridja">
-        <div className="mx-auto flex max-w-6xl items-center justify-center gap-3 text-center">
-          <img src="/network-capital-symbol.png" alt="Aridja AI symbol" className="h-8 w-8 rounded-lg object-contain" />
-          <span className="text-xs font-semibold tracking-wide text-white/55">
-            Powered by <span className="text-white/85">Aridja AI</span>
-          </span>
+      <div className="border-t border-white/10 bg-[#04101e] px-6 py-12 sm:py-14" data-testid="powered-by-aridja">
+        <div className="mx-auto flex max-w-3xl flex-col items-center justify-center gap-5 rounded-3xl border border-[#E8A817]/30 bg-gradient-to-br from-[#E8A817]/[0.12] via-white/[0.04] to-[#1E4FA5]/[0.12] px-7 py-8 text-center shadow-[0_18px_50px_-28px_rgba(232,168,23,0.8)] sm:flex-row sm:gap-6 sm:px-10 sm:py-9 sm:text-left">
+          <img src="/network-capital-symbol.png" alt="Aridja AI symbol" className="h-16 w-16 shrink-0 rounded-2xl object-contain shadow-[0_10px_25px_-10px_rgba(232,168,23,0.9)] sm:h-20 sm:w-20" />
+          <div>
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.3em] text-[#E8A817]">AI partner</div>
+            <div className="text-xl font-bold tracking-tight text-white sm:text-2xl">
+              Powered by <span className="text-[#F0B800]">Aridja AI</span>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-white/60">Intelligent infrastructure behind the Network Capital experience.</p>
+          </div>
         </div>
       </div>
 
