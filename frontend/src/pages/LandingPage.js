@@ -317,6 +317,15 @@ const LandingPage = ({ onContinue }) => {
         </div>
       </section>
 
+      <div className="border-t border-white/10 bg-[#04101e] px-6 py-8" data-testid="powered-by-aridja">
+        <div className="mx-auto flex max-w-6xl items-center justify-center gap-3 text-center">
+          <img src="/network-capital-symbol.png" alt="Aridja AI symbol" className="h-8 w-8 rounded-lg object-contain" />
+          <span className="text-xs font-semibold tracking-wide text-white/55">
+            Powered by <span className="text-white/85">Aridja AI</span>
+          </span>
+        </div>
+      </div>
+
       <Footer />
     </div>
   );
